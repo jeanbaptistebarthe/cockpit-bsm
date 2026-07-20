@@ -1,0 +1,1518 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>BSM Cockpit — Outil interne de pilotage</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#102A43">
+<link rel="icon" href="icon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root{
+    --navy:#102A43; --navy-light:#1E3A5F; --cream:#F6F1E8; --gold:#C7A25A;
+    --ink:#1B2430; --muted:#6B7280; --line:#E4E0D6;
+    --red:#C0392B; --orange:#D97706; --amber:#B7891A; --green:#2F855A; --blue:#2563EB;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:var(--cream);color:var(--ink);}
+  .topbar{display:flex;align-items:center;justify-content:space-between;background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:20;}
+  .brand{font-weight:700;color:var(--navy);letter-spacing:.03em;font-size:15px;}
+  .brand span{color:var(--gold);}
+  .topbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .tb-btn{border:1px solid var(--line);background:#fff;padding:7px 12px;border-radius:6px;font-size:12.5px;cursor:pointer;color:var(--navy);font-weight:600;}
+  .tb-btn:hover{background:var(--cream);}
+  .app{display:flex;min-height:calc(100vh - 53px);}
+  .sidebar{width:210px;background:var(--navy);color:#fff;display:flex;flex-direction:column;padding:18px 0;flex-shrink:0;}
+  .sidebar .logo{font-size:11px;letter-spacing:.08em;color:var(--gold);padding:0 18px 14px;border-bottom:1px solid rgba(255,255,255,.12);margin-bottom:8px;}
+  .sidebar .who{padding:0 18px 14px;font-size:12px;color:rgba(255,255,255,.6);}
+  .navitem{padding:11px 18px;font-size:13.5px;cursor:pointer;color:rgba(255,255,255,.75);border-left:3px solid transparent;display:flex;align-items:center;gap:10px;}
+  .navitem:hover{background:rgba(255,255,255,.05);}
+  .navitem.active{color:#fff;border-left-color:var(--gold);background:rgba(255,255,255,.06);font-weight:600;}
+  .navitem .ic{width:18px;text-align:center;}
+  .navitem .badge-nav{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 7px;}
+  .main{flex:1;padding:24px 30px;overflow-x:auto;}
+  .pagetitle{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px;}
+  .pagetitle h1{font-size:20px;margin:0;color:var(--navy);font-weight:700;}
+  .pagetitle .sub{font-size:12.5px;color:var(--muted);margin-top:3px;}
+  .cta{background:var(--navy);color:#fff;border:none;padding:9px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;}
+  .cta:hover{background:var(--navy-light);}
+  .cta.gold{background:var(--gold);color:var(--navy);}
+  .cta.ghost{background:#fff;color:var(--navy);border:1px solid var(--line);}
+  .cta.danger{background:var(--red);}
+  .cta.sm{padding:5px 10px;font-size:12px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
+  .kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:15px 16px;}
+  .kpi .v{font-size:22px;font-weight:700;color:var(--navy);line-height:1.1;}
+  .kpi .l{font-size:11.5px;color:var(--muted);margin-top:5px;}
+  .kpi .v.warn{color:var(--orange);} .kpi .v.danger{color:var(--red);} .kpi .v.good{color:var(--green);}
+  .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:18px;}
+  .card h2{font-size:14px;color:var(--navy);margin:0 0 12px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  .grid2.wide{grid-template-columns:1.5fr 1fr;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;letter-spacing:.03em;text-transform:uppercase;padding:8px 10px;border-bottom:1px solid var(--line);}
+  td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:#FCFAF5;}
+  .badge{display:inline-block;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap;}
+  .b-actif{background:#E7F3EC;color:var(--green);} .b-prospect{background:#FEF3E2;color:var(--amber);} .b-archive{background:#F1F1F1;color:var(--muted);}
+  .b-red{background:#FBEAE8;color:var(--red);} .b-orange{background:#FDF1E3;color:var(--orange);} .b-green{background:#E7F3EC;color:var(--green);} .b-blue{background:#E6EEFB;color:var(--blue);} .b-grey{background:#F1F1F1;color:var(--muted);}
+  .rowact{display:flex;gap:6px;}
+  .iconbtn{border:1px solid var(--line);background:#fff;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;color:var(--navy);}
+  .iconbtn:hover{background:var(--cream);}
+  .iconbtn.del:hover{background:#FBEAE8;color:var(--red);border-color:var(--red);}
+  .filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;align-items:center;}
+  .chip{border:1px solid var(--line);background:#fff;padding:6px 12px;border-radius:16px;font-size:12px;cursor:pointer;color:var(--ink);}
+  .chip.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+  .searchbox{margin-left:auto;padding:7px 12px;border:1px solid var(--line);border-radius:6px;font-size:13px;min-width:200px;}
+  .screen{display:none;} .screen.active{display:block;}
+  .empty{color:var(--muted);font-size:13px;text-align:center;padding:34px 10px;}
+  /* bars */
+  .bars{display:flex;align-items:flex-end;gap:10px;height:150px;margin-top:10px;}
+  .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;}
+  .bar{width:70%;background:var(--gold);border-radius:4px 4px 0 0;min-height:2px;transition:height .3s;}
+  .bar.prov{background:#DCD3BE;}
+  .bar-val{font-size:9.5px;color:var(--navy);font-weight:700;margin-bottom:3px;}
+  .bar-lbl{font-size:10.5px;color:var(--muted);margin-top:6px;}
+  /* calendar */
+  .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .cal-head .m{font-weight:700;color:var(--navy);font-size:15px;}
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+  .cal .dow{font-size:10px;color:var(--muted);text-align:center;text-transform:uppercase;padding-bottom:4px;font-weight:600;}
+  .cal .day{min-height:62px;border:1px solid var(--line);border-radius:6px;padding:5px;font-size:11px;cursor:pointer;background:#fff;position:relative;}
+  .cal .day:hover{border-color:var(--gold);}
+  .cal .day.out{background:#FAF8F2;color:#C9C4B6;}
+  .cal .day.today{border-color:var(--navy);border-width:2px;}
+  .cal .day .dn{font-weight:600;color:var(--navy);}
+  .cal .ev{margin-top:3px;font-size:9.5px;border-radius:4px;padding:1px 4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#fff;}
+  .ev-audit{background:var(--navy);} .ev-prospect{background:var(--amber);} .ev-rdv{background:var(--green);} .ev-autre{background:var(--muted);}
+  .dotlegend{display:flex;gap:14px;font-size:11px;color:var(--muted);margin-top:10px;flex-wrap:wrap;}
+  .dotlegend span{display:flex;align-items:center;gap:5px;}
+  .dotlegend i{width:10px;height:10px;border-radius:3px;display:inline-block;}
+  /* advice */
+  .advice{border:1px solid var(--line);border-left-width:4px;border-radius:8px;padding:12px 14px;margin-bottom:10px;background:#fff;display:flex;gap:12px;align-items:flex-start;}
+  .advice.danger{border-left-color:var(--red);} .advice.warn{border-left-color:var(--orange);} .advice.info{border-left-color:var(--blue);} .advice.good{border-left-color:var(--green);}
+  .advice .ic{font-size:18px;}
+  .advice .body{flex:1;}
+  .advice .t{font-weight:700;color:var(--navy);font-size:13.5px;}
+  .advice .x{font-size:12.5px;color:var(--ink);margin-top:3px;line-height:1.5;}
+  .advice .meta{font-size:11px;color:var(--muted);margin-top:5px;}
+  .advice .acts{display:flex;gap:6px;flex-shrink:0;}
+  .tag-manual{font-size:9.5px;background:var(--cream);color:var(--muted);border-radius:8px;padding:1px 6px;vertical-align:middle;}
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(16,42,67,.55);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
+  .overlay.show{display:flex;}
+  .modal{background:#fff;border-radius:12px;padding:24px;width:480px;max-width:96vw;max-height:90vh;overflow-y:auto;position:relative;}
+  .modal h2{margin:0 0 4px;color:var(--navy);font-size:18px;}
+  .modal .msub{font-size:12px;color:var(--muted);margin-bottom:16px;}
+  .modal .close{position:absolute;top:14px;right:18px;cursor:pointer;font-size:20px;color:var(--muted);}
+  .field{margin-bottom:13px;}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600;}
+  .field input,.field select,.field textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;font-family:inherit;}
+  .field.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .field.row2 label{grid-column:1/3;}
+  .modal-actions{display:flex;gap:8px;margin-top:8px;}
+  .modal-actions .cta{flex:1;}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:4px;}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 20px;border-radius:8px;font-size:13px;z-index:200;opacity:0;transition:opacity .25s,transform .25s;box-shadow:0 6px 20px rgba(0,0,0,.25);}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
+  .segmented{display:inline-flex;background:var(--cream);border-radius:8px;padding:3px;gap:3px;}
+  .segmented button{border:none;background:transparent;padding:6px 14px;font-size:12.5px;border-radius:6px;cursor:pointer;color:var(--muted);font-weight:600;}
+  .segmented button.active{background:#fff;color:var(--navy);box-shadow:0 1px 2px rgba(0,0,0,.08);}
+  .mini-list{font-size:13px;}
+  .mini-list .li{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line);gap:10px;}
+  .mini-list .li:last-child{border-bottom:none;}
+  .mini-list .li .d{color:var(--muted);font-size:12px;white-space:nowrap;}
+  .b-amber{background:#FEF3E2;color:var(--amber);}
+  .navgroup{font-size:10px;color:rgba(255,255,255,.4);letter-spacing:.08em;padding:12px 18px 4px;}
+  .subtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px;flex-wrap:wrap;}
+  .subtab{padding:9px 16px;font-size:13px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;font-weight:600;}
+  .subtab.active{color:var(--navy);border-bottom-color:var(--gold);}
+  .r5mini{display:inline-flex;gap:3px;width:104px;vertical-align:middle;}
+  .r5mini div{flex:1;height:6px;border-radius:2px;background:rgba(16,42,67,.12);}
+  .r5mini div.on{background:var(--gold);}
+  .progress{background:var(--line);border-radius:6px;height:8px;overflow:hidden;min-width:64px;display:inline-block;width:80px;vertical-align:middle;}
+  .progress i{display:block;height:100%;background:var(--gold);}
+  .heat-wrap{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;}
+  .heat{display:grid;grid-template-columns:46px repeat(5,minmax(46px,1fr));grid-auto-rows:54px;gap:4px;flex:1;min-width:340px;}
+  .heat .yl{display:flex;align-items:center;justify-content:flex-end;font-size:10px;color:var(--muted);padding-right:6px;}
+  .heat .xl{font-size:9px;color:var(--muted);text-align:center;padding-top:4px;}
+  .heat .cell{border-radius:5px;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:2px;padding:2px;}
+  .rdot{width:26px;height:26px;border-radius:50%;background:var(--navy);color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.25);}
+  iframe.formframe{width:100%;height:68vh;border:1px solid var(--line);border-radius:8px;background:#fff;}
+  .infobox{background:#F0F5FA;border:1px solid #D6E2EE;border-radius:8px;padding:12px 14px;font-size:12.5px;color:var(--navy);line-height:1.55;margin-bottom:14px;}
+  @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.grid2,.grid2.wide{grid-template-columns:1fr;}.sidebar{width:60px;}.sidebar .logo,.sidebar .who,.navgroup,.navitem span.lbl{display:none;}.navitem{justify-content:center;}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">BSM <span>COCKPIT</span> — Pilotage interne</div>
+  <div class="topbar-right">
+    <button class="tb-btn" onclick="openImport()" title="Importer depuis le Sheet R5 / CSV">⇊ Importer R5</button>
+    <span id="currency-indicator" class="tb-btn" onclick="openSettings()" title="Devise & paramètres">Ar / €</span>
+    <button class="tb-btn" onclick="exportData()">⬇ Sauvegarde</button>
+    <button class="tb-btn" onclick="document.getElementById('import-file').click()">⬆ Restaurer</button>
+    <input type="file" id="import-file" accept="application/json" style="display:none" onchange="importData(event)">
+    <button class="tb-btn" onclick="openSettings()">⚙</button>
+  </div>
+</div>
+
+<div class="app">
+  <div class="sidebar">
+    <div class="logo">BSM ADVISORY & CONSULTING</div>
+    <div class="who">J-B. Barthe · Direction</div>
+    <div class="navgroup">PILOTAGE</div>
+    <div class="navitem active" data-scr="dashboard" onclick="setScreen('dashboard')"><span class="ic">▦</span><span class="lbl">Tableau de bord</span></div>
+    <div class="navitem" data-scr="clients" onclick="setScreen('clients')"><span class="ic">👥</span><span class="lbl">Clients</span></div>
+    <div class="navitem" data-scr="agenda" onclick="setScreen('agenda')"><span class="ic">📅</span><span class="lbl">Agenda</span></div>
+    <div class="navitem" data-scr="budget" onclick="setScreen('budget')"><span class="ic">💶</span><span class="lbl">Budget</span></div>
+    <div class="navitem" data-scr="ca" onclick="setScreen('ca')"><span class="ic">📈</span><span class="lbl">Chiffre d'affaires</span></div>
+    <div class="navgroup">MÉTHODE R5®</div>
+    <div class="navitem" data-scr="missions" onclick="setScreen('missions')"><span class="ic">🎯</span><span class="lbl">Missions</span></div>
+    <div class="navitem" data-scr="risks" onclick="setScreen('risks')"><span class="ic">⚠️</span><span class="lbl">Matrice des risques</span></div>
+    <div class="navitem" data-scr="carto" onclick="setScreen('carto')"><span class="ic">🗺️</span><span class="lbl">Cartographie</span></div>
+    <div class="navitem" data-scr="recos" onclick="setScreen('recos')"><span class="ic">✅</span><span class="lbl">Recommandations</span></div>
+    <div class="navgroup">CABINET</div>
+    <div class="navitem" data-scr="rh" onclick="setScreen('rh')"><span class="ic">🧑‍💼</span><span class="lbl">RH & équipe</span></div>
+    <div class="navitem" data-scr="audit" onclick="setScreen('audit')"><span class="ic">📝</span><span class="lbl">Audit terrain</span></div>
+    <div class="navitem" data-scr="analyses" onclick="setScreen('analyses')"><span class="ic">🧠</span><span class="lbl">Analyses & Conseils</span><span id="nav-advice-badge" class="badge-nav" style="display:none">0</span></div>
+  </div>
+
+  <div class="main">
+    <div class="screen active" id="scr-dashboard"></div>
+    <div class="screen" id="scr-clients"></div>
+    <div class="screen" id="scr-agenda"></div>
+    <div class="screen" id="scr-budget"></div>
+    <div class="screen" id="scr-ca"></div>
+    <div class="screen" id="scr-missions"></div>
+    <div class="screen" id="scr-risks"></div>
+    <div class="screen" id="scr-carto"></div>
+    <div class="screen" id="scr-recos"></div>
+    <div class="screen" id="scr-rh"></div>
+    <div class="screen" id="scr-audit"></div>
+    <div class="screen" id="scr-analyses"></div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal-content"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================================
+   BSM COCKPIT — outil interne de pilotage BSM Advisory & Consulting
+   Application locale, données stockées dans le navigateur (localStorage).
+   Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
+   ========================================================================= */
+
+const STORE_KEY = "bsm_cockpit_v1";
+const PAYMENT_METHODS = ["CB","Chèque","Mvola","Orange Money","Espèces","Virement"];
+const SECTORS = ["Industrie / Distribution","Banque / Finance","Énergie","Aéroportuaire","Télécom","Public / Institutionnel","Santé","Autre"];
+const CAT_IN  = ["Honoraires mission","Diagnostic / Audit","Formation","Veille / Abonnement","Autre"];
+const CAT_OUT = ["Salaires","Loyer / Bureau","Déplacements","Fournitures","Marketing","Sous-traitance","Charges & taxes","Autre"];
+const EVENT_TYPES = {audit:"Audit", prospect:"Prospection", rdv:"Rendez-vous", autre:"Autre"};
+// --- Méthode R5 ---
+const R5_PHASES = ["REVEAL","CONNECT","RESPOND","STRENGTHEN","REVIEW"];
+const R5_LABELS = {REVEAL:"R1 · Reveal",CONNECT:"R2 · Connect",RESPOND:"R3 · Respond",STRENGTHEN:"R4 · Strengthen",REVIEW:"R5 · Review"};
+const MISSION_TYPES = ["Audit initial","Accompagnement annuel","Diagnostic R5","Cartographie des risques","PCA / Continuité","Formation","Veille réglementaire","Autre"];
+const RISK_FAMILIES = ["Opérationnel","IT","Logistique","Sécurité","Finance","RH","Juridique","Conformité","Stratégique","Réputation","Environnement"];
+const RISK_CATEGORIES = ["Cyberattaque","Énergie","Logistique","Fournisseur unique","Fraude interne","Conformité / RGPD","Personnel clé","Trésorerie","Réputation","Catastrophe naturelle","Sécurité physique","Autre"];
+const RECO_HORIZONS = ["Prioritaire (< 15j)","Court terme (< 30j)","Moyen terme (< 90j)","Long terme (> 90j)"];
+const RECO_PRIORITIES = ["Critique","Élevée","Modérée","Faible"];
+// --- RH ---
+const RH_POLES = ["Direction","Audit / Conseil","Analyse des risques","Commercial","Administratif","Terrain","Support IT"];
+const RH_PERMISSIONS = ["Administrateur","Consultant","Analyste","Assistant","Lecture seule"];
+const CONTRACT_TYPES = ["CDI","CDD","Stage","Prestation","Poste à pourvoir"];
+const LEAVE_TYPES = ["Congé payé","Maladie","Sans solde","Récupération","Mission terrain","Formation"];
+const AUDIT_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSd7P7NzygqF1RizjTcYJvaFCbRUV71-XAdPe7Ly0Kth08vi4A/viewform";
+function r5Niveau(score){ return score>=15?"CRITIQUE":score>=9?"HAUTE":score>=4?"MOYENNE":"FAIBLE"; }
+function r5Badge(n){ return {CRITIQUE:"b-red",HAUTE:"b-orange",MOYENNE:"b-amber",FAIBLE:"b-green"}[n]||"b-grey"; }
+
+/* ----------------------------- État ----------------------------- */
+let DB = null;
+let calRef = null; // mois affiché dans l'agenda
+
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+function defaultDB(){
+  return {
+    meta:{ version:2, defaultCurrency:"MGA", rateEurMga:5000, created:todayISO(), r5SheetId:"" },
+    clients:[], events:[], transactions:[],
+    missions:[], risks:[], recommendations:[],
+    employees:[], recruitments:[], leaves:[], activities:[],
+    advice:{ dismissed:[], edits:{}, custom:[] }
+  };
+}
+
+function seedDB(){
+  const d = defaultDB();
+  const t = new Date();
+  const iso = (offset)=>{ const x=new Date(t); x.setDate(x.getDate()+offset); return x.toISOString().slice(0,10); };
+  const c1=uid(), c2=uid(), c3=uid();
+  d.clients=[
+    {id:c1, company:"Groupe Meridian", sector:"Industrie / Distribution", contactName:"PDG Meridian", contactEmail:"pdg@meridian-demo.mg", contactPhone:"+261 32 00 000 00", status:"actif", notes:"Exemple fictif — mission diagnostic en cours.", createdAt:iso(-45)},
+    {id:c2, company:"Leader Price", sector:"Industrie / Distribution", contactName:"Dir. Financier", contactEmail:"contact@leaderprice-demo.mg", contactPhone:"+261 34 11 111 11", status:"prospect", notes:"Exemple fictif — en négociation.", createdAt:iso(-20)},
+    {id:c3, company:"BMOI", sector:"Banque / Finance", contactName:"Resp. Conformité", contactEmail:"conformite@bmoi-demo.mg", contactPhone:"+261 32 22 222 22", status:"prospect", notes:"Exemple fictif — proposition envoyée.", createdAt:iso(-12)}
+  ];
+  d.events=[
+    {id:uid(), clientId:c1, type:"audit", title:"Audit sécurité SI — Meridian", date:iso(3), time:"09:00", location:"Sur site", status:"planifie", notes:"Exemple fictif."},
+    {id:uid(), clientId:c2, type:"prospect", title:"Relance commerciale Leader Price", date:iso(1), time:"14:00", location:"Téléphone", status:"planifie", notes:""},
+    {id:uid(), clientId:c3, type:"rdv", title:"Présentation offre BMOI", date:iso(-2), time:"10:30", location:"Visio", status:"planifie", notes:"À passer en 'réalisé' ou 'annulé'."}
+  ];
+  d.transactions=[
+    {id:uid(), sens:"entrant", label:"Honoraires diagnostic Meridian", amount:22500000, currency:"MGA", method:"Virement", category:"Honoraires mission", clientId:c1, date:iso(-15), dueDate:iso(-15), status:"realise"},
+    {id:uid(), sens:"entrant", label:"2e échéance mission Meridian", amount:18000000, currency:"MGA", method:"", category:"Honoraires mission", clientId:c1, date:iso(10), dueDate:iso(-3), status:"prevu"},
+    {id:uid(), sens:"entrant", label:"Proposition Leader Price", amount:6800, currency:"EUR", method:"", category:"Honoraires mission", clientId:c2, date:iso(25), dueDate:iso(25), status:"prevu"},
+    {id:uid(), sens:"sortant", label:"Loyer bureau Ivato", amount:1500000, currency:"MGA", method:"Virement", category:"Loyer / Bureau", clientId:"", date:iso(-8), dueDate:iso(-8), status:"realise"},
+    {id:uid(), sens:"sortant", label:"Déplacement mission client", amount:450000, currency:"MGA", method:"Espèces", category:"Déplacements", clientId:c1, date:iso(-5), dueDate:iso(-5), status:"realise"}
+  ];
+  const e1=uid();
+  d.employees=[
+    {id:e1, name:"Jean-Baptiste Barthe", poste:"Directeur fondateur / Consultant senior", pole:"Direction", permission:"Administrateur", contract:"CDI", hireDate:iso(-500), status:"actif", phone:"", email:"", secteurs:"Audit, Risques, Commercial", missionsAff:"Diagnostic R5 — Meridian", notes:"Exemple — modifiable."},
+    {id:uid(), name:"Consultant junior", poste:"Analyste des risques", pole:"Analyse des risques", permission:"Analyste", contract:"Poste à pourvoir", hireDate:"", status:"recrutement", phone:"", email:"", secteurs:"Audit", missionsAff:"", notes:"Poste à pourvoir (exemple)."}
+  ];
+  d.recruitments=[
+    {id:uid(), poste:"Analyste des risques junior", pole:"Analyse des risques", status:"ouvert", candidates:"3 CV reçus", openedDate:iso(-15), notes:"Exemple fictif — entretiens à planifier."}
+  ];
+  d.leaves=[
+    {id:uid(), employeeId:e1, type:"Mission terrain", start:iso(3), end:iso(4), status:"approuve", notes:"Audit Meridian sur site."}
+  ];
+  d.activities=[
+    {id:uid(), employeeId:e1, date:iso(-2), missionRef:"", label:"Préparation audit Meridian", hours:4, notes:""}
+  ];
+  const m1=uid();
+  d.missions=[
+    {id:m1, ref:"MIS-001", clientId:c1, type:"Diagnostic R5", phase:"RESPOND", startDate:iso(-45), endDate:iso(30), montantHT:65000000, currency:"MGA", acompte:20000000, nda:true, contrat:true, rapport:false, status:"en_cours", consultantId:e1, notes:"Exemple fictif."}
+  ];
+  const rk1=uid(), rk2=uid();
+  d.risks=[
+    {id:rk1, ref:"R-001", clientId:c1, missionId:m1, famille:"IT", categorie:"Cyberattaque", description:"Exposition aux intrusions/rançongiciels sur le SI de gestion.", probabilite:4, impact:5, mesures:"Antivirus basique", efficacite:"Partielle", dejaMat:false, recoBSM:"Sauvegardes hors-ligne (3-2-1) + MFA + plan de réponse à incident.", responsable:"DSI", delai:"< 15 jours", status:"a_traiter", dateSaisie:iso(-30), obs:""},
+    {id:rk2, ref:"R-002", clientId:c1, missionId:m1, famille:"Logistique", categorie:"Fournisseur unique", description:"Fournisseur unique sur un composant stratégique de la chaîne.", probabilite:3, impact:4, mesures:"Aucune", efficacite:"", dejaMat:false, recoBSM:"Qualifier un fournisseur alternatif + stock de sécurité.", responsable:"DOP", delai:"< 30 jours", status:"a_traiter", dateSaisie:iso(-30), obs:""}
+  ];
+  d.recommendations=[
+    {id:uid(), ref:"REC-001", clientId:c1, riskId:rk1, texte:"Mettre en place des sauvegardes hors-ligne et l'authentification MFA.", horizon:"Prioritaire (< 15j)", priorite:"Critique", responsable:"DSI", moyens:"Budget IT interne", indicateur:"Sauvegardes testées chaque mois", status:"a_faire", dateCible:iso(15), dateReal:"", avancement:0, commentaire:""}
+  ];
+  return d;
+}
+
+function load(){
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    if(raw){ DB = JSON.parse(raw); }
+    else { DB = seedDB(); save(); }
+  }catch(e){ DB = seedDB(); }
+  // garde-fous de structure
+  DB.meta = DB.meta || defaultDB().meta;
+  DB.advice = DB.advice || {dismissed:[],edits:{},custom:[]};
+  DB.clients = DB.clients||[]; DB.events=DB.events||[]; DB.transactions=DB.transactions||[];
+  DB.missions=DB.missions||[]; DB.risks=DB.risks||[]; DB.recommendations=DB.recommendations||[];
+  DB.employees=DB.employees||[]; DB.recruitments=DB.recruitments||[]; DB.leaves=DB.leaves||[]; DB.activities=DB.activities||[];
+}
+function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }
+
+/* ----------------------------- Devise ----------------------------- */
+function toDefault(amount, cur){
+  const dc = DB.meta.defaultCurrency, rate = DB.meta.rateEurMga||5000;
+  if(cur===dc) return amount;
+  if(cur==="EUR" && dc==="MGA") return amount*rate;
+  if(cur==="MGA" && dc==="EUR") return amount/rate;
+  return amount;
+}
+function fmt(amount, cur){
+  cur = cur || DB.meta.defaultCurrency;
+  const n = Math.round(amount);
+  if(cur==="MGA") return n.toLocaleString('fr-FR') + " Ar";
+  return n.toLocaleString('fr-FR') + " €";
+}
+function fmtD(amount){ return fmt(amount, DB.meta.defaultCurrency); }
+
+function clientName(id){ const c=DB.clients.find(x=>x.id===id); return c?c.company:"—"; }
+
+/* ----------------------------- Navigation ----------------------------- */
+function setScreen(name){
+  document.querySelectorAll(".navitem").forEach(n=>n.classList.toggle("active", n.getAttribute("data-scr")===name));
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+  document.getElementById("scr-"+name).classList.add("active");
+  renderScreen(name);
+}
+function renderScreen(name){
+  ({dashboard:renderDashboard, clients:renderClients, agenda:renderAgenda,
+    budget:renderBudget, ca:renderCA, missions:renderMissions, risks:renderRisks,
+    carto:renderCarto, recos:renderRecos, rh:renderRH, audit:renderAudit,
+    analyses:renderAnalyses}[name]||(()=>{}))();
+}
+function refreshAll(){
+  const active = document.querySelector(".screen.active").id.replace("scr-","");
+  renderScreen(active);
+  updateAdviceBadge();
+}
+
+/* ----------------------------- Agrégations ----------------------------- */
+function curYear(){ return new Date().getFullYear(); }
+function inYear(dstr, y){ return dstr && dstr.slice(0,4)===String(y); }
+
+function agg(){
+  const y = curYear();
+  let caEffectif=0, caProvisoire=0, chargesPayees=0, chargesPrevues=0, enAttente=0, enRetard=0;
+  DB.transactions.forEach(tx=>{
+    const v = toDefault(tx.amount, tx.currency);
+    if(tx.sens==="entrant"){
+      if(tx.status==="realise" && inYear(tx.date,y)) caEffectif+=v;
+      if(tx.status==="prevu"){ caProvisoire+=v; enAttente+=v; if((tx.dueDate||tx.date)<todayISO()) enRetard+=v; }
+    } else {
+      if(tx.status==="realise" && inYear(tx.date,y)) chargesPayees+=v;
+      if(tx.status==="prevu") chargesPrevues+=v;
+    }
+  });
+  return {caEffectif, caProvisoire, chargesPayees, chargesPrevues, enAttente, enRetard,
+    solde: caEffectif-chargesPayees};
+}
+
+function monthlySeries(sens, status){
+  // 7 derniers mois
+  const out=[]; const base=new Date(); base.setDate(1);
+  for(let i=6;i>=0;i--){
+    const d=new Date(base); d.setMonth(d.getMonth()-i);
+    const key=d.toISOString().slice(0,7);
+    let sum=0;
+    DB.transactions.forEach(tx=>{
+      if(tx.sens===sens && (status? tx.status===status : true) && tx.date.slice(0,7)===key)
+        sum+=toDefault(tx.amount,tx.currency);
+    });
+    out.push({label:d.toLocaleDateString('fr-FR',{month:'short'}), key, sum});
+  }
+  return out;
+}
+
+/* ----------------------------- Tableau de bord ----------------------------- */
+function renderDashboard(){
+  const a=agg();
+  const critR=DB.risks.filter(r=>r5Niveau(r.probabilite*r.impact)==="CRITIQUE"&&r.status!=="traite").length;
+  const lateR=DB.recommendations.filter(r=>r.status!=="fait"&&r.dateCible&&r.dateCible<todayISO()).length;
+  const adv = generateAdvice();
+  const topAdv = adv.slice(0,4);
+  const upcoming = DB.events.filter(e=>e.date>=todayISO() && e.status!=="annule")
+    .sort((x,y)=>(x.date+x.time).localeCompare(y.date+y.time)).slice(0,5);
+  const nbActifs=DB.clients.filter(c=>c.status==="actif").length;
+  const nbProspects=DB.clients.filter(c=>c.status==="prospect").length;
+
+  document.getElementById("scr-dashboard").innerHTML = `
+    <div class="pagetitle"><div><h1>Tableau de bord</h1><div class="sub">Vue d'ensemble ${curYear()} — devise : ${DB.meta.defaultCurrency==="MGA"?"Ariary":"Euro"}</div></div>
+      <button class="cta" onclick="quickAdd()">+ Ajout rapide</button></div>
+    <div class="kpis">
+      <div class="kpi"><div class="v good">${fmtD(a.caEffectif)}</div><div class="l">CA effectif (encaissé ${curYear()})</div></div>
+      <div class="kpi"><div class="v">${fmtD(a.caProvisoire)}</div><div class="l">CA provisoire (à encaisser)</div></div>
+      <div class="kpi"><div class="v ${a.solde<0?'danger':'good'}">${fmtD(a.solde)}</div><div class="l">Solde net (encaissé − payé)</div></div>
+      <div class="kpi"><div class="v ${a.enRetard>0?'danger':''}">${fmtD(a.enRetard)}</div><div class="l">Encaissements en retard</div></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="v">${DB.missions.filter(m=>m.status==="en_cours").length}</div><div class="l">Missions R5 en cours</div></div>
+      <div class="kpi"><div class="v ${critR>0?'danger':''}">${critR}</div><div class="l">Risques critiques ouverts</div></div>
+      <div class="kpi"><div class="v ${lateR>0?'warn':''}">${lateR}</div><div class="l">Recommandations en retard</div></div>
+      <div class="kpi"><div class="v">${DB.employees.filter(e=>e.status==="actif").length}</div><div class="l">Collaborateurs actifs</div></div>
+    </div>
+    <div class="grid2 wide">
+      <div class="card">
+        <h2>CA encaissé — 7 derniers mois</h2>
+        ${barsHtml(monthlySeries("entrant","realise"))}
+      </div>
+      <div class="card">
+        <h2>Répartition clients</h2>
+        <div class="mini-list">
+          <div class="li"><span>Clients actifs</span><span class="badge b-actif">${nbActifs}</span></div>
+          <div class="li"><span>Prospects</span><span class="badge b-prospect">${nbProspects}</span></div>
+          <div class="li"><span>Archivés</span><span class="badge b-archive">${DB.clients.filter(c=>c.status==="archive").length}</span></div>
+          <div class="li"><span>Total portefeuille</span><b>${DB.clients.length}</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="grid2 wide">
+      <div class="card">
+        <h2>Alertes & conseils prioritaires</h2>
+        ${topAdv.length? topAdv.map(adviceHtml).join("") : `<div class="empty">Aucune alerte. Tout est à jour ✅</div>`}
+        <div style="text-align:right;margin-top:6px;"><a href="#" onclick="setScreen('analyses');return false;" style="font-size:12.5px;color:var(--navy);font-weight:600;text-decoration:none;">Voir toutes les analyses →</a></div>
+      </div>
+      <div class="card">
+        <h2>Prochains événements</h2>
+        ${upcoming.length? `<div class="mini-list">`+upcoming.map(e=>`
+          <div class="li"><span><span class="badge ${evBadge(e.type)}">${EVENT_TYPES[e.type]}</span> ${esc(e.title)}<br><span style="color:var(--muted);font-size:11.5px">${clientName(e.clientId)}</span></span>
+          <span class="d">${frDate(e.date)}${e.time?" · "+e.time:""}</span></div>`).join("")+`</div>`
+          : `<div class="empty">Aucun événement à venir.</div>`}
+        <div style="text-align:right;margin-top:6px;"><a href="#" onclick="setScreen('agenda');return false;" style="font-size:12.5px;color:var(--navy);font-weight:600;text-decoration:none;">Ouvrir l'agenda →</a></div>
+      </div>
+    </div>`;
+  updateAdviceBadge();
+}
+function barsHtml(series){
+  const max=Math.max(1,...series.map(s=>s.sum));
+  return `<div class="bars">`+series.map(s=>`
+    <div class="bar-col">
+      <div class="bar-val">${s.sum? Math.round(toShort(s.sum)) : ""}</div>
+      <div class="bar" style="height:${Math.round(s.sum/max*100)}%"></div>
+      <div class="bar-lbl">${s.label}</div>
+    </div>`).join("")+`</div>
+    <div class="hint">Valeurs en ${DB.meta.defaultCurrency==="MGA"?"milliers d'Ariary":"euros"} (survol des barres pour le mois).</div>`;
+}
+function toShort(v){ return DB.meta.defaultCurrency==="MGA"? v/1000 : v; }
+
+/* ----------------------------- Clients ----------------------------- */
+let clientFilter="tous", clientSearch="";
+function renderClients(){
+  let list=DB.clients.slice();
+  if(clientFilter!=="tous") list=list.filter(c=>c.status===clientFilter);
+  if(clientSearch) list=list.filter(c=>(c.company+c.sector+(c.contactName||"")).toLowerCase().includes(clientSearch.toLowerCase()));
+  list.sort((a,b)=>a.company.localeCompare(b.company));
+  document.getElementById("scr-clients").innerHTML=`
+    <div class="pagetitle"><div><h1>Clients</h1><div class="sub">${DB.clients.length} au total — ajout, suivi, archivage, suppression</div></div>
+      <button class="cta" onclick="openClientForm()">+ Nouveau client</button></div>
+    <div class="filters">
+      ${["tous","prospect","actif","archive"].map(f=>`<button class="chip ${clientFilter===f?'active':''}" onclick="clientFilter='${f}';renderClients()">${f==='tous'?'Tous':cap(f)}</button>`).join("")}
+      <input class="searchbox" placeholder="Rechercher…" value="${esc(clientSearch)}" oninput="clientSearch=this.value;renderClients()">
+    </div>
+    <div class="card">
+      ${list.length? `<table><thead><tr><th>Société</th><th>Secteur</th><th>Contact</th><th>Statut</th><th>CA encaissé</th><th></th></tr></thead><tbody>`+
+      list.map(c=>{
+        const ca=DB.transactions.filter(t=>t.clientId===c.id&&t.sens==="entrant"&&t.status==="realise").reduce((s,t)=>s+toDefault(t.amount,t.currency),0);
+        return `<tr><td><b>${esc(c.company)}</b>${c.notes?`<br><span style="color:var(--muted);font-size:11.5px">${esc(c.notes).slice(0,60)}</span>`:""}</td>
+        <td>${esc(c.sector||"—")}</td>
+        <td>${esc(c.contactName||"—")}${c.contactPhone?`<br><span style="color:var(--muted);font-size:11.5px">${esc(c.contactPhone)}</span>`:""}</td>
+        <td><span class="badge ${statusBadge(c.status)}">${cap(c.status)}</span></td>
+        <td>${ca?fmtD(ca):"—"}</td>
+        <td><div class="rowact"><button class="iconbtn" onclick="openClientForm('${c.id}')">✎</button><button class="iconbtn del" onclick="deleteClient('${c.id}')">🗑</button></div></td></tr>`;
+      }).join("")+`</tbody></table>`
+      : `<div class="empty">Aucun client ${clientFilter!=='tous'?'dans ce filtre':'pour le moment'}. Cliquez « + Nouveau client ».</div>`}
+    </div>`;
+}
+function openClientForm(id){
+  const c = id? DB.clients.find(x=>x.id===id) : {status:"prospect"};
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>${id?"Modifier le client":"Nouveau client"}</h2>
+    <div class="msub">Tous les champs sont modifiables à tout moment.</div>
+    <div class="field"><label>Société *</label><input id="f-company" value="${esc(c.company||'')}"></div>
+    <div class="field"><label>Secteur</label><select id="f-sector">${SECTORS.map(s=>`<option ${c.sector===s?'selected':''}>${s}</option>`).join("")}</select></div>
+    <div class="field row2"><label>Contact</label>
+      <input id="f-cname" placeholder="Nom du contact" value="${esc(c.contactName||'')}">
+      <input id="f-cphone" placeholder="Téléphone" value="${esc(c.contactPhone||'')}"></div>
+    <div class="field"><label>Email</label><input id="f-cemail" value="${esc(c.contactEmail||'')}"></div>
+    <div class="field"><label>Statut</label><select id="f-status">
+      ${["prospect","actif","archive"].map(s=>`<option value="${s}" ${c.status===s?'selected':''}>${cap(s)}</option>`).join("")}</select></div>
+    <div class="field"><label>Notes</label><textarea id="f-notes" rows="2">${esc(c.notes||'')}</textarea></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveClient('${id||''}')">Enregistrer</button></div>`);
+}
+function saveClient(id){
+  const company=val("f-company").trim();
+  if(!company){ toast("Le nom de la société est obligatoire."); return; }
+  const obj={ company, sector:val("f-sector"), contactName:val("f-cname"), contactPhone:val("f-cphone"),
+    contactEmail:val("f-cemail"), status:val("f-status"), notes:val("f-notes") };
+  if(id){ Object.assign(DB.clients.find(x=>x.id===id), obj); }
+  else { obj.id=uid(); obj.createdAt=todayISO(); DB.clients.push(obj); }
+  save(); closeModal(); renderClients(); toast("Client enregistré.");
+}
+function deleteClient(id){
+  const c=DB.clients.find(x=>x.id===id);
+  const linked=DB.events.filter(e=>e.clientId===id).length + DB.transactions.filter(t=>t.clientId===id).length;
+  confirmModal(`Supprimer « ${esc(c.company)} » ?`,
+    linked? `Ce client est lié à ${linked} élément(s) (événements / mouvements). Ils ne seront pas supprimés mais perdront le lien.<br><br>Astuce : passez-le plutôt en <b>Archivé</b> si vous voulez conserver l'historique.`
+          : `Cette action est définitive.`,
+    ()=>{ DB.clients=DB.clients.filter(x=>x.id!==id);
+      DB.events.forEach(e=>{if(e.clientId===id)e.clientId="";});
+      DB.transactions.forEach(t=>{if(t.clientId===id)t.clientId="";});
+      save(); renderClients(); toast("Client supprimé."); });
+}
+
+/* ----------------------------- Agenda ----------------------------- */
+let agendaFilter="tous";
+function renderAgenda(){
+  if(!calRef){ calRef=new Date(); calRef.setDate(1); }
+  const list=DB.events.filter(e=>agendaFilter==="tous"||e.type===agendaFilter)
+    .sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+  const upcoming=list.filter(e=>e.date>=todayISO());
+  const past=list.filter(e=>e.date<todayISO()).reverse();
+  document.getElementById("scr-agenda").innerHTML=`
+    <div class="pagetitle"><div><h1>Agenda</h1><div class="sub">Audits, prospections, rendez-vous — datation & suivi</div></div>
+      <button class="cta" onclick="openEventForm()">+ Nouvel événement</button></div>
+    <div class="filters">
+      <button class="chip ${agendaFilter==='tous'?'active':''}" onclick="agendaFilter='tous';renderAgenda()">Tous</button>
+      ${Object.keys(EVENT_TYPES).map(t=>`<button class="chip ${agendaFilter===t?'active':''}" onclick="agendaFilter='${t}';renderAgenda()">${EVENT_TYPES[t]}</button>`).join("")}
+    </div>
+    <div class="grid2 wide">
+      <div class="card">
+        <div class="cal-head"><button class="iconbtn" onclick="calMove(-1)">◀</button>
+          <div class="m">${calRef.toLocaleDateString('fr-FR',{month:'long',year:'numeric'})}</div>
+          <button class="iconbtn" onclick="calMove(1)">▶</button></div>
+        ${calendarHtml()}
+        <div class="dotlegend">
+          <span><i class="ev-audit"></i>Audit</span><span><i class="ev-prospect"></i>Prospection</span>
+          <span><i class="ev-rdv"></i>Rendez-vous</span><span><i class="ev-autre"></i>Autre</span></div>
+      </div>
+      <div class="card">
+        <h2>À venir (${upcoming.length})</h2>
+        ${upcoming.length? eventListHtml(upcoming) : `<div class="empty">Rien de planifié.</div>`}
+        ${past.length? `<h2 style="margin-top:16px;">Passés (${past.length})</h2>`+eventListHtml(past.slice(0,8)) : ""}
+      </div>
+    </div>`;
+}
+function eventListHtml(arr){
+  return `<div class="mini-list">`+arr.map(e=>`
+    <div class="li"><span>
+      <span class="badge ${evBadge(e.type)}">${EVENT_TYPES[e.type]}</span>
+      <span class="badge ${e.status==='fait'?'b-green':e.status==='annule'?'b-grey':(e.date<todayISO()?'b-orange':'b-blue')}">${e.status==='fait'?'Réalisé':e.status==='annule'?'Annulé':(e.date<todayISO()?'À traiter':'Planifié')}</span>
+      ${esc(e.title)}<br><span style="color:var(--muted);font-size:11.5px">${clientName(e.clientId)}${e.location?" · "+esc(e.location):""}</span>
+    </span>
+    <span style="text-align:right;"><span class="d">${frDate(e.date)}${e.time?"<br>"+e.time:""}</span>
+      <div class="rowact" style="margin-top:5px;justify-content:flex-end;"><button class="iconbtn" onclick="openEventForm('${e.id}')">✎</button><button class="iconbtn del" onclick="deleteEvent('${e.id}')">🗑</button></div>
+    </span></div>`).join("")+`</div>`;
+}
+function calMove(n){ calRef.setMonth(calRef.getMonth()+n); renderAgenda(); }
+function calendarHtml(){
+  const y=calRef.getFullYear(), m=calRef.getMonth();
+  const first=new Date(y,m,1); let start=(first.getDay()+6)%7; // lundi=0
+  const days=new Date(y,m+1,0).getDate();
+  const dows=["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"];
+  let cells=dows.map(d=>`<div class="dow">${d}</div>`).join("");
+  for(let i=0;i<start;i++){ const dprev=new Date(y,m,-start+i+1); cells+=`<div class="day out">${dprev.getDate()}</div>`; }
+  for(let d=1;d<=days;d++){
+    const iso=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const evs=DB.events.filter(e=>e.date===iso && (agendaFilter==="tous"||e.type===agendaFilter));
+    cells+=`<div class="day ${iso===todayISO()?'today':''}" onclick="openEventForm(null,'${iso}')">
+      <div class="dn">${d}</div>
+      ${evs.slice(0,3).map(e=>`<div class="ev ev-${e.type}" title="${esc(e.title)}" onclick="event.stopPropagation();openEventForm('${e.id}')">${esc(e.title)}</div>`).join("")}
+      ${evs.length>3?`<div style="font-size:9px;color:var(--muted)">+${evs.length-3}</div>`:""}
+    </div>`;
+  }
+  return `<div class="cal">${cells}</div>`;
+}
+function openEventForm(id, presetDate){
+  const e=id? DB.events.find(x=>x.id===id) : {type:"rdv", status:"planifie", date:presetDate||todayISO(), time:"09:00"};
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>${id?"Modifier l'événement":"Nouvel événement"}</h2>
+    <div class="msub">Datez et suivez audits, prospections et rendez-vous.</div>
+    <div class="field"><label>Intitulé *</label><input id="f-title" value="${esc(e.title||'')}"></div>
+    <div class="field row2"><label>Type & client</label>
+      <select id="f-type">${Object.keys(EVENT_TYPES).map(t=>`<option value="${t}" ${e.type===t?'selected':''}>${EVENT_TYPES[t]}</option>`).join("")}</select>
+      <select id="f-client"><option value="">— Aucun client —</option>${DB.clients.map(c=>`<option value="${c.id}" ${e.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+    <div class="field row2"><label>Date & heure</label>
+      <input type="date" id="f-date" value="${e.date||todayISO()}">
+      <input type="time" id="f-time" value="${e.time||''}"></div>
+    <div class="field"><label>Lieu / canal</label><input id="f-loc" placeholder="Sur site, visio, téléphone…" value="${esc(e.location||'')}"></div>
+    <div class="field"><label>Statut</label><select id="f-estatus">
+      ${[["planifie","Planifié"],["fait","Réalisé"],["annule","Annulé"]].map(s=>`<option value="${s[0]}" ${e.status===s[0]?'selected':''}>${s[1]}</option>`).join("")}</select></div>
+    <div class="field"><label>Notes</label><textarea id="f-enotes" rows="2">${esc(e.notes||'')}</textarea></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveEvent('${id||''}')">Enregistrer</button></div>`);
+}
+function saveEvent(id){
+  const title=val("f-title").trim();
+  if(!title){ toast("L'intitulé est obligatoire."); return; }
+  const obj={ title, type:val("f-type"), clientId:val("f-client"), date:val("f-date"),
+    time:val("f-time"), location:val("f-loc"), status:val("f-estatus"), notes:val("f-enotes") };
+  if(id){ Object.assign(DB.events.find(x=>x.id===id),obj); }
+  else { obj.id=uid(); DB.events.push(obj); }
+  save(); closeModal(); renderAgenda(); toast("Événement enregistré.");
+}
+function deleteEvent(id){
+  const e=DB.events.find(x=>x.id===id);
+  confirmModal("Supprimer cet événement ?", esc(e.title), ()=>{ DB.events=DB.events.filter(x=>x.id!==id); save(); renderAgenda(); toast("Événement supprimé."); });
+}
+
+/* ----------------------------- Budget ----------------------------- */
+let budgetSens="tous", budgetStatus="tous";
+function renderBudget(){
+  const a=agg();
+  let list=DB.transactions.slice();
+  if(budgetSens!=="tous") list=list.filter(t=>t.sens===budgetSens);
+  if(budgetStatus!=="tous") list=list.filter(t=>t.status===budgetStatus);
+  list.sort((x,y)=>(y.date).localeCompare(x.date));
+  document.getElementById("scr-budget").innerHTML=`
+    <div class="pagetitle"><div><h1>Budget</h1><div class="sub">Prévisions, entrants, sortants — par mode de paiement</div></div>
+      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="openTxForm(null,'sortant')">− Dépense</button><button class="cta" onclick="openTxForm(null,'entrant')">+ Entrée</button></div></div>
+    <div class="kpis">
+      <div class="kpi"><div class="v good">${fmtD(a.caEffectif)}</div><div class="l">Entrées encaissées ${curYear()}</div></div>
+      <div class="kpi"><div class="v">${fmtD(a.enAttente)}</div><div class="l">Entrées prévues (à venir)</div></div>
+      <div class="kpi"><div class="v warn">${fmtD(a.chargesPayees)}</div><div class="l">Dépenses payées ${curYear()}</div></div>
+      <div class="kpi"><div class="v ${a.solde<0?'danger':'good'}">${fmtD(a.solde)}</div><div class="l">Solde net</div></div>
+    </div>
+    <div class="filters">
+      ${[["tous","Tous"],["entrant","Entrées"],["sortant","Dépenses"]].map(f=>`<button class="chip ${budgetSens===f[0]?'active':''}" onclick="budgetSens='${f[0]}';renderBudget()">${f[1]}</button>`).join("")}
+      <span style="width:14px"></span>
+      ${[["tous","Tous statuts"],["prevu","Prévu"],["realise","Réalisé"]].map(f=>`<button class="chip ${budgetStatus===f[0]?'active':''}" onclick="budgetStatus='${f[0]}';renderBudget()">${f[1]}</button>`).join("")}
+    </div>
+    <div class="card">
+      ${list.length? `<table><thead><tr><th>Libellé</th><th>Client</th><th>Catégorie</th><th>Date</th><th>Paiement</th><th>Statut</th><th style="text-align:right">Montant</th><th></th></tr></thead><tbody>`+
+      list.map(t=>{
+        const retard = t.sens==="entrant"&&t.status==="prevu"&&(t.dueDate||t.date)<todayISO();
+        return `<tr><td><b>${esc(t.label)}</b></td><td>${clientName(t.clientId)}</td><td>${esc(t.category||"—")}</td>
+        <td>${frDate(t.date)}${retard?`<br><span class="badge b-red">échéance dépassée</span>`:""}</td>
+        <td>${t.method?esc(t.method):"—"}</td>
+        <td><span class="badge ${t.status==='realise'?'b-green':'b-orange'}">${t.status==='realise'?(t.sens==='entrant'?'Encaissé':'Payé'):'Prévu'}</span></td>
+        <td style="text-align:right;font-weight:700;color:${t.sens==='entrant'?'var(--green)':'var(--red)'}">${t.sens==='entrant'?'+':'−'} ${fmt(t.amount,t.currency)}</td>
+        <td><div class="rowact">
+          ${t.status==='prevu'?`<button class="iconbtn" title="Marquer réalisé" onclick="markRealise('${t.id}')">✓</button>`:""}
+          <button class="iconbtn" onclick="openTxForm('${t.id}')">✎</button><button class="iconbtn del" onclick="deleteTx('${t.id}')">🗑</button></div></td></tr>`;
+      }).join("")+`</tbody></table>`
+      : `<div class="empty">Aucun mouvement. Ajoutez une entrée ou une dépense.</div>`}
+    </div>`;
+}
+function markRealise(id){
+  const t=DB.transactions.find(x=>x.id===id);
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>Marquer comme ${t.sens==='entrant'?'encaissé':'payé'}</h2>
+    <div class="msub">${esc(t.label)} — ${fmt(t.amount,t.currency)}</div>
+    <div class="field"><label>Mode de paiement</label><select id="f-method">${PAYMENT_METHODS.map(m=>`<option ${t.method===m?'selected':''}>${m}</option>`).join("")}</select></div>
+    <div class="field"><label>Date effective</label><input type="date" id="f-realdate" value="${todayISO()}"></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="confirmRealise('${id}')">Confirmer</button></div>`);
+}
+function confirmRealise(id){
+  const t=DB.transactions.find(x=>x.id===id);
+  t.status="realise"; t.method=val("f-method"); t.date=val("f-realdate");
+  save(); closeModal(); renderBudget(); toast("Mouvement marqué réalisé.");
+}
+function openTxForm(id, sens){
+  const t=id? DB.transactions.find(x=>x.id===id) : {sens:sens||"entrant", currency:DB.meta.defaultCurrency, status:"prevu", date:todayISO(), dueDate:todayISO()};
+  const cats = t.sens==="entrant"?CAT_IN:CAT_OUT;
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>${id?"Modifier le mouvement":"Nouveau mouvement"}</h2>
+    <div class="msub">Prévision, entrée ou dépense — tout est corrigeable ensuite.</div>
+    <div class="field"><label>Sens</label>
+      <div class="segmented" style="display:flex;width:100%">
+        <button type="button" id="seg-entrant" class="${t.sens==='entrant'?'active':''}" style="flex:1" onclick="switchSens('entrant')">Entrée / CA</button>
+        <button type="button" id="seg-sortant" class="${t.sens==='sortant'?'active':''}" style="flex:1" onclick="switchSens('sortant')">Dépense</button>
+      </div><input type="hidden" id="f-sens" value="${t.sens}"></div>
+    <div class="field"><label>Libellé *</label><input id="f-label" value="${esc(t.label||'')}"></div>
+    <div class="field row2"><label>Montant & devise</label>
+      <input type="number" id="f-amount" min="0" step="any" value="${t.amount!=null?t.amount:''}">
+      <select id="f-currency">${["MGA","EUR"].map(c=>`<option value="${c}" ${t.currency===c?'selected':''}>${c==='MGA'?'Ariary (Ar)':'Euro (€)'}</option>`).join("")}</select></div>
+    <div class="field row2"><label>Catégorie & client</label>
+      <select id="f-cat">${cats.map(c=>`<option ${t.category===c?'selected':''}>${c}</option>`).join("")}</select>
+      <select id="f-txclient"><option value="">— Aucun —</option>${DB.clients.map(c=>`<option value="${c.id}" ${t.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+    <div class="field"><label>Statut</label><select id="f-txstatus" onchange="toggleMethodField()">
+      <option value="prevu" ${t.status==='prevu'?'selected':''}>Prévu (prévision)</option>
+      <option value="realise" ${t.status==='realise'?'selected':''}>Réalisé (encaissé / payé)</option></select></div>
+    <div class="field row2"><label>Dates</label>
+      <input type="date" id="f-txdate" value="${t.date||todayISO()}" title="Date du mouvement">
+      <input type="date" id="f-txdue" value="${t.dueDate||t.date||todayISO()}" title="Échéance prévue"></div>
+    <div class="field" id="method-field" style="${t.status==='realise'?'':'display:none'}"><label>Mode de paiement</label>
+      <select id="f-txmethod">${PAYMENT_METHODS.map(m=>`<option ${t.method===m?'selected':''}>${m}</option>`).join("")}</select></div>
+    <div class="hint">« Prévu » alimente le CA provisoire ; « Réalisé » alimente le CA effectif.</div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveTx('${id||''}')">Enregistrer</button></div>`);
+}
+function switchSens(s){
+  document.getElementById("f-sens").value=s;
+  document.getElementById("seg-entrant").classList.toggle("active",s==="entrant");
+  document.getElementById("seg-sortant").classList.toggle("active",s==="sortant");
+  const sel=document.getElementById("f-cat"); const cats=s==="entrant"?CAT_IN:CAT_OUT;
+  sel.innerHTML=cats.map(c=>`<option>${c}</option>`).join("");
+}
+function toggleMethodField(){
+  document.getElementById("method-field").style.display = val("f-txstatus")==="realise"?"":"none";
+}
+function saveTx(id){
+  const label=val("f-label").trim();
+  const amount=parseFloat(val("f-amount"));
+  if(!label){ toast("Le libellé est obligatoire."); return; }
+  if(isNaN(amount)||amount<0){ toast("Montant invalide."); return; }
+  const status=val("f-txstatus");
+  const obj={ sens:val("f-sens"), label, amount:Math.round(amount), currency:val("f-currency"),
+    category:val("f-cat"), clientId:val("f-txclient"), status, date:val("f-txdate"),
+    dueDate:val("f-txdue"), method: status==="realise"?val("f-txmethod"):"" };
+  if(id){ Object.assign(DB.transactions.find(x=>x.id===id),obj); }
+  else { obj.id=uid(); DB.transactions.push(obj); }
+  save(); closeModal(); renderBudget(); toast("Mouvement enregistré.");
+}
+function deleteTx(id){
+  const t=DB.transactions.find(x=>x.id===id);
+  confirmModal("Supprimer ce mouvement ?", `${esc(t.label)} — ${fmt(t.amount,t.currency)}`, ()=>{ DB.transactions=DB.transactions.filter(x=>x.id!==id); save(); renderBudget(); toast("Mouvement supprimé."); });
+}
+
+/* ----------------------------- Chiffre d'affaires ----------------------------- */
+function renderCA(){
+  const a=agg();
+  const effSeries=monthlySeries("entrant","realise");
+  const provSeries=monthlySeries("entrant","prevu");
+  const y=curYear();
+  // par client
+  const byClient={};
+  DB.transactions.filter(t=>t.sens==="entrant").forEach(t=>{
+    const k=t.clientId||"__none";
+    byClient[k]=byClient[k]||{eff:0,prov:0};
+    const v=toDefault(t.amount,t.currency);
+    if(t.status==="realise"&&inYear(t.date,y)) byClient[k].eff+=v; else if(t.status==="prevu") byClient[k].prov+=v;
+  });
+  const rows=Object.entries(byClient).map(([k,v])=>({name:k==="__none"?"— Sans client —":clientName(k),...v}))
+    .filter(r=>r.eff||r.prov).sort((a,b)=>(b.eff+b.prov)-(a.eff+a.prov));
+  document.getElementById("scr-ca").innerHTML=`
+    <div class="pagetitle"><div><h1>Chiffre d'affaires</h1><div class="sub">Provisoire (à encaisser) vs effectif (encaissé) — ${y}</div></div></div>
+    <div class="kpis">
+      <div class="kpi"><div class="v good">${fmtD(a.caEffectif)}</div><div class="l">CA effectif encaissé</div></div>
+      <div class="kpi"><div class="v">${fmtD(a.caProvisoire)}</div><div class="l">CA provisoire (pipeline)</div></div>
+      <div class="kpi"><div class="v">${fmtD(a.caEffectif+a.caProvisoire)}</div><div class="l">CA potentiel total</div></div>
+      <div class="kpi"><div class="v ${a.enRetard>0?'danger':''}">${fmtD(a.enRetard)}</div><div class="l">Dont en retard d'encaissement</div></div>
+    </div>
+    <div class="card">
+      <h2>CA encaissé (or) vs prévu (beige) — 7 mois</h2>
+      ${dualBarsHtml(effSeries, provSeries)}
+    </div>
+    <div class="card">
+      <h2>CA par client</h2>
+      ${rows.length? `<table><thead><tr><th>Client</th><th style="text-align:right">Effectif</th><th style="text-align:right">Provisoire</th><th style="text-align:right">Total</th></tr></thead><tbody>`+
+      rows.map(r=>`<tr><td><b>${esc(r.name)}</b></td><td style="text-align:right;color:var(--green)">${r.eff?fmtD(r.eff):"—"}</td>
+        <td style="text-align:right">${r.prov?fmtD(r.prov):"—"}</td><td style="text-align:right;font-weight:700">${fmtD(r.eff+r.prov)}</td></tr>`).join("")+
+      `</tbody></table>` : `<div class="empty">Aucune entrée enregistrée.</div>`}
+    </div>`;
+}
+function dualBarsHtml(eff, prov){
+  const max=Math.max(1,...eff.map(s=>s.sum),...prov.map(s=>s.sum));
+  return `<div class="bars">`+eff.map((s,i)=>`
+    <div class="bar-col"><div style="display:flex;gap:3px;align-items:flex-end;width:100%;height:100%;justify-content:center">
+      <div class="bar" style="height:${Math.round(s.sum/max*100)}%;width:40%" title="Encaissé ${s.label}: ${fmtD(s.sum)}"></div>
+      <div class="bar prov" style="height:${Math.round(prov[i].sum/max*100)}%;width:40%" title="Prévu ${s.label}: ${fmtD(prov[i].sum)}"></div>
+    </div><div class="bar-lbl">${s.label}</div></div>`).join("")+`</div>`;
+}
+
+/* ----------------------------- Analyses & Conseils ----------------------------- */
+function generateAdvice(){
+  const out=[]; const t=todayISO();
+  const y=curYear();
+  const add=(id,level,icon,title,text)=>{
+    if(DB.advice.dismissed.includes(id)) return;
+    const ed=DB.advice.edits[id];
+    out.push({id, level, icon, title, text: ed!=null?ed:text, edited: ed!=null, auto:true});
+  };
+  // 1. Encaissements en retard
+  DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="prevu"&&(x.dueDate||x.date)<t).forEach(x=>{
+    add("retard-"+x.id,"danger","⏰","Encaissement en retard",
+      `« ${x.label} » (${fmt(x.amount,x.currency)}${x.clientId?", "+clientName(x.clientId):""}) : échéance du ${frDate(x.dueDate||x.date)} dépassée. Relancer le client et confirmer la date d'encaissement.`);
+  });
+  // 2. Trésorerie du mois : dépenses > entrées
+  const mk=t.slice(0,7);
+  const inM=DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="realise"&&x.date.slice(0,7)===mk).reduce((s,x)=>s+toDefault(x.amount,x.currency),0);
+  const outM=DB.transactions.filter(x=>x.sens==="sortant"&&x.status==="realise"&&x.date.slice(0,7)===mk).reduce((s,x)=>s+toDefault(x.amount,x.currency),0);
+  if(outM>inM && outM>0) add("treso-"+mk,"warn","📉","Trésorerie du mois négative",
+    `Ce mois-ci : ${fmtD(outM)} de dépenses pour ${fmtD(inM)} d'entrées (solde ${fmtD(inM-outM)}). Prioriser les encaissements en attente avant d'engager de nouvelles dépenses.`);
+  // 3. Prospects sans relance récente
+  DB.clients.filter(c=>c.status==="prospect").forEach(c=>{
+    const evs=DB.events.filter(e=>e.clientId===c.id);
+    const last=evs.map(e=>e.date).sort().pop();
+    const stale = !last || last < isoOffset(-21);
+    const future = evs.some(e=>e.date>=t && e.status!=="annule");
+    if(stale && !future) add("relance-"+c.id,"info","📞","Prospect à relancer",
+      `${c.company} est en prospection ${last?"sans contact depuis le "+frDate(last):"sans aucun événement planifié"}. Planifier une relance pour ne pas perdre l'opportunité.`);
+  });
+  // 4. Clients actifs sans point à venir
+  DB.clients.filter(c=>c.status==="actif").forEach(c=>{
+    const future=DB.events.some(e=>e.clientId===c.id && e.date>=t && e.status!=="annule");
+    if(!future) add("suivi-"+c.id,"info","🗓️","Client actif sans point planifié",
+      `${c.company} (client actif) n'a aucun rendez-vous ou audit à venir. Planifier un point de suivi pour entretenir la relation et repérer de nouvelles missions.`);
+  });
+  // 5. Événements passés non clôturés
+  DB.events.filter(e=>e.date<t && e.status==="planifie").forEach(e=>{
+    add("clot-"+e.id,"warn","✅","Événement à clôturer",
+      `« ${e.title} » (${frDate(e.date)}) est toujours « planifié ». Le marquer comme réalisé ou annulé pour garder un historique fiable.`);
+  });
+  // 6. Tendance CA (mois courant vs précédent)
+  const prevKey=(()=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-1);return d.toISOString().slice(0,7);})();
+  const inPrev=DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="realise"&&x.date.slice(0,7)===prevKey).reduce((s,x)=>s+toDefault(x.amount,x.currency),0);
+  if(inPrev>0 && inM<inPrev*0.7) add("tendance-"+mk,"info","📊","CA en baisse ce mois",
+    `Le CA encaissé ce mois (${fmtD(inM)}) est en net recul par rapport au mois précédent (${fmtD(inPrev)}). Vérifier le pipeline et accélérer la facturation des missions en cours.`);
+  // 7. Recoupement : client à marge négative
+  const perClient={};
+  DB.transactions.filter(x=>x.status==="realise").forEach(x=>{
+    if(!x.clientId) return; perClient[x.clientId]=perClient[x.clientId]||{in:0,out:0};
+    const v=toDefault(x.amount,x.currency); if(x.sens==="entrant")perClient[x.clientId].in+=v; else perClient[x.clientId].out+=v;
+  });
+  Object.entries(perClient).forEach(([cid,v])=>{
+    if(v.out>0 && v.out>v.in) add("marge-"+cid,"warn","⚖️","Rentabilité client à surveiller",
+      `${clientName(cid)} : ${fmtD(v.out)} de dépenses engagées pour ${fmtD(v.in)} encaissés. Vérifier que la mission est bien facturée et rentable.`);
+  });
+  // 8. Risques critiques ouverts (matrice R5)
+  DB.risks.filter(r=>r5Niveau(r.probabilite*r.impact)==="CRITIQUE"&&r.status!=="traite").forEach(r=>{
+    add("riskcrit-"+r.id,"danger","🔴","Risque critique à traiter",
+      `${r.ref?r.ref+" — ":""}${r.description||r.categorie} (${clientName(r.clientId)}) : score ${r.probabilite*r.impact}/25 (CRITIQUE). ${r.mesures&&r.mesures.toLowerCase()!=="aucune"?"Vérifier l'efficacité des mesures existantes.":"Aucune mesure en place — agir en priorité."}`);
+  });
+  // 9. Recommandations en retard
+  DB.recommendations.filter(r=>r.status!=="fait"&&r.dateCible&&r.dateCible<t).forEach(r=>{
+    add("recolate-"+r.id,"warn","📌","Recommandation en retard",
+      `${r.ref?r.ref+" — ":""}${r.texte} (${clientName(r.clientId)}) : date cible du ${frDate(r.dateCible)} dépassée, statut « ${r.status==="en_cours"?"en cours":"à faire"} ».`);
+  });
+  // 10. Mission avancée sans risque saisi
+  DB.missions.filter(m=>m.status==="en_cours"&&["RESPOND","STRENGTHEN","REVIEW"].includes(m.phase)).forEach(m=>{
+    if(!DB.risks.some(r=>r.missionId===m.id)) add("noris-"+m.id,"info","🎯","Mission sans risque cartographié",
+      `La mission « ${m.type} » (${clientName(m.clientId)}) est en phase ${R5_LABELS[m.phase]||m.phase} mais aucun risque n'est saisi. Compléter la matrice des risques.`);
+  });
+  // 11. Risques récurrents par secteur (intelligence inter-clients)
+  const groupes={};
+  DB.risks.forEach(r=>{
+    const cl=DB.clients.find(c=>c.id===r.clientId); const sect=cl?(cl.sector||"—"):"—";
+    const key=sect+"||"+r.categorie;
+    groupes[key]=groupes[key]||{sect,cat:r.categorie,clients:new Set(),n:0,score:0};
+    groupes[key].clients.add(r.clientId); groupes[key].n++; groupes[key].score+=r.probabilite*r.impact;
+  });
+  Object.values(groupes).filter(g=>g.clients.size>=2).forEach(g=>{
+    add("recur-"+g.sect+"-"+g.cat,"info","🔎","Risque récurrent — "+g.sect,
+      `Le risque « ${g.cat} » revient chez ${g.clients.size} clients du secteur ${g.sect} (score moyen ${(g.score/g.n).toFixed(1)}/25). Signal utile pour la veille sectorielle et la prospection.`);
+  });
+  // conseils manuels
+  DB.advice.custom.forEach(c=> out.push({...c, auto:false}));
+  // tri par gravité
+  const order={danger:0,warn:1,info:2,good:3};
+  out.sort((a,b)=>order[a.level]-order[b.level]);
+  return out;
+}
+function renderAnalyses(){
+  const adv=generateAdvice();
+  const counts={danger:0,warn:0,info:0};
+  adv.forEach(a=>{if(counts[a.level]!=null)counts[a.level]++;});
+  document.getElementById("scr-analyses").innerHTML=`
+    <div class="pagetitle"><div><h1>Analyses & Conseils</h1><div class="sub">Détection automatique par règles · conseils éditables manuellement</div></div>
+      <button class="cta" onclick="addCustomAdvice()">+ Conseil manuel</button></div>
+    <div class="kpis">
+      <div class="kpi"><div class="v danger">${counts.danger}</div><div class="l">Alertes critiques</div></div>
+      <div class="kpi"><div class="v warn">${counts.warn}</div><div class="l">Points de vigilance</div></div>
+      <div class="kpi"><div class="v">${counts.info}</div><div class="l">Suggestions</div></div>
+      <div class="kpi"><div class="v">${adv.length}</div><div class="l">Total</div></div>
+    </div>
+    <div class="card">
+      <h2>Recommandations</h2>
+      ${adv.length? adv.map(adviceHtml).join("") : `<div class="empty">Aucune recommandation : le pilotage est à jour ✅</div>`}
+    </div>
+    <div class="card" style="background:#FCFAF5;border-style:dashed;">
+      <h2>🤖 Assistant IA (à venir)</h2>
+      <div style="font-size:13px;color:var(--muted);line-height:1.6">
+        Emplacement prêt pour brancher une IA générative (Claude / OpenAI) : rédaction automatique de conseils personnalisés, questions en langage naturel
+        (« quels sont mes 3 clients les plus rentables ? »), et synthèse des tendances. Activation dès que vous fournissez une clé API — les règles ci-dessus fonctionnent déjà sans IA.
+        <div style="margin-top:10px"><button class="cta ghost sm" onclick="openSettings()">Configurer plus tard</button></div>
+      </div>
+    </div>`;
+  updateAdviceBadge();
+}
+function adviceHtml(a){
+  return `<div class="advice ${a.level}">
+    <div class="ic">${a.icon||"💡"}</div>
+    <div class="body"><div class="t">${esc(a.title)} ${a.auto?(a.edited?'<span class="tag-manual">modifié</span>':''):'<span class="tag-manual">manuel</span>'}</div>
+      <div class="x">${esc(a.text)}</div></div>
+    <div class="acts">
+      <button class="iconbtn" title="Modifier le texte" onclick="editAdvice('${a.id}',${a.auto})">✎</button>
+      <button class="iconbtn del" title="${a.auto?'Masquer':'Supprimer'}" onclick="dismissAdvice('${a.id}',${a.auto})">✕</button>
+    </div></div>`;
+}
+function editAdvice(id, auto){
+  const a=generateAdvice().find(x=>x.id===id); if(!a) return;
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>Modifier le conseil</h2>
+    <div class="msub">${esc(a.title)}</div>
+    <div class="field"><label>Texte du conseil</label><textarea id="f-adv" rows="5">${esc(a.text)}</textarea></div>
+    <div class="hint">${auto?"Vous personnalisez un conseil généré automatiquement. Il gardera votre texte.":"Conseil manuel."}</div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveAdviceEdit('${id}',${auto})">Enregistrer</button></div>`);
+}
+function saveAdviceEdit(id, auto){
+  const txt=val("f-adv").trim();
+  if(auto){ DB.advice.edits[id]=txt; }
+  else { const c=DB.advice.custom.find(x=>x.id===id); if(c)c.text=txt; }
+  save(); closeModal(); refreshAll(); toast("Conseil mis à jour.");
+}
+function dismissAdvice(id, auto){
+  if(auto){ if(!DB.advice.dismissed.includes(id))DB.advice.dismissed.push(id); }
+  else { DB.advice.custom=DB.advice.custom.filter(x=>x.id!==id); }
+  save(); refreshAll(); toast(auto?"Alerte masquée.":"Conseil supprimé.");
+}
+function addCustomAdvice(){
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>Nouveau conseil manuel</h2>
+    <div class="msub">Ajoutez votre propre recommandation de pilotage.</div>
+    <div class="field"><label>Titre</label><input id="f-atitle" placeholder="Ex. Préparer la facturation trimestrielle"></div>
+    <div class="field"><label>Niveau</label><select id="f-alevel">
+      <option value="info">Suggestion (bleu)</option><option value="warn">Vigilance (orange)</option><option value="danger">Critique (rouge)</option><option value="good">Positif (vert)</option></select></div>
+    <div class="field"><label>Texte</label><textarea id="f-atext" rows="4"></textarea></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveCustomAdvice()">Ajouter</button></div>`);
+}
+function saveCustomAdvice(){
+  const title=val("f-atitle").trim(), text=val("f-atext").trim();
+  if(!title){ toast("Titre obligatoire."); return; }
+  DB.advice.custom.push({id:"cust-"+uid(), level:val("f-alevel"), icon:"📌", title, text});
+  save(); closeModal(); renderAnalyses(); toast("Conseil ajouté.");
+}
+function updateAdviceBadge(){
+  const n=generateAdvice().filter(a=>a.level==="danger").length;
+  const b=document.getElementById("nav-advice-badge");
+  b.style.display=n>0?"":"none"; b.textContent=n;
+}
+
+/* ----------------------------- Paramètres & sauvegarde ----------------------------- */
+function openSettings(){
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>Paramètres</h2>
+    <div class="msub">Devise, taux de conversion et sauvegarde des données.</div>
+    <div class="field"><label>Devise principale (affichage & totaux)</label><select id="s-cur">
+      <option value="MGA" ${DB.meta.defaultCurrency==='MGA'?'selected':''}>Ariary (Ar)</option>
+      <option value="EUR" ${DB.meta.defaultCurrency==='EUR'?'selected':''}>Euro (€)</option></select></div>
+    <div class="field"><label>Taux de conversion — 1 € = ? Ar</label><input type="number" id="s-rate" value="${DB.meta.rateEurMga}"></div>
+    <div class="hint">Vous pouvez saisir chaque mouvement en Ar ou en €. Les totaux sont convertis dans la devise principale avec ce taux.</div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
+    <div class="field"><label>Sauvegarde</label>
+      <div style="display:flex;gap:8px"><button class="cta ghost sm" onclick="exportData()">⬇ Exporter un fichier</button>
+      <button class="cta ghost sm" onclick="document.getElementById('import-file').click()">⬆ Restaurer un fichier</button></div>
+      <div class="hint">Vos données sont stockées sur ce PC (ce navigateur). Exportez régulièrement un fichier de sauvegarde pour ne rien perdre.</div></div>
+    <div class="field"><label style="color:var(--red)">Zone sensible</label>
+      <button class="cta danger sm" onclick="resetData()">Réinitialiser toutes les données</button></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="saveSettings()">Enregistrer</button></div>`);
+}
+function saveSettings(){
+  DB.meta.defaultCurrency=val("s-cur");
+  const r=parseFloat(val("s-rate")); DB.meta.rateEurMga=(!isNaN(r)&&r>0)?r:DB.meta.rateEurMga;
+  save(); closeModal(); document.getElementById("currency-indicator").textContent=DB.meta.defaultCurrency==="MGA"?"Ar / €":"€ / Ar";
+  refreshAll(); toast("Paramètres enregistrés.");
+}
+function exportData(){
+  const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download="BSM_Cockpit_sauvegarde_"+todayISO()+".json"; a.click();
+  toast("Sauvegarde exportée.");
+}
+function importData(ev){
+  const f=ev.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{ try{ const d=JSON.parse(r.result);
+      if(!d.clients||!d.transactions){ toast("Fichier invalide."); return; }
+      confirmModal("Restaurer cette sauvegarde ?","Les données actuelles seront remplacées par le contenu du fichier.",()=>{
+        DB=d; DB.advice=DB.advice||{dismissed:[],edits:{},custom:[]}; save(); closeModal();
+        document.getElementById("currency-indicator").textContent=DB.meta.defaultCurrency==="MGA"?"Ar / €":"€ / Ar";
+        refreshAll(); toast("Sauvegarde restaurée."); });
+    }catch(e){ toast("Impossible de lire le fichier."); } };
+  r.readAsText(f); ev.target.value="";
+}
+function resetData(){
+  confirmModal("Tout réinitialiser ?","Toutes les données de ce cockpit seront effacées et remplacées par des exemples fictifs. Pensez à exporter une sauvegarde avant.",()=>{
+    DB=seedDB(); save(); closeModal(); refreshAll(); toast("Données réinitialisées.");});
+}
+
+/* ----------------------------- Ajout rapide ----------------------------- */
+function quickAdd(){
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>Ajout rapide</h2>
+    <div class="msub">Que voulez-vous ajouter ?</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <button class="cta ghost" onclick="closeModal();openClientForm()">👥 Client</button>
+      <button class="cta ghost" onclick="closeModal();openEventForm()">📅 Événement</button>
+      <button class="cta ghost" onclick="closeModal();openTxForm(null,'entrant')">＋ Entrée / CA</button>
+      <button class="cta ghost" onclick="closeModal();openTxForm(null,'sortant')">－ Dépense</button>
+    </div>`);
+}
+
+/* ----------------------------- Utilitaires ----------------------------- */
+function openModal(html){ document.getElementById("modal-content").innerHTML=html; document.getElementById("overlay").classList.add("show"); }
+function closeModal(){ document.getElementById("overlay").classList.remove("show"); }
+function confirmModal(title, text, onYes){
+  window.__yes=onYes;
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>${title}</h2>
+    <div class="x" style="font-size:13.5px;color:var(--ink);line-height:1.6;margin:8px 0 16px">${text}</div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta danger" onclick="(window.__yes||function(){})()">Confirmer</button></div>`);
+}
+function val(id){ const e=document.getElementById(id); return e?e.value:""; }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+function cap(s){ return s?s.charAt(0).toUpperCase()+s.slice(1):s; }
+function statusBadge(s){ return {actif:"b-actif",prospect:"b-prospect",archive:"b-archive"}[s]||"b-grey"; }
+function evBadge(t){ return {audit:"b-blue",prospect:"b-prospect",rdv:"b-green",autre:"b-grey"}[t]||"b-grey"; }
+function frDate(iso){ if(!iso) return "—"; const [y,m,d]=iso.split("-"); return `${d}/${m}/${y}`; }
+function isoOffset(n){ const d=new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(window.__tt); window.__tt=setTimeout(()=>t.classList.remove("show"),2600); }
+
+/* ----------------------------- Missions R5 ----------------------------- */
+function nextRef(prefix, arr){
+  let max=0; arr.forEach(x=>{ const m=(x.ref||"").match(new RegExp(prefix+"-?(\\d+)")); if(m)max=Math.max(max,parseInt(m[1])); });
+  return prefix+"-"+String(max+1).padStart(3,"0");
+}
+function r5MiniHtml(phase){
+  const i=R5_PHASES.indexOf(phase);
+  return `<div class="r5mini">`+R5_PHASES.map((p,idx)=>`<div class="${i>=0&&idx<=i?'on':''}" title="${R5_LABELS[p]}"></div>`).join("")+`</div>`;
+}
+function renderMissions(){
+  const list=DB.missions.slice().sort((a,b)=>(a.ref||"").localeCompare(b.ref||""));
+  document.getElementById("scr-missions").innerHTML=`
+    <div class="pagetitle"><div><h1>Missions R5®</h1><div class="sub">Contrats, phases R5, montants & livrables</div></div>
+      <button class="cta" onclick="openMissionForm()">+ Nouvelle mission</button></div>
+    <div class="card">
+      ${list.length? `<table><thead><tr><th>Réf</th><th>Client</th><th>Type</th><th>Phase R5</th><th>Montant HT</th><th>Solde dû</th><th>Livrables</th><th>Statut</th><th></th></tr></thead><tbody>`+
+      list.map(m=>{const solde=(m.montantHT||0)-(m.acompte||0);const docs=[m.nda?"NDA":"",m.contrat?"Contrat":"",m.rapport?"Rapport":""].filter(Boolean).join(" · ")||"—";
+        return `<tr><td><b>${esc(m.ref||"—")}</b></td><td>${clientName(m.clientId)}</td><td>${esc(m.type||"—")}</td>
+        <td>${r5MiniHtml(m.phase)}<div style="font-size:10.5px;color:var(--muted);margin-top:3px">${R5_LABELS[m.phase]||esc(m.phase||"")}</div></td>
+        <td>${m.montantHT?fmt(m.montantHT,m.currency):"—"}</td>
+        <td style="${solde>0?'color:var(--orange);font-weight:600':''}">${m.montantHT?fmt(solde,m.currency):"—"}</td>
+        <td style="font-size:11.5px">${docs}</td>
+        <td><span class="badge ${m.status==='termine'?'b-green':m.status==='suspendue'?'b-grey':'b-blue'}">${m.status==='termine'?'Terminée':m.status==='suspendue'?'Suspendue':'En cours'}</span></td>
+        <td><div class="rowact"><button class="iconbtn" onclick="openMissionForm('${m.id}')">✎</button><button class="iconbtn del" onclick="deleteMission('${m.id}')">🗑</button></div></td></tr>`;}).join("")+`</tbody></table>`
+      : `<div class="empty">Aucune mission. Cliquez « + Nouvelle mission » ou importez depuis le Sheet R5.</div>`}
+    </div>`;
+}
+function openMissionForm(id){
+  const m=id?DB.missions.find(x=>x.id===id):{phase:"REVEAL",status:"en_cours",currency:DB.meta.defaultCurrency,nda:false,contrat:false,rapport:false,startDate:todayISO()};
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>${id?"Modifier la mission":"Nouvelle mission"}</h2>
+    <div class="field row2"><label>Référence & client</label>
+      <input id="f-ref" value="${esc(m.ref||nextRef('MIS',DB.missions))}">
+      <select id="f-mclient"><option value="">— Client —</option>${DB.clients.map(c=>`<option value="${c.id}" ${m.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+    <div class="field row2"><label>Type & phase R5</label>
+      <select id="f-mtype">${MISSION_TYPES.map(x=>`<option ${m.type===x?'selected':''}>${x}</option>`).join("")}</select>
+      <select id="f-mphase">${R5_PHASES.map(p=>`<option value="${p}" ${m.phase===p?'selected':''}>${R5_LABELS[p]}</option>`).join("")}</select></div>
+    <div class="field row2"><label>Dates début / fin prévue</label>
+      <input type="date" id="f-mstart" value="${m.startDate||''}"><input type="date" id="f-mend" value="${m.endDate||''}"></div>
+    <div class="field row2"><label>Montant HT & devise</label>
+      <input type="number" id="f-mmontant" value="${m.montantHT!=null?m.montantHT:''}"><select id="f-mcur">${["MGA","EUR"].map(c=>`<option value="${c}" ${m.currency===c?'selected':''}>${c==='MGA'?'Ariary':'Euro'}</option>`).join("")}</select></div>
+    <div class="field"><label>Acompte reçu</label><input type="number" id="f-macompte" value="${m.acompte!=null?m.acompte:''}"></div>
+    <div class="field"><label>Livrables</label>
+      <label style="display:inline;font-weight:400"><input type="checkbox" id="f-nda" ${m.nda?'checked':''}> NDA</label>
+      <label style="display:inline;font-weight:400;margin-left:14px"><input type="checkbox" id="f-contrat" ${m.contrat?'checked':''}> Contrat</label>
+      <label style="display:inline;font-weight:400;margin-left:14px"><input type="checkbox" id="f-rapport" ${m.rapport?'checked':''}> Rapport</label></div>
+    <div class="field"><label>Statut</label><select id="f-mstatus">${[["en_cours","En cours"],["termine","Terminée"],["suspendue","Suspendue"]].map(s=>`<option value="${s[0]}" ${m.status===s[0]?'selected':''}>${s[1]}</option>`).join("")}</select></div>
+    <div class="field"><label>Notes</label><textarea id="f-mnotes" rows="2">${esc(m.notes||'')}</textarea></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveMission('${id||''}')">Enregistrer</button></div>`);
+}
+function saveMission(id){
+  const obj={ref:val("f-ref").trim(),clientId:val("f-mclient"),type:val("f-mtype"),phase:val("f-mphase"),startDate:val("f-mstart"),endDate:val("f-mend"),
+    montantHT:parseFloat(val("f-mmontant"))||0,currency:val("f-mcur"),acompte:parseFloat(val("f-macompte"))||0,
+    nda:document.getElementById("f-nda").checked,contrat:document.getElementById("f-contrat").checked,rapport:document.getElementById("f-rapport").checked,
+    status:val("f-mstatus"),notes:val("f-mnotes")};
+  if(id){Object.assign(DB.missions.find(x=>x.id===id),obj);}else{obj.id=uid();DB.missions.push(obj);}
+  save();closeModal();renderMissions();toast("Mission enregistrée.");
+}
+function deleteMission(id){
+  const linked=DB.risks.filter(r=>r.missionId===id).length;
+  confirmModal("Supprimer cette mission ?", (linked?`${linked} risque(s) y sont liés (ils perdront le lien). `:"")+"Action définitive.",
+    ()=>{DB.missions=DB.missions.filter(x=>x.id!==id);DB.risks.forEach(r=>{if(r.missionId===id)r.missionId="";});save();renderMissions();toast("Mission supprimée.");});
+}
+
+/* ----------------------------- Matrice des risques ----------------------------- */
+let riskFC="tous", riskFN="tous";
+function renderRisks(){
+  let list=DB.risks.slice();
+  if(riskFC!=="tous") list=list.filter(r=>r.clientId===riskFC);
+  if(riskFN!=="tous") list=list.filter(r=>r5Niveau(r.probabilite*r.impact)===riskFN);
+  list.sort((a,b)=>(b.probabilite*b.impact)-(a.probabilite*a.impact));
+  document.getElementById("scr-risks").innerHTML=`
+    <div class="pagetitle"><div><h1>Matrice des risques</h1><div class="sub">Identification, cotation P×I, niveau & traitement</div></div>
+      <button class="cta" onclick="openRiskForm()">+ Nouveau risque</button></div>
+    <div class="filters">
+      <select class="chip" style="padding:6px 10px" onchange="riskFC=this.value;renderRisks()"><option value="tous">Tous les clients</option>${DB.clients.map(c=>`<option value="${c.id}" ${riskFC===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select>
+      ${["tous","CRITIQUE","HAUTE","MOYENNE","FAIBLE"].map(n=>`<button class="chip ${riskFN===n?'active':''}" onclick="riskFN='${n}';renderRisks()">${n==='tous'?'Tous niveaux':cap(n.toLowerCase())}</button>`).join("")}
+    </div>
+    <div class="card">
+      ${list.length?`<table><thead><tr><th>Réf</th><th>Client</th><th>Famille / Catégorie</th><th>Description</th><th>P</th><th>I</th><th>Score</th><th>Niveau</th><th>Statut</th><th></th></tr></thead><tbody>`+
+      list.map(r=>{const sc=r.probabilite*r.impact;const nv=r5Niveau(sc);return `<tr>
+        <td><b>${esc(r.ref||"—")}</b></td><td>${clientName(r.clientId)}</td>
+        <td>${esc(r.famille||"—")}<br><span style="color:var(--muted);font-size:11.5px">${esc(r.categorie||"")}</span></td>
+        <td style="max-width:240px">${esc(r.description||"—")}</td>
+        <td>${r.probabilite}</td><td>${r.impact}</td><td><b>${sc}</b></td>
+        <td><span class="badge ${r5Badge(nv)}">${nv}</span></td>
+        <td><span class="badge ${r.status==='traite'?'b-green':r.status==='en_cours'?'b-orange':'b-grey'}">${r.status==='traite'?'Traité':r.status==='en_cours'?'En cours':'À traiter'}</span></td>
+        <td><div class="rowact"><button class="iconbtn" onclick="openRiskForm('${r.id}')">✎</button><button class="iconbtn del" onclick="deleteRisk('${r.id}')">🗑</button></div></td></tr>`;}).join("")+`</tbody></table>`
+      :`<div class="empty">Aucun risque. Ajoutez-en ou importez depuis le Sheet R5 (⇊ Importer R5).</div>`}
+    </div>`;
+}
+function openRiskForm(id){
+  const r=id?DB.risks.find(x=>x.id===id):{probabilite:3,impact:3,status:"a_traiter",dateSaisie:todayISO()};
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>${id?"Modifier le risque":"Nouveau risque"}</h2>
+    <div class="field row2"><label>Réf & client</label>
+      <input id="f-rref" value="${esc(r.ref||nextRef('R',DB.risks))}">
+      <select id="f-rclient"><option value="">— Client —</option>${DB.clients.map(c=>`<option value="${c.id}" ${r.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+    <div class="field row2"><label>Famille & catégorie</label>
+      <select id="f-rfam">${RISK_FAMILIES.map(x=>`<option ${r.famille===x?'selected':''}>${x}</option>`).join("")}</select>
+      <select id="f-rcat">${RISK_CATEGORIES.map(x=>`<option ${r.categorie===x?'selected':''}>${x}</option>`).join("")}</select></div>
+    <div class="field"><label>Description du risque</label><textarea id="f-rdesc" rows="2">${esc(r.description||'')}</textarea></div>
+    <div class="field row2"><label>Probabilité (1-5) & Impact (1-5)</label>
+      <select id="f-rprob">${[1,2,3,4,5].map(n=>`<option ${r.probabilite===n?'selected':''}>${n}</option>`).join("")}</select>
+      <select id="f-rimp">${[1,2,3,4,5].map(n=>`<option ${r.impact===n?'selected':''}>${n}</option>`).join("")}</select></div>
+    <div class="field"><label>Mission liée</label><select id="f-rmission"><option value="">— Aucune —</option>${DB.missions.map(m=>`<option value="${m.id}" ${r.missionId===m.id?'selected':''}>${esc(m.ref||m.type)} — ${clientName(m.clientId)}</option>`).join("")}</select></div>
+    <div class="field"><label>Mesures existantes</label><input id="f-rmes" value="${esc(r.mesures||'')}"></div>
+    <div class="field"><label>Recommandation BSM</label><textarea id="f-rreco" rows="2">${esc(r.recoBSM||'')}</textarea></div>
+    <div class="field row2"><label>Responsable & délai</label>
+      <input id="f-rresp" value="${esc(r.responsable||'')}"><input id="f-rdelai" placeholder="< 30 jours" value="${esc(r.delai||'')}"></div>
+    <div class="field"><label>Statut</label><select id="f-rstatus">${[["a_traiter","À traiter"],["en_cours","En cours"],["traite","Traité"]].map(s=>`<option value="${s[0]}" ${r.status===s[0]?'selected':''}>${s[1]}</option>`).join("")}</select></div>
+    <div class="hint">Score P×I calculé automatiquement · CRITIQUE ≥ 15 · HAUTE 9-14 · MOYENNE 4-8 · FAIBLE ≤ 3.</div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveRisk('${id||''}')">Enregistrer</button></div>`);
+}
+function saveRisk(id){
+  const obj={ref:val("f-rref").trim(),clientId:val("f-rclient"),famille:val("f-rfam"),categorie:val("f-rcat"),
+    description:val("f-rdesc"),probabilite:parseInt(val("f-rprob")),impact:parseInt(val("f-rimp")),missionId:val("f-rmission"),
+    mesures:val("f-rmes"),recoBSM:val("f-rreco"),responsable:val("f-rresp"),delai:val("f-rdelai"),status:val("f-rstatus")};
+  if(id){Object.assign(DB.risks.find(x=>x.id===id),obj);}else{obj.id=uid();obj.dateSaisie=todayISO();DB.risks.push(obj);}
+  save();closeModal();renderRisks();toast("Risque enregistré.");
+}
+function deleteRisk(id){
+  const r=DB.risks.find(x=>x.id===id);
+  confirmModal("Supprimer ce risque ?", esc(r.description||r.categorie||r.ref||""), ()=>{DB.risks=DB.risks.filter(x=>x.id!==id);save();renderRisks();toast("Risque supprimé.");});
+}
+
+/* ----------------------------- Cartographie ----------------------------- */
+let cartoClient="tous";
+function bandColorR5(score){
+  if(score>=15) return "rgba(192,57,43,0.28)";
+  if(score>=9) return "rgba(217,119,6,0.26)";
+  if(score>=4) return "rgba(183,137,26,0.22)";
+  return "rgba(47,133,90,0.18)";
+}
+function renderCarto(){
+  let risks=DB.risks.slice();
+  if(cartoClient!=="tous") risks=risks.filter(r=>r.clientId===cartoClient);
+  let cells="";const yl=["5","4","3","2","1"];
+  for(let row=0;row<5;row++){const p=5-row;cells+=`<div class="yl">${yl[row]}</div>`;
+    for(let i=1;i<=5;i++){const sc=p*i;const here=risks.filter(r=>r.probabilite===p&&r.impact===i);
+      cells+=`<div class="cell" style="background:${bandColorR5(sc)}">`+here.map(r=>`<div class="rdot" title="${esc(r.description||r.categorie)}" onclick="openRiskForm('${r.id}')">${sc}</div>`).join("")+`</div>`;}}
+  cells+=`<div></div>`+["1","2","3","4","5"].map(x=>`<div class="xl">${x}</div>`).join("");
+  const fam={};risks.forEach(r=>{fam[r.famille]=(fam[r.famille]||0)+1;});
+  const niv={CRITIQUE:0,HAUTE:0,MOYENNE:0,FAIBLE:0};risks.forEach(r=>{niv[r5Niveau(r.probabilite*r.impact)]++;});
+  document.getElementById("scr-carto").innerHTML=`
+    <div class="pagetitle"><div><h1>Cartographie des risques</h1><div class="sub">Heatmap Probabilité × Impact — ${risks.length} risque(s)</div></div>
+      <select class="chip" style="padding:7px 10px" onchange="cartoClient=this.value;renderCarto()"><option value="tous">Tous les clients</option>${DB.clients.map(c=>`<option value="${c.id}" ${cartoClient===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+    <div class="grid2 wide">
+      <div class="card">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px">↑ Probabilité &nbsp;·&nbsp; Impact →</div>
+        <div class="heat-wrap"><div class="heat">${cells}</div></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;font-size:11.5px">
+          <span class="badge b-red">CRITIQUE ≥15</span><span class="badge b-orange">HAUTE 9-14</span>
+          <span class="badge b-amber">MOYENNE 4-8</span><span class="badge b-green">FAIBLE ≤3</span></div>
+      </div>
+      <div class="card">
+        <h2>Répartition par niveau</h2>
+        <div class="mini-list">${Object.entries(niv).map(([k,v])=>`<div class="li"><span class="badge ${r5Badge(k)}">${k}</span><b>${v}</b></div>`).join("")}</div>
+        <h2 style="margin-top:16px">Par famille de risque</h2>
+        <div class="mini-list">${Object.keys(fam).length?Object.entries(fam).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="li"><span>${esc(k)}</span><b>${v}</b></div>`).join(""):`<div class="empty">Aucun risque.</div>`}</div>
+      </div>
+    </div>`;
+}
+
+/* ----------------------------- Recommandations & suivi ----------------------------- */
+let recoFilter="tous";
+function recoPrioBadge(p){return {"Critique":"b-red","Élevée":"b-orange","Modérée":"b-amber","Faible":"b-grey"}[p]||"b-grey";}
+function renderRecos(){
+  let list=DB.recommendations.slice();
+  if(recoFilter!=="tous") list=list.filter(r=>r.status===recoFilter);
+  list.sort((a,b)=>(a.ref||"").localeCompare(b.ref||""));
+  document.getElementById("scr-recos").innerHTML=`
+    <div class="pagetitle"><div><h1>Recommandations & suivi</h1><div class="sub">Plan d'action R5 (Respond → Strengthen)</div></div>
+      <button class="cta" onclick="openRecoForm()">+ Nouvelle recommandation</button></div>
+    <div class="filters">${[["tous","Toutes"],["a_faire","À faire"],["en_cours","En cours"],["fait","Fait"]].map(f=>`<button class="chip ${recoFilter===f[0]?'active':''}" onclick="recoFilter='${f[0]}';renderRecos()">${f[1]}</button>`).join("")}</div>
+    <div class="card">
+      ${list.length?`<table><thead><tr><th>Réf</th><th>Client</th><th>Recommandation</th><th>Horizon</th><th>Priorité</th><th>Resp.</th><th>Avancement</th><th>Cible</th><th></th></tr></thead><tbody>`+
+      list.map(r=>`<tr><td><b>${esc(r.ref||"—")}</b></td><td>${clientName(r.clientId)}</td>
+        <td style="max-width:260px">${esc(r.texte||"—")}</td><td style="font-size:11.5px">${esc(r.horizon||"—")}</td>
+        <td><span class="badge ${recoPrioBadge(r.priorite)}">${esc(r.priorite||"—")}</span></td><td>${esc(r.responsable||"—")}</td>
+        <td><div class="progress"><i style="width:${r.avancement||0}%"></i></div> <span style="font-size:11px">${r.avancement||0}%</span></td>
+        <td style="font-size:11.5px;${r.dateCible&&r.dateCible<todayISO()&&r.status!=='fait'?'color:var(--red)':''}">${r.dateCible?frDate(r.dateCible):"—"}</td>
+        <td><div class="rowact"><button class="iconbtn" onclick="openRecoForm('${r.id}')">✎</button><button class="iconbtn del" onclick="deleteReco('${r.id}')">🗑</button></div></td></tr>`).join("")+`</tbody></table>`
+      :`<div class="empty">Aucune recommandation.</div>`}
+    </div>`;
+}
+function openRecoForm(id){
+  const r=id?DB.recommendations.find(x=>x.id===id):{status:"a_faire",priorite:"Élevée",horizon:RECO_HORIZONS[1],avancement:0};
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>${id?"Modifier la recommandation":"Nouvelle recommandation"}</h2>
+    <div class="field row2"><label>Réf & client</label>
+      <input id="f-xref" value="${esc(r.ref||nextRef('REC',DB.recommendations))}">
+      <select id="f-xclient"><option value="">— Client —</option>${DB.clients.map(c=>`<option value="${c.id}" ${r.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+    <div class="field"><label>Recommandation</label><textarea id="f-xtexte" rows="2">${esc(r.texte||'')}</textarea></div>
+    <div class="field"><label>Risque lié</label><select id="f-xrisk"><option value="">— Aucun —</option>${DB.risks.map(x=>`<option value="${x.id}" ${r.riskId===x.id?'selected':''}>${esc(x.ref||x.categorie)} — ${clientName(x.clientId)}</option>`).join("")}</select></div>
+    <div class="field row2"><label>Horizon & priorité</label>
+      <select id="f-xhorizon">${RECO_HORIZONS.map(x=>`<option ${r.horizon===x?'selected':''}>${x}</option>`).join("")}</select>
+      <select id="f-xprio">${RECO_PRIORITIES.map(x=>`<option ${r.priorite===x?'selected':''}>${x}</option>`).join("")}</select></div>
+    <div class="field row2"><label>Responsable & moyens/budget</label>
+      <input id="f-xresp" value="${esc(r.responsable||'')}"><input id="f-xmoyens" value="${esc(r.moyens||'')}"></div>
+    <div class="field"><label>Indicateur de succès</label><input id="f-xind" value="${esc(r.indicateur||'')}"></div>
+    <div class="field row2"><label>Statut & avancement (%)</label>
+      <select id="f-xstatus">${[["a_faire","À faire"],["en_cours","En cours"],["fait","Fait"]].map(s=>`<option value="${s[0]}" ${r.status===s[0]?'selected':''}>${s[1]}</option>`).join("")}</select>
+      <input type="number" id="f-xav" min="0" max="100" value="${r.avancement||0}"></div>
+    <div class="field row2"><label>Date cible & réalisation</label>
+      <input type="date" id="f-xcible" value="${r.dateCible||''}"><input type="date" id="f-xreal" value="${r.dateReal||''}"></div>
+    <div class="field"><label>Commentaire de suivi</label><textarea id="f-xcom" rows="2">${esc(r.commentaire||'')}</textarea></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveReco('${id||''}')">Enregistrer</button></div>`);
+}
+function saveReco(id){
+  const obj={ref:val("f-xref").trim(),clientId:val("f-xclient"),texte:val("f-xtexte"),riskId:val("f-xrisk"),
+    horizon:val("f-xhorizon"),priorite:val("f-xprio"),responsable:val("f-xresp"),moyens:val("f-xmoyens"),indicateur:val("f-xind"),
+    status:val("f-xstatus"),avancement:Math.max(0,Math.min(100,parseInt(val("f-xav"))||0)),dateCible:val("f-xcible"),dateReal:val("f-xreal"),commentaire:val("f-xcom")};
+  if(id){Object.assign(DB.recommendations.find(x=>x.id===id),obj);}else{obj.id=uid();DB.recommendations.push(obj);}
+  save();closeModal();renderRecos();toast("Recommandation enregistrée.");
+}
+function deleteReco(id){
+  const r=DB.recommendations.find(x=>x.id===id);
+  confirmModal("Supprimer cette recommandation ?", esc(r.texte||r.ref||""), ()=>{DB.recommendations=DB.recommendations.filter(x=>x.id!==id);save();renderRecos();toast("Supprimée.");});
+}
+
+/* ----------------------------- RH & équipe ----------------------------- */
+let rhTab="personnel";
+function empName(id){const e=DB.employees.find(x=>x.id===id);return e?e.name:"—";}
+function renderRH(){
+  const tabs=[["personnel","Personnel"],["recrutement","Recrutement"],["conges","Congés & absences"],["activites","Activités"]];
+  const body={personnel:rhPersonnel,recrutement:rhRecrutement,conges:rhConges,activites:rhActivites}[rhTab]();
+  const addmap={personnel:["openEmployeeForm()","+ Collaborateur"],recrutement:["openRecruitForm()","+ Poste à pourvoir"],conges:["openLeaveForm()","+ Congé / absence"],activites:["openActivityForm()","+ Activité"]};
+  document.getElementById("scr-rh").innerHTML=`
+    <div class="pagetitle"><div><h1>RH & équipe</h1><div class="sub">Personnel, recrutement, congés, activités — tout modifiable</div></div>
+      <button class="cta" onclick="${addmap[rhTab][0]}">${addmap[rhTab][1]}</button></div>
+    <div class="subtabs">${tabs.map(t=>`<div class="subtab ${rhTab===t[0]?'active':''}" onclick="rhTab='${t[0]}';renderRH()">${t[1]}</div>`).join("")}</div>
+    ${body}`;
+}
+function rhPersonnel(){
+  const list=DB.employees.slice();
+  return `<div class="card">${list.length?`<table><thead><tr><th>Nom</th><th>Poste</th><th>Pôle / secteurs</th><th>Permission</th><th>Contrat</th><th>Statut</th><th></th></tr></thead><tbody>`+
+    list.map(e=>`<tr><td><b>${esc(e.name)}</b>${e.email?`<br><span style="color:var(--muted);font-size:11.5px">${esc(e.email)}</span>`:""}</td>
+      <td>${esc(e.poste||"—")}</td><td>${esc(e.pole||"—")}${e.secteurs?`<br><span style="color:var(--muted);font-size:11.5px">${esc(e.secteurs)}</span>`:""}</td>
+      <td><span class="badge b-blue">${esc(e.permission||"—")}</span></td><td>${esc(e.contract||"—")}</td>
+      <td><span class="badge ${e.status==='actif'?'b-actif':e.status==='recrutement'?'b-prospect':'b-archive'}">${e.status==='actif'?'Actif':e.status==='recrutement'?'Recrutement':'Inactif'}</span></td>
+      <td><div class="rowact"><button class="iconbtn" onclick="openEmployeeForm('${e.id}')">✎</button><button class="iconbtn del" onclick="deleteEmployee('${e.id}')">🗑</button></div></td></tr>`).join("")+`</tbody></table>`
+    :`<div class="empty">Aucun collaborateur.</div>`}</div>`;
+}
+function openEmployeeForm(id){
+  const e=id?DB.employees.find(x=>x.id===id):{status:"actif",permission:"Consultant",contract:"CDI",pole:RH_POLES[1]};
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>${id?"Modifier le collaborateur":"Nouveau collaborateur"}</h2>
+    <div class="field"><label>Nom complet *</label><input id="f-ename" value="${esc(e.name||'')}"></div>
+    <div class="field row2"><label>Poste & pôle</label>
+      <input id="f-eposte" value="${esc(e.poste||'')}"><select id="f-epole">${RH_POLES.map(x=>`<option ${e.pole===x?'selected':''}>${x}</option>`).join("")}</select></div>
+    <div class="field row2"><label>Permission & contrat</label>
+      <select id="f-eperm">${RH_PERMISSIONS.map(x=>`<option ${e.permission===x?'selected':''}>${x}</option>`).join("")}</select>
+      <select id="f-econtract">${CONTRACT_TYPES.map(x=>`<option ${e.contract===x?'selected':''}>${x}</option>`).join("")}</select></div>
+    <div class="field"><label>Secteurs / domaines d'intervention</label><input id="f-esect" value="${esc(e.secteurs||'')}"></div>
+    <div class="field"><label>Missions affectées</label><input id="f-emiss" value="${esc(e.missionsAff||'')}"></div>
+    <div class="field row2"><label>Téléphone & email</label>
+      <input id="f-ephone" value="${esc(e.phone||'')}"><input id="f-eemail" value="${esc(e.email||'')}"></div>
+    <div class="field row2"><label>Date d'embauche & statut</label>
+      <input type="date" id="f-ehire" value="${e.hireDate||''}">
+      <select id="f-estatus">${[["actif","Actif"],["recrutement","En recrutement"],["inactif","Inactif"]].map(s=>`<option value="${s[0]}" ${e.status===s[0]?'selected':''}>${s[1]}</option>`).join("")}</select></div>
+    <div class="field"><label>Notes</label><textarea id="f-enotes" rows="2">${esc(e.notes||'')}</textarea></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveEmployee('${id||''}')">Enregistrer</button></div>`);
+}
+function saveEmployee(id){
+  const name=val("f-ename").trim();if(!name){toast("Le nom est obligatoire.");return;}
+  const obj={name,poste:val("f-eposte"),pole:val("f-epole"),permission:val("f-eperm"),contract:val("f-econtract"),
+    secteurs:val("f-esect"),missionsAff:val("f-emiss"),phone:val("f-ephone"),email:val("f-eemail"),hireDate:val("f-ehire"),status:val("f-estatus"),notes:val("f-enotes")};
+  if(id){Object.assign(DB.employees.find(x=>x.id===id),obj);}else{obj.id=uid();DB.employees.push(obj);}
+  save();closeModal();renderRH();toast("Collaborateur enregistré.");
+}
+function deleteEmployee(id){
+  const e=DB.employees.find(x=>x.id===id);
+  confirmModal("Supprimer ce collaborateur ?", esc(e.name), ()=>{DB.employees=DB.employees.filter(x=>x.id!==id);save();renderRH();toast("Supprimé.");});
+}
+function rhRecrutement(){
+  const list=DB.recruitments.slice();
+  return `<div class="card">${list.length?`<table><thead><tr><th>Poste</th><th>Pôle</th><th>Statut</th><th>Candidats</th><th>Ouvert le</th><th></th></tr></thead><tbody>`+
+    list.map(r=>`<tr><td><b>${esc(r.poste)}</b></td><td>${esc(r.pole||"—")}</td>
+      <td><span class="badge ${r.status==='clos'?'b-green':r.status==='offre'?'b-blue':'b-prospect'}">${cap(r.status||"ouvert")}</span></td>
+      <td>${esc(r.candidates||"—")}</td><td>${r.openedDate?frDate(r.openedDate):"—"}</td>
+      <td><div class="rowact"><button class="iconbtn" onclick="openRecruitForm('${r.id}')">✎</button><button class="iconbtn del" onclick="deleteRecruit('${r.id}')">🗑</button></div></td></tr>`).join("")+`</tbody></table>`
+    :`<div class="empty">Aucun recrutement en cours.</div>`}</div>`;
+}
+function openRecruitForm(id){
+  const r=id?DB.recruitments.find(x=>x.id===id):{status:"ouvert",pole:RH_POLES[1],openedDate:todayISO()};
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>${id?"Modifier le recrutement":"Nouveau poste à pourvoir"}</h2>
+    <div class="field"><label>Intitulé du poste *</label><input id="f-rposte" value="${esc(r.poste||'')}"></div>
+    <div class="field row2"><label>Pôle & statut</label>
+      <select id="f-rpole">${RH_POLES.map(x=>`<option ${r.pole===x?'selected':''}>${x}</option>`).join("")}</select>
+      <select id="f-rstat">${[["ouvert","Ouvert"],["entretiens","Entretiens"],["offre","Offre"],["clos","Clos"]].map(s=>`<option value="${s[0]}" ${r.status===s[0]?'selected':''}>${s[1]}</option>`).join("")}</select></div>
+    <div class="field"><label>Candidats / avancement</label><input id="f-rcand" value="${esc(r.candidates||'')}"></div>
+    <div class="field"><label>Ouvert le</label><input type="date" id="f-ropen" value="${r.openedDate||''}"></div>
+    <div class="field"><label>Notes</label><textarea id="f-rnotes2" rows="2">${esc(r.notes||'')}</textarea></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveRecruit('${id||''}')">Enregistrer</button></div>`);
+}
+function saveRecruit(id){
+  const poste=val("f-rposte").trim();if(!poste){toast("Intitulé obligatoire.");return;}
+  const obj={poste,pole:val("f-rpole"),status:val("f-rstat"),candidates:val("f-rcand"),openedDate:val("f-ropen"),notes:val("f-rnotes2")};
+  if(id){Object.assign(DB.recruitments.find(x=>x.id===id),obj);}else{obj.id=uid();DB.recruitments.push(obj);}
+  save();closeModal();renderRH();toast("Recrutement enregistré.");
+}
+function deleteRecruit(id){confirmModal("Supprimer ce recrutement ?","",()=>{DB.recruitments=DB.recruitments.filter(x=>x.id!==id);save();renderRH();toast("Supprimé.");});}
+function rhConges(){
+  const list=DB.leaves.slice().sort((a,b)=>(b.start||"").localeCompare(a.start||""));
+  return `<div class="card">${list.length?`<table><thead><tr><th>Collaborateur</th><th>Type</th><th>Du</th><th>Au</th><th>Statut</th><th></th></tr></thead><tbody>`+
+    list.map(l=>`<tr><td><b>${esc(empName(l.employeeId))}</b></td><td>${esc(l.type||"—")}</td><td>${l.start?frDate(l.start):"—"}</td><td>${l.end?frDate(l.end):"—"}</td>
+      <td><span class="badge ${l.status==='approuve'?'b-green':l.status==='refuse'?'b-red':'b-prospect'}">${l.status==='approuve'?'Approuvé':l.status==='refuse'?'Refusé':'Demandé'}</span></td>
+      <td><div class="rowact"><button class="iconbtn" onclick="openLeaveForm('${l.id}')">✎</button><button class="iconbtn del" onclick="deleteLeave('${l.id}')">🗑</button></div></td></tr>`).join("")+`</tbody></table>`
+    :`<div class="empty">Aucun congé / absence.</div>`}</div>`;
+}
+function openLeaveForm(id){
+  if(!DB.employees.length){toast("Ajoute d'abord un collaborateur.");return;}
+  const l=id?DB.leaves.find(x=>x.id===id):{status:"demande",type:LEAVE_TYPES[0],start:todayISO(),end:todayISO()};
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>${id?"Modifier":"Congé / absence"}</h2>
+    <div class="field"><label>Collaborateur</label><select id="f-lemp">${DB.employees.map(e=>`<option value="${e.id}" ${l.employeeId===e.id?'selected':''}>${esc(e.name)}</option>`).join("")}</select></div>
+    <div class="field"><label>Type</label><select id="f-ltype">${LEAVE_TYPES.map(x=>`<option ${l.type===x?'selected':''}>${x}</option>`).join("")}</select></div>
+    <div class="field row2"><label>Du / au</label><input type="date" id="f-lstart" value="${l.start||''}"><input type="date" id="f-lend" value="${l.end||''}"></div>
+    <div class="field"><label>Statut</label><select id="f-lstatus">${[["demande","Demandé"],["approuve","Approuvé"],["refuse","Refusé"]].map(s=>`<option value="${s[0]}" ${l.status===s[0]?'selected':''}>${s[1]}</option>`).join("")}</select></div>
+    <div class="field"><label>Notes</label><textarea id="f-lnotes" rows="2">${esc(l.notes||'')}</textarea></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveLeave('${id||''}')">Enregistrer</button></div>`);
+}
+function saveLeave(id){
+  const obj={employeeId:val("f-lemp"),type:val("f-ltype"),start:val("f-lstart"),end:val("f-lend"),status:val("f-lstatus"),notes:val("f-lnotes")};
+  if(id){Object.assign(DB.leaves.find(x=>x.id===id),obj);}else{obj.id=uid();DB.leaves.push(obj);}
+  save();closeModal();renderRH();toast("Enregistré.");
+}
+function deleteLeave(id){confirmModal("Supprimer ?","",()=>{DB.leaves=DB.leaves.filter(x=>x.id!==id);save();renderRH();toast("Supprimé.");});}
+function rhActivites(){
+  const list=DB.activities.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  return `<div class="card">${list.length?`<table><thead><tr><th>Date</th><th>Collaborateur</th><th>Activité</th><th>Mission</th><th>Heures</th><th></th></tr></thead><tbody>`+
+    list.map(a=>`<tr><td>${a.date?frDate(a.date):"—"}</td><td><b>${esc(empName(a.employeeId))}</b></td><td>${esc(a.label||"—")}</td><td>${esc(a.missionRef||"—")}</td><td>${a.hours||"—"}</td>
+      <td><div class="rowact"><button class="iconbtn" onclick="openActivityForm('${a.id}')">✎</button><button class="iconbtn del" onclick="deleteActivity('${a.id}')">🗑</button></div></td></tr>`).join("")+`</tbody></table>`
+    :`<div class="empty">Aucune activité enregistrée.</div>`}</div>`;
+}
+function openActivityForm(id){
+  if(!DB.employees.length){toast("Ajoute d'abord un collaborateur.");return;}
+  const a=id?DB.activities.find(x=>x.id===id):{date:todayISO()};
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>${id?"Modifier l'activité":"Nouvelle activité"}</h2>
+    <div class="field"><label>Collaborateur</label><select id="f-aemp">${DB.employees.map(e=>`<option value="${e.id}" ${a.employeeId===e.id?'selected':''}>${esc(e.name)}</option>`).join("")}</select></div>
+    <div class="field row2"><label>Date & heures</label><input type="date" id="f-adate" value="${a.date||''}"><input type="number" id="f-ahours" step="0.5" value="${a.hours!=null&&a.hours!==''?a.hours:''}"></div>
+    <div class="field"><label>Activité / tâche</label><input id="f-alabel" value="${esc(a.label||'')}"></div>
+    <div class="field"><label>Mission liée</label><select id="f-amiss"><option value="">— Aucune —</option>${DB.missions.map(m=>`<option value="${esc(m.ref||m.type)}" ${a.missionRef===(m.ref||m.type)?'selected':''}>${esc(m.ref||m.type)} — ${clientName(m.clientId)}</option>`).join("")}</select></div>
+    <div class="field"><label>Notes</label><textarea id="f-anotes" rows="2">${esc(a.notes||'')}</textarea></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveActivity('${id||''}')">Enregistrer</button></div>`);
+}
+function saveActivity(id){
+  const obj={employeeId:val("f-aemp"),date:val("f-adate"),hours:parseFloat(val("f-ahours"))||"",label:val("f-alabel"),missionRef:val("f-amiss"),notes:val("f-anotes")};
+  if(id){Object.assign(DB.activities.find(x=>x.id===id),obj);}else{obj.id=uid();DB.activities.push(obj);}
+  save();closeModal();renderRH();toast("Activité enregistrée.");
+}
+function deleteActivity(id){confirmModal("Supprimer cette activité ?","",()=>{DB.activities=DB.activities.filter(x=>x.id!==id);save();renderRH();toast("Supprimé.");});}
+
+/* ----------------------------- Audit terrain ----------------------------- */
+function renderAudit(){
+  document.getElementById("scr-audit").innerHTML=`
+    <div class="pagetitle"><div><h1>Audit terrain</h1><div class="sub">Formulaire d'audit BSM R5 (Google Forms) + import des réponses</div></div>
+      <a href="${AUDIT_FORM_URL}" target="_blank" rel="noopener"><button class="cta gold">Ouvrir le formulaire ↗</button></a></div>
+    <div class="infobox">
+      <b>Circuit actuel :</b> le formulaire d'audit alimente ta feuille <b>REPONSES FORMS</b> (Google Sheets R5), qui calcule scores, cartographie et recommandations.
+      Le Cockpit peut <b>importer</b> ces données (bouton « ⇊ Importer R5 » en haut) pour piloter la suite ici. Écrire en retour dans le Sheet depuis ce fichier local n'est pas possible — voir le document d'architecture.
+    </div>
+    <div class="card">
+      <iframe class="formframe" src="${AUDIT_FORM_URL}?embedded=true" title="Formulaire d'audit BSM">Chargement…</iframe>
+      <div class="hint" style="margin-top:8px">Si le formulaire ne s'affiche pas ici (selon le navigateur/connexion), utilise le bouton « Ouvrir le formulaire ↗ ».</div>
+    </div>`;
+}
+
+/* ----------------------------- Import R5 (CSV / Google Sheet publié) ----------------------------- */
+function openImport(){
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>Importer des données R5</h2>
+    <div class="msub">Depuis un fichier CSV (export du Sheet) ou en direct depuis un Google Sheet publié sur le web.</div>
+    <div class="field"><label>Type de données à importer</label>
+      <select id="imp-type">
+        <option value="clients">Clients</option>
+        <option value="risks">Matrice des risques</option>
+        <option value="missions">Missions</option>
+        <option value="recos">Recommandations</option>
+      </select></div>
+    <div class="infobox">Les colonnes sont reconnues automatiquement d'après les en-têtes de ta matrice R5 (Entreprise, Famille, Description, Probabilité, Impact…). Les lignes de titre sont ignorées.</div>
+    <div class="field"><label>Option 1 — Fichier CSV</label>
+      <input type="file" id="imp-file" accept=".csv,text/csv" onchange="doImportFile()"></div>
+    <div class="hint">Dans Google Sheets : Fichier → Télécharger → Valeurs séparées par des virgules (.csv), un onglet à la fois.</div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:14px 0">
+    <div class="field"><label>Option 2 — Google Sheet publié (lecture live)</label>
+      <input id="imp-sheeturl" placeholder="Coller l'URL du Google Sheet"></div>
+    <div class="field"><label>Nom exact de l'onglet</label><input id="imp-sheetname" placeholder="MATRICE DES RISQUES"></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="doImportLive()">Lire le Sheet en direct</button></div>
+    <div id="imp-result" class="hint" style="margin-top:10px"></div>`);
+}
+function parseCSV(text){
+  const rows=[];let row=[],cur="",q=false;
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else{ if(c==='"')q=true; else if(c===','){row.push(cur);cur="";} else if(c==='\n'){row.push(cur);rows.push(row);row=[];cur="";} else if(c==='\r'){} else cur+=c; }
+  }
+  if(cur!==""||row.length){row.push(cur);rows.push(row);}
+  return rows.filter(r=>r.some(c=>c.trim()!==""));
+}
+function norm(s){return String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();}
+function findHeaderRow(rows,keys){
+  for(let i=0;i<Math.min(rows.length,8);i++){const cells=rows[i].map(norm);if(keys.some(k=>cells.some(c=>c.includes(k))))return i;}
+  return 0;
+}
+function colIndex(header,names){const H=header.map(norm);for(const n of names){const idx=H.findIndex(h=>h.includes(norm(n)));if(idx>=0)return idx;}return -1;}
+function gv(r,i){return i>=0&&r[i]!=null?String(r[i]).trim():"";}
+function clampN(v){const n=parseInt(String(v||"").replace(/[^\d]/g,""));return isNaN(n)?1:Math.max(1,Math.min(5,n));}
+function mapStatut(s){s=norm(s);return s.includes("actif")?"actif":s.includes("archiv")?"archive":"prospect";}
+function mapRiskStatut(s){s=norm(s);return (s.includes("trait")&&!s.includes("a trait"))?"traite":s.includes("cours")?"en_cours":"a_traiter";}
+function mapMissionStatut(s){s=norm(s);return s.includes("termin")?"termine":s.includes("suspend")?"suspendue":"en_cours";}
+function mapRecoStatut(s){s=norm(s);return (s.includes("fait")||s.includes("realis"))?"fait":s.includes("cours")?"en_cours":"a_faire";}
+function mapPhase(s){s=norm(s);if(s.includes("reveal"))return"REVEAL";if(s.includes("connect"))return"CONNECT";if(s.includes("respond"))return"RESPOND";if(s.includes("strength"))return"STRENGTHEN";if(s.includes("review"))return"REVIEW";return"REVEAL";}
+function applyImport(type,rows){
+  if(type==="clients"){
+    const hr=findHeaderRow(rows,["entreprise","ref bsm","societe"]);const h=rows[hr];
+    const ci={ent:colIndex(h,["entreprise","societe"]),sect:colIndex(h,["secteur"]),contact:colIndex(h,["interlocuteur","contact"]),email:colIndex(h,["email"]),tel:colIndex(h,["telephone","tel"]),statut:colIndex(h,["statut"])};
+    let n=0,u=0;
+    for(let i=hr+1;i<rows.length;i++){const r=rows[i];const ent=gv(r,ci.ent);if(!ent)continue;
+      let c=DB.clients.find(x=>norm(x.company)===norm(ent));
+      const data={company:ent,sector:gv(r,ci.sect),contactName:gv(r,ci.contact),contactEmail:gv(r,ci.email),contactPhone:gv(r,ci.tel),status:mapStatut(gv(r,ci.statut))};
+      if(c){Object.assign(c,data);u++;}else{DB.clients.push({id:uid(),createdAt:todayISO(),notes:"",...data});n++;}}
+    return `${n} client(s) ajouté(s), ${u} mis à jour.`;
+  }
+  if(type==="risks"){
+    const hr=findHeaderRow(rows,["famille","description du risque","probabilite"]);const h=rows[hr];
+    const ci={ref:colIndex(h,["id","ref"]),ent:colIndex(h,["entreprise"]),fam:colIndex(h,["famille"]),cat:colIndex(h,["categorie"]),desc:colIndex(h,["description"]),prob:colIndex(h,["probabilite"]),imp:colIndex(h,["impact"]),mes:colIndex(h,["mesures"]),reco:colIndex(h,["recommandation"]),resp:colIndex(h,["responsable"]),delai:colIndex(h,["delai"]),statut:colIndex(h,["statut"])};
+    let n=0;
+    for(let i=hr+1;i<rows.length;i++){const r=rows[i];const desc=gv(r,ci.desc);const ent=gv(r,ci.ent);if(!desc&&!ent)continue;
+      const cl=DB.clients.find(x=>norm(x.company)===norm(ent));
+      DB.risks.push({id:uid(),ref:gv(r,ci.ref)||nextRef('R',DB.risks),clientId:cl?cl.id:"",famille:gv(r,ci.fam),categorie:gv(r,ci.cat),description:desc,probabilite:clampN(gv(r,ci.prob)),impact:clampN(gv(r,ci.imp)),mesures:gv(r,ci.mes),recoBSM:gv(r,ci.reco),responsable:gv(r,ci.resp),delai:gv(r,ci.delai),status:mapRiskStatut(gv(r,ci.statut)),missionId:"",dateSaisie:todayISO(),obs:""});n++;}
+    return `${n} risque(s) importé(s).`;
+  }
+  if(type==="missions"){
+    const hr=findHeaderRow(rows,["ref mission","type mission","phase"]);const h=rows[hr];
+    const ci={ref:colIndex(h,["ref mission","ref"]),ent:colIndex(h,["entreprise"]),type:colIndex(h,["type mission","type"]),phase:colIndex(h,["phase"]),montant:colIndex(h,["montant"]),acompte:colIndex(h,["acompte"]),statut:colIndex(h,["statut"])};
+    let n=0;
+    for(let i=hr+1;i<rows.length;i++){const r=rows[i];const ent=gv(r,ci.ent);if(!ent)continue;
+      const cl=DB.clients.find(x=>norm(x.company)===norm(ent));
+      DB.missions.push({id:uid(),ref:gv(r,ci.ref)||nextRef('MIS',DB.missions),clientId:cl?cl.id:"",type:gv(r,ci.type),phase:mapPhase(gv(r,ci.phase)),montantHT:parseFloat(gv(r,ci.montant).replace(/[^\d.]/g,""))||0,currency:"MGA",acompte:parseFloat(gv(r,ci.acompte).replace(/[^\d.]/g,""))||0,nda:false,contrat:false,rapport:false,status:mapMissionStatut(gv(r,ci.statut)),notes:""});n++;}
+    return `${n} mission(s) importée(s).`;
+  }
+  if(type==="recos"){
+    const hr=findHeaderRow(rows,["recommandation","horizon","priorite"]);const h=rows[hr];
+    const ci={ref:colIndex(h,["ref reco","#","ref"]),ent:colIndex(h,["entreprise"]),texte:colIndex(h,["recommandation"]),horizon:colIndex(h,["horizon"]),prio:colIndex(h,["priorite"]),resp:colIndex(h,["responsable"]),statut:colIndex(h,["statut"])};
+    let n=0;
+    for(let i=hr+1;i<rows.length;i++){const r=rows[i];const tx=gv(r,ci.texte);if(!tx)continue;
+      const cl=DB.clients.find(x=>norm(x.company)===norm(gv(r,ci.ent)));
+      DB.recommendations.push({id:uid(),ref:gv(r,ci.ref)||nextRef('REC',DB.recommendations),clientId:cl?cl.id:"",texte:tx,horizon:gv(r,ci.horizon),priorite:gv(r,ci.prio),responsable:gv(r,ci.resp),status:mapRecoStatut(gv(r,ci.statut)),avancement:0,dateCible:"",dateReal:"",moyens:"",indicateur:"",commentaire:"",riskId:""});n++;}
+    return `${n} recommandation(s) importée(s).`;
+  }
+  return "Type inconnu.";
+}
+function doImportFile(){
+  const fEl=document.getElementById("imp-file");const f=fEl.files[0];if(!f)return;
+  const type=val("imp-type");const rd=new FileReader();
+  rd.onload=()=>{try{const rows=parseCSV(rd.result);const msg=applyImport(type,rows);save();document.getElementById("imp-result").innerHTML="✅ "+msg;refreshAll();toast("Import terminé.");}catch(e){document.getElementById("imp-result").innerHTML="❌ Erreur de lecture du CSV.";}};
+  rd.readAsText(f);
+}
+function doImportLive(){
+  const url=val("imp-sheeturl").trim();const sheet=val("imp-sheetname").trim();const type=val("imp-type");
+  const m=url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  if(!m){document.getElementById("imp-result").innerHTML="❌ URL de Google Sheet invalide.";return;}
+  const csvUrl=`https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv`+(sheet?`&sheet=${encodeURIComponent(sheet)}`:"");
+  document.getElementById("imp-result").innerHTML="⏳ Lecture en cours…";
+  fetch(csvUrl).then(r=>{if(!r.ok)throw 0;return r.text();}).then(txt=>{
+    const rows=parseCSV(txt);const msg=applyImport(type,rows);save();document.getElementById("imp-result").innerHTML="✅ "+msg;refreshAll();toast("Import terminé.");
+  }).catch(()=>{document.getElementById("imp-result").innerHTML="❌ Lecture impossible (Sheet non publié, hors-ligne, ou bloqué par Google). Utilise l'import de fichier CSV.";});
+}
+
+/* ----------------------------- Démarrage ----------------------------- */
+load();
+document.getElementById("currency-indicator").textContent = DB.meta.defaultCurrency==="MGA"?"Ar / €":"€ / Ar";
+renderDashboard();
+updateAdviceBadge();
+</script>
+<script>if('serviceWorker' in navigator && location.protocol.startsWith('http')){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "BSM Cockpit — Pilotage interne",
+  "short_name": "BSM Cockpit",
+  "description": "Outil interne de pilotage de BSM Advisory & Consulting : clients, agenda, budget, chiffre d'affaires, méthode R5, RH.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F6F1E8",
+  "theme_color": "#102A43",
+  "lang": "fr",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

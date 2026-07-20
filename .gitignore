@@ -1,0 +1,9 @@
+# Fichier local de validation — remplacé par index.html pour l'hébergement
+BSM_Cockpit.html
+
+# Sauvegardes exportées depuis l'application
+BSM_Cockpit_sauvegarde_*.json
+
+# Systèmes
+Thumbs.db
+.DS_Store
