@@ -42,9 +42,23 @@ Créez un raccourci de ce fichier sur le bureau pour y accéder en un clic.
 | **Analyses & Conseils** | Alertes automatiques (retards, trésorerie, relances, **risques critiques, recommandations en retard, risques récurrents par secteur**) + conseils manuels. |
 
 ## 3bis. Importer depuis le Sheet R5 (bouton « ⇊ Importer R5 »)
-- **Fichier CSV** : dans Google Sheets → Fichier → Télécharger → CSV (un onglet à la fois : CLIENTS, MATRICE DES RISQUES, MISSIONS, RECOMMANDATIONS), puis importer. Les colonnes sont reconnues automatiquement.
-- **Live** : si tu « publies sur le web » ton Sheet, colle son URL + le nom de l'onglet pour une lecture directe (nécessite internet).
-- ⚠️ L'écriture **en retour** dans le Google Sheet n'est pas possible depuis ce fichier local — le Cockpit devient ta référence de travail. Détails dans `ARCHITECTURE_SYSTEME_BSM.md`.
+Deux modes :
+- **📋 Import complet (recommandé)** : exporte l'onglet **REPONSES FORMS** en CSV et importe-le. Le Cockpit crée et **répartit automatiquement** tout dans Clients + Missions + Matrice des risques + Recommandations. Ré-importer met à jour sans créer de doublon.
+- **🎯 Import ciblé** : pour un onglet déjà mis en forme (CLIENTS, MATRICE DES RISQUES, MISSIONS ou RECOMMANDATIONS).
+
+Export CSV : dans Google Sheets → **Fichier → Télécharger → CSV** (un onglet à la fois).
+**Live** (optionnel) : si tu « Publies sur le web » ton Sheet, colle son URL + le nom de l'onglet (nécessite internet).
+
+⚠️ L'écriture **en retour** dans le Google Sheet n'est pas possible depuis l'app — le Cockpit est ta référence de travail. Détails dans `ARCHITECTURE_SYSTEME_BSM.md`.
+
+## 3ter. Portail d'accès (connexion)
+Au lancement, un **portail** s'affiche. 
+- Sans code défini : clique simplement **Accéder au cockpit**.
+- Pour verrouiller : ⚙ **Paramètres** → saisis un **code d'accès**. Il sera demandé à l'ouverture.
+- Bouton **🔒** (en haut) = verrouiller / se déconnecter.
+- « Rester connecté sur cet appareil » évite de ressaisir le code à chaque ouverture.
+
+> ℹ️ C'est une **première couche** de sécurité (locale à l'appareil). L'authentification complète multi-utilisateur (chacun ses accès, données protégées) arrivera avec la **version cloud** (Supabase).
 
 ## 4. Principes clés
 - **Tout est modifiable** : bouton ✎ pour éditer, 🗑 pour supprimer (avec confirmation).

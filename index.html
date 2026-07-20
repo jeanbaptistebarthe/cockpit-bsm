@@ -141,7 +141,28 @@
   .rdot{width:26px;height:26px;border-radius:50%;background:var(--navy);color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.25);}
   iframe.formframe{width:100%;height:68vh;border:1px solid var(--line);border-radius:8px;background:#fff;}
   .infobox{background:#F0F5FA;border:1px solid #D6E2EE;border-radius:8px;padding:12px 14px;font-size:12.5px;color:var(--navy);line-height:1.55;margin-bottom:14px;}
-  @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.grid2,.grid2.wide{grid-template-columns:1fr;}.sidebar{width:60px;}.sidebar .logo,.sidebar .who,.navgroup,.navitem span.lbl{display:none;}.navitem{justify-content:center;}}
+  .imp-modes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+  .imp-mode{border:1.5px solid var(--line);border-radius:10px;padding:12px;cursor:pointer;transition:.15s;}
+  .imp-mode:hover{border-color:var(--gold);}
+  .imp-mode.sel{border-color:var(--gold);background:#FCF9F2;}
+  .imp-mode-t{font-weight:700;font-size:13px;color:var(--navy);margin-bottom:4px;}
+  .imp-mode-d{font-size:11.5px;color:var(--muted);line-height:1.45;}
+  .tag-reco{font-size:9.5px;background:var(--gold);color:var(--navy);border-radius:8px;padding:1px 6px;font-weight:700;vertical-align:middle;}
+  .imp-report{background:#E7F3EC;border:1px solid #B7DCC5;color:var(--green);border-radius:8px;padding:11px 13px;font-size:12.5px;line-height:1.5;}
+  .imp-err{background:#FBEAE8;border:1px solid #F0C4BE;color:var(--red);border-radius:8px;padding:11px 13px;font-size:12.5px;line-height:1.5;}
+  .portal{position:fixed;inset:0;background:linear-gradient(160deg,#0b1f34,#102A43 55%,#20456e);display:none;align-items:center;justify-content:center;z-index:500;padding:20px;}
+  .portal.show{display:flex;}
+  .portal-card{background:#fff;border-radius:18px;padding:38px 32px 30px;width:390px;max-width:94vw;text-align:center;box-shadow:0 30px 90px rgba(0,0,0,.5);}
+  .portal .plogo-badge{width:70px;height:70px;border-radius:18px;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:22px;margin:0 auto 16px;letter-spacing:1px;}
+  .portal .plogo-badge b{color:var(--gold);}
+  .portal .logo{font-weight:700;font-size:21px;color:var(--navy);letter-spacing:.04em;}
+  .portal .logo span{color:var(--gold);}
+  .portal .sub{color:var(--muted);font-size:12.5px;margin:6px 0 20px;}
+  .portal input[type=password]{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;margin-bottom:12px;text-align:center;font-family:inherit;}
+  .portal .rem{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;justify-content:center;margin-bottom:16px;}
+  .portal .err{color:var(--red);font-size:12.5px;min-height:16px;margin-bottom:8px;}
+  .portal .foot{font-size:11px;color:var(--muted);margin-top:18px;line-height:1.55;}
+  @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.grid2,.grid2.wide{grid-template-columns:1fr;}.sidebar{width:60px;}.sidebar .logo,.sidebar .who,.navgroup,.navitem span.lbl{display:none;}.navitem{justify-content:center;}.imp-modes{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -150,6 +171,7 @@
   <div class="brand">BSM <span>COCKPIT</span> — Pilotage interne</div>
   <div class="topbar-right">
     <button class="tb-btn" onclick="openImport()" title="Importer depuis le Sheet R5 / CSV">⇊ Importer R5</button>
+    <button class="tb-btn" onclick="lockPortal()" title="Verrouiller le cockpit">🔒</button>
     <span id="currency-indicator" class="tb-btn" onclick="openSettings()" title="Devise & paramètres">Ar / €</span>
     <button class="tb-btn" onclick="exportData()">⬇ Sauvegarde</button>
     <button class="tb-btn" onclick="document.getElementById('import-file').click()">⬆ Restaurer</button>
@@ -192,6 +214,19 @@
     <div class="screen" id="scr-rh"></div>
     <div class="screen" id="scr-audit"></div>
     <div class="screen" id="scr-analyses"></div>
+  </div>
+</div>
+
+<div class="portal" id="portal">
+  <div class="portal-card">
+    <div class="plogo-badge">B<b>S</b>M</div>
+    <div class="logo">BSM <span>COCKPIT</span></div>
+    <div class="sub">Portail d'accès — pilotage interne</div>
+    <div class="err" id="portal-err"></div>
+    <input type="password" id="portal-code" placeholder="Code d'accès" onkeydown="if(event.key==='Enter')unlockPortal()">
+    <label class="rem"><input type="checkbox" id="portal-remember" checked> Rester connecté sur cet appareil</label>
+    <button class="cta" style="width:100%" onclick="unlockPortal()">Accéder au cockpit</button>
+    <div class="foot" id="portal-foot"></div>
   </div>
 </div>
 
@@ -956,6 +991,8 @@ function openSettings(){
       <option value="EUR" ${DB.meta.defaultCurrency==='EUR'?'selected':''}>Euro (€)</option></select></div>
     <div class="field"><label>Taux de conversion — 1 € = ? Ar</label><input type="number" id="s-rate" value="${DB.meta.rateEurMga}"></div>
     <div class="hint">Vous pouvez saisir chaque mouvement en Ar ou en €. Les totaux sont convertis dans la devise principale avec ce taux.</div>
+    <div class="field"><label>Code d'accès du portail (laisser vide = aucun)</label><input id="s-code" value="${esc(DB.meta.accessCode||'')}"></div>
+    <div class="hint">Première couche de sécurité, locale à cet appareil. La sécurité multi-utilisateur complète viendra avec la version cloud.</div>
     <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
     <div class="field"><label>Sauvegarde</label>
       <div style="display:flex;gap:8px"><button class="cta ghost sm" onclick="exportData()">⬇ Exporter un fichier</button>
@@ -968,6 +1005,7 @@ function openSettings(){
 function saveSettings(){
   DB.meta.defaultCurrency=val("s-cur");
   const r=parseFloat(val("s-rate")); DB.meta.rateEurMga=(!isNaN(r)&&r>0)?r:DB.meta.rateEurMga;
+  DB.meta.accessCode=val("s-code");
   save(); closeModal(); document.getElementById("currency-indicator").textContent=DB.meta.defaultCurrency==="MGA"?"Ar / €":"€ / Ar";
   refreshAll(); toast("Paramètres enregistrés.");
 }
@@ -1405,28 +1443,54 @@ function renderAudit(){
 }
 
 /* ----------------------------- Import R5 (CSV / Google Sheet publié) ----------------------------- */
-function openImport(){
-  openModal(`
+let importMode="audit", importFile=null;
+function openImport(){ importMode="audit"; importFile=null; openModal(importModalHtml()); }
+function importModalHtml(){
+  return `
     <span class="close" onclick="closeModal()">✕</span>
-    <h2>Importer des données R5</h2>
-    <div class="msub">Depuis un fichier CSV (export du Sheet) ou en direct depuis un Google Sheet publié sur le web.</div>
-    <div class="field"><label>Type de données à importer</label>
-      <select id="imp-type">
-        <option value="clients">Clients</option>
-        <option value="risks">Matrice des risques</option>
-        <option value="missions">Missions</option>
-        <option value="recos">Recommandations</option>
-      </select></div>
-    <div class="infobox">Les colonnes sont reconnues automatiquement d'après les en-têtes de ta matrice R5 (Entreprise, Famille, Description, Probabilité, Impact…). Les lignes de titre sont ignorées.</div>
-    <div class="field"><label>Option 1 — Fichier CSV</label>
-      <input type="file" id="imp-file" accept=".csv,text/csv" onchange="doImportFile()"></div>
-    <div class="hint">Dans Google Sheets : Fichier → Télécharger → Valeurs séparées par des virgules (.csv), un onglet à la fois.</div>
-    <hr style="border:none;border-top:1px solid var(--line);margin:14px 0">
-    <div class="field"><label>Option 2 — Google Sheet publié (lecture live)</label>
-      <input id="imp-sheeturl" placeholder="Coller l'URL du Google Sheet"></div>
-    <div class="field"><label>Nom exact de l'onglet</label><input id="imp-sheetname" placeholder="MATRICE DES RISQUES"></div>
-    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="doImportLive()">Lire le Sheet en direct</button></div>
-    <div id="imp-result" class="hint" style="margin-top:10px"></div>`);
+    <h2>Importer la matrice R5</h2>
+    <div class="msub">Récupère tes données Google Sheets — fichier CSV (fiable, hors-ligne) ou lecture live.</div>
+    <div class="imp-modes">
+      <div class="imp-mode ${importMode==='audit'?'sel':''}" onclick="setImportMode('audit')">
+        <div class="imp-mode-t">📋 Import complet <span class="tag-reco">recommandé</span></div>
+        <div class="imp-mode-d">Onglet <b>REPONSES FORMS</b> → réparti automatiquement dans Clients, Missions, Matrice des risques et Recommandations.</div>
+      </div>
+      <div class="imp-mode ${importMode==='targeted'?'sel':''}" onclick="setImportMode('targeted')">
+        <div class="imp-mode-t">🎯 Import ciblé</div>
+        <div class="imp-mode-d">Un onglet précis déjà mis en forme (Clients, Risques, Missions ou Recommandations).</div>
+      </div>
+    </div>
+    ${importMode==='targeted'?`<div class="field"><label>Onglet à importer</label><select id="imp-type"><option value="clients">Clients</option><option value="risks">Matrice des risques</option><option value="missions">Missions</option><option value="recos">Recommandations</option></select></div>`:''}
+    <div class="field"><label>Fichier CSV</label>
+      <input type="file" id="imp-file" accept=".csv,text/csv" onchange="onFileChosen()">
+      <div class="hint">Google Sheets → Fichier → Télécharger → CSV — l'onglet <b>${importMode==='audit'?'REPONSES FORMS':'choisi'}</b>.</div></div>
+    <button class="cta" id="imp-run" style="width:100%" onclick="runImport('file')" ${importFile?'':'disabled'}>${importFile?'Importer « '+esc(importFile.name)+' »':'Importer le fichier'}</button>
+    <details style="margin-top:12px"><summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">Ou : lecture live d'un Google Sheet publié</summary>
+      <div class="field" style="margin-top:10px"><label>URL du Google Sheet</label><input id="imp-sheeturl" placeholder="https://docs.google.com/spreadsheets/d/..."></div>
+      <div class="field"><label>Nom exact de l'onglet</label><input id="imp-sheetname" value="${importMode==='audit'?'REPONSES FORMS':'MATRICE DES RISQUES'}"></div>
+      <button class="cta ghost" style="width:100%" onclick="runImport('live')">Lire le Sheet en direct</button>
+      <div class="hint">Nécessite un Sheet « Publié sur le web » (Fichier → Partager → Publier) + connexion internet. En cas d'échec, utilise le fichier CSV.</div></details>
+    <div id="imp-result" style="margin-top:12px"></div>`;
+}
+function setImportMode(m){ importMode=m; document.getElementById("modal-content").innerHTML=importModalHtml(); }
+function onFileChosen(){ importFile=document.getElementById("imp-file").files[0]||null; const b=document.getElementById("imp-run"); if(b){ b.disabled=!importFile; if(importFile)b.textContent='Importer « '+importFile.name+' »'; } }
+function runImport(source){
+  const resultEl=document.getElementById("imp-result");
+  const done=(rows)=>{ let rep; try{ rep=importMode==='audit'?applyImportAudit(rows):applyImportTargeted(val("imp-type"),rows); }
+    catch(e){ resultEl.innerHTML=`<div class="imp-err">Erreur pendant l'import : ${esc(e.message||'données inattendues')}.</div>`; return; }
+    save(); refreshAll(); resultEl.innerHTML=`<div class="imp-report">✅ ${rep}</div>`; toast("Import terminé."); };
+  if(source==='file'){
+    if(!importFile){ resultEl.innerHTML=`<div class="imp-err">Choisis d'abord un fichier CSV.</div>`; return; }
+    const rd=new FileReader(); rd.onload=()=>{ try{ done(parseCSV(rd.result)); }catch(e){ resultEl.innerHTML=`<div class="imp-err">Fichier illisible.</div>`; } }; rd.readAsText(importFile);
+  } else {
+    const url=val("imp-sheeturl").trim(), sheet=val("imp-sheetname").trim();
+    const m=url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if(!m){ resultEl.innerHTML=`<div class="imp-err">URL de Google Sheet invalide (attendu : https://docs.google.com/spreadsheets/d/…).</div>`; return; }
+    resultEl.innerHTML=`<div class="hint">⏳ Lecture en cours…</div>`;
+    const csvUrl=`https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv`+(sheet?`&sheet=${encodeURIComponent(sheet)}`:"");
+    fetch(csvUrl).then(r=>{ if(!r.ok) throw 0; return r.text(); }).then(txt=>{ done(parseCSV(txt)); })
+      .catch(()=>{ resultEl.innerHTML=`<div class="imp-err">Lecture impossible (Sheet non « Publié sur le web », hors-ligne, ou bloqué par Google). Utilise l'import de fichier CSV.</div>`; });
+  }
 }
 function parseCSV(text){
   const rows=[];let row=[],cur="",q=false;
@@ -1450,7 +1514,7 @@ function mapRiskStatut(s){s=norm(s);return (s.includes("trait")&&!s.includes("a 
 function mapMissionStatut(s){s=norm(s);return s.includes("termin")?"termine":s.includes("suspend")?"suspendue":"en_cours";}
 function mapRecoStatut(s){s=norm(s);return (s.includes("fait")||s.includes("realis"))?"fait":s.includes("cours")?"en_cours":"a_faire";}
 function mapPhase(s){s=norm(s);if(s.includes("reveal"))return"REVEAL";if(s.includes("connect"))return"CONNECT";if(s.includes("respond"))return"RESPOND";if(s.includes("strength"))return"STRENGTHEN";if(s.includes("review"))return"REVIEW";return"REVEAL";}
-function applyImport(type,rows){
+function applyImportTargeted(type,rows){
   if(type==="clients"){
     const hr=findHeaderRow(rows,["entreprise","ref bsm","societe"]);const h=rows[hr];
     const ci={ent:colIndex(h,["entreprise","societe"]),sect:colIndex(h,["secteur"]),contact:colIndex(h,["interlocuteur","contact"]),email:colIndex(h,["email"]),tel:colIndex(h,["telephone","tel"]),statut:colIndex(h,["statut"])};
@@ -1490,28 +1554,86 @@ function applyImport(type,rows){
   }
   return "Type inconnu.";
 }
-function doImportFile(){
-  const fEl=document.getElementById("imp-file");const f=fEl.files[0];if(!f)return;
-  const type=val("imp-type");const rd=new FileReader();
-  rd.onload=()=>{try{const rows=parseCSV(rd.result);const msg=applyImport(type,rows);save();document.getElementById("imp-result").innerHTML="✅ "+msg;refreshAll();toast("Import terminé.");}catch(e){document.getElementById("imp-result").innerHTML="❌ Erreur de lecture du CSV.";}};
-  rd.readAsText(f);
+function toISODate(s){
+  s=String(s||"").trim(); if(!s) return "";
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  let m=s.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{2,4})/);
+  if(m){ let y=m[3].length===2?"20"+m[3]:m[3]; return `${y}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`; }
+  if(/^\d+(\.\d+)?$/.test(s)){ const d=new Date(Date.UTC(1899,11,30)); d.setUTCDate(d.getUTCDate()+Math.floor(parseFloat(s))); return d.toISOString().slice(0,10); }
+  const d=new Date(s); return isNaN(d)?"":d.toISOString().slice(0,10);
 }
-function doImportLive(){
-  const url=val("imp-sheeturl").trim();const sheet=val("imp-sheetname").trim();const type=val("imp-type");
-  const m=url.match(/\/d\/([a-zA-Z0-9-_]+)/);
-  if(!m){document.getElementById("imp-result").innerHTML="❌ URL de Google Sheet invalide.";return;}
-  const csvUrl=`https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv`+(sheet?`&sheet=${encodeURIComponent(sheet)}`:"");
-  document.getElementById("imp-result").innerHTML="⏳ Lecture en cours…";
-  fetch(csvUrl).then(r=>{if(!r.ok)throw 0;return r.text();}).then(txt=>{
-    const rows=parseCSV(txt);const msg=applyImport(type,rows);save();document.getElementById("imp-result").innerHTML="✅ "+msg;refreshAll();toast("Import terminé.");
-  }).catch(()=>{document.getElementById("imp-result").innerHTML="❌ Lecture impossible (Sheet non publié, hors-ligne, ou bloqué par Google). Utilise l'import de fichier CSV.";});
+// Import COMPLET de l'onglet REPONSES FORMS : une ligne = un audit → dispatch dans tous les onglets.
+function applyImportAudit(rows){
+  const hr=findHeaderRow(rows,["entreprise","secteur","auditeur"]);
+  const h=rows[hr]; const H=h.map(norm);
+  const ix=(...names)=>colIndex(h,names);
+  const cEnt=ix("entreprise"), cSect=ix("secteur"), cEff=ix("effectif"), cCA=ix("chiffre d'affaire","ca estim"),
+        cPres=ix("presence"), cInter=ix("interlocuteur"), cDate=ix("date audit"), cAud=ix("auditeur"), cRef=ix("reference dossier","client id");
+  // Blocs de risques : chaque colonne dont l'en-tête contient "famille risque"
+  const famIdx=[]; H.forEach((v,i)=>{ if(v.includes("famille risque")||v==="famille") famIdx.push(i); });
+  const blocks=famIdx.map((start,k)=>{
+    const end=k+1<famIdx.length?famIdx[k+1]:h.length;
+    const find=(kw)=>{ for(let j=start;j<end;j++){ if(norm(h[j]).includes(kw)) return j; } return -1; };
+    return { fam:start, cat:find("categorie"), desc:find("description"), prob:find("probabilit"), imp:find("impact") };
+  });
+  // Colonnes recommandations / plan d'action
+  const recoIdx=[]; H.forEach((v,i)=>{ if(v.includes("plan d'action 90 jours")||v.includes("recommandations d'accompagnement")) recoIdx.push(i); });
+  let nc=0,uc=0,nm=0,nr=0,nre=0;
+  for(let i=hr+1;i<rows.length;i++){
+    const r=rows[i]; const ent=gv(r,cEnt); if(!ent) continue;
+    let cl=DB.clients.find(x=>norm(x.company)===norm(ent));
+    const infos=[gv(r,cEff)&&("Effectif : "+gv(r,cEff)), gv(r,cCA)&&("CA estimé : "+gv(r,cCA)), gv(r,cPres)&&("Présence : "+gv(r,cPres)), gv(r,cInter)&&("Contact : "+gv(r,cInter))].filter(Boolean).join(" · ");
+    if(cl){ if(gv(r,cSect))cl.sector=gv(r,cSect); if(infos)cl.notes=infos; if(cl.status==="prospect")cl.status="actif"; uc++; }
+    else { cl={id:uid(),company:ent,sector:gv(r,cSect),contactName:gv(r,cInter),contactEmail:"",contactPhone:"",status:"actif",notes:infos,createdAt:todayISO()}; DB.clients.push(cl); nc++; }
+    const dAudit=toISODate(gv(r,cDate));
+    let mis=DB.missions.find(m=>m.clientId===cl.id&&m.type==="Audit initial"&&m.startDate===dAudit);
+    if(!mis){ mis={id:uid(),ref:nextRef('MIS',DB.missions),clientId:cl.id,type:"Audit initial",phase:"CONNECT",startDate:dAudit,endDate:"",montantHT:0,currency:DB.meta.defaultCurrency,acompte:0,nda:false,contrat:false,rapport:false,status:"en_cours",notes:[gv(r,cAud)&&("Auditeur : "+gv(r,cAud)), gv(r,cRef)&&("Réf dossier : "+gv(r,cRef))].filter(Boolean).join(" · ")}; DB.missions.push(mis); nm++; }
+    blocks.forEach(b=>{
+      const fam=gv(r,b.fam), cat=b.cat>=0?gv(r,b.cat):"", desc=b.desc>=0?gv(r,b.desc):"";
+      const p=b.prob>=0?parseInt(String(gv(r,b.prob)).replace(/[^\d]/g,"")):NaN;
+      const im=b.imp>=0?parseInt(String(gv(r,b.imp)).replace(/[^\d]/g,"")):NaN;
+      if((fam||desc)&&p>=1&&im>=1){
+        const dkey=norm(desc||cat||fam);
+        let rk=DB.risks.find(x=>x.clientId===cl.id&&norm(x.description||x.categorie||x.famille)===dkey);
+        const data={clientId:cl.id,missionId:mis.id,famille:fam||cat||"Opérationnel",categorie:cat||fam||"Autre",description:desc||cat||fam,probabilite:Math.min(5,Math.max(1,p)),impact:Math.min(5,Math.max(1,im))};
+        if(rk){ Object.assign(rk,data); } else { DB.risks.push({id:uid(),ref:nextRef('R',DB.risks),mesures:"",recoBSM:"",responsable:"",delai:"",status:"a_traiter",dateSaisie:todayISO(),obs:"",...data}); nr++; }
+      }
+    });
+    recoIdx.forEach(ci=>{ const tx=gv(r,ci); if(!tx) return; const tkey=norm(tx);
+      if(DB.recommendations.some(x=>x.clientId===cl.id&&norm(x.texte)===tkey)) return;
+      DB.recommendations.push({id:uid(),ref:nextRef('REC',DB.recommendations),clientId:cl.id,texte:tx,riskId:"",horizon:norm(h[ci]).includes("90")?"Moyen terme (< 90j)":"",priorite:"Élevée",responsable:"",moyens:"",indicateur:"",status:"a_faire",avancement:0,dateCible:"",dateReal:"",commentaire:""}); nre++;
+    });
+  }
+  return `${nc} client(s) créé(s), ${uc} mis à jour · ${nm} mission(s) · ${nr} risque(s) · ${nre} recommandation(s). Tout est réparti dans les onglets Clients, Missions, Matrice des risques et Recommandations.`;
 }
+
+/* ----------------------------- Portail d'accès ----------------------------- */
+function portalNeeded(){ return !(localStorage.getItem("bsm_portal_ok")||sessionStorage.getItem("bsm_portal_ok")); }
+function showPortal(){
+  const codeSet=!!(DB.meta.accessCode);
+  const ci=document.getElementById("portal-code");
+  ci.style.display=codeSet?"":"none"; ci.value="";
+  document.getElementById("portal-foot").innerHTML=codeSet
+    ? "Accès protégé par un code — première couche de sécurité. L'authentification multi-utilisateur complète arrivera avec la version cloud."
+    : "Aucun code défini. Active un code d'accès dans ⚙ Paramètres pour verrouiller le cockpit.";
+  document.getElementById("portal-err").textContent="";
+  document.getElementById("portal").classList.add("show");
+  if(codeSet) setTimeout(()=>ci.focus(),60);
+}
+function unlockPortal(){
+  if(DB.meta.accessCode){ const v=document.getElementById("portal-code").value;
+    if(v!==DB.meta.accessCode){ document.getElementById("portal-err").textContent="Code incorrect."; return; } }
+  (document.getElementById("portal-remember").checked?localStorage:sessionStorage).setItem("bsm_portal_ok","1");
+  document.getElementById("portal").classList.remove("show");
+}
+function lockPortal(){ localStorage.removeItem("bsm_portal_ok"); sessionStorage.removeItem("bsm_portal_ok"); showPortal(); }
 
 /* ----------------------------- Démarrage ----------------------------- */
 load();
 document.getElementById("currency-indicator").textContent = DB.meta.defaultCurrency==="MGA"?"Ar / €":"€ / Ar";
 renderDashboard();
 updateAdviceBadge();
+if(portalNeeded()) showPortal();
 </script>
 <script>if('serviceWorker' in navigator && location.protocol.startsWith('http')){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
 </body>
