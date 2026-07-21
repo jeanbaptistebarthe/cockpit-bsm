@@ -1148,7 +1148,7 @@ const DEFAULTS = {
     email:'jeanbaptiste.barthe@bsmconseils.com', tel:'+261 32 35 275 63',
     nif:'4018819403', stat:'74905 41 2024 0 01103',
   },
-  ai: { apiKey:'', model:'claude-sonnet-4-6' }
+  ai: { apiKey:'', model:'claude-sonnet-5' }
 };
 
 const C = JSON.parse(JSON.stringify(DEFAULTS));
@@ -1360,6 +1360,7 @@ function loadSavedPrices(){
     if(s.std)C.std.forEach(function(o){if(s.std[o.id]!==undefined)o.prix=s.std[o.id];});
     if(s.ess)C.ess.forEach(function(o){if(s.ess[o.id]!==undefined)o.prix=s.ess[o.id];});
     if(s.ai)Object.assign(C.ai,s.ai);
+    if(!C.ai.model||/sonnet-4|claude-3|claude-2/.test(C.ai.model))C.ai.model='claude-sonnet-5';
   }catch(e){}
 }
 
@@ -1882,7 +1883,8 @@ function buildAdmBody(t){
     h+='<div class="adm-row"><span class="adm-lbl">MGA (Ar pour 1 €)</span><input class="adm-inp" id="adm-t-MGA" type="number" value="'+C.taux.MGA+'" min="0" step="10"></div>';
     h+='</div><div class="adm-section"><div class="adm-sec-title">IA — Clé API Anthropic</div>';
     h+='<div class="adm-row"><span class="adm-lbl">Clé API</span><input class="adm-inp" id="adm-ai-key" type="text" value="'+(C.ai.apiKey||'')+'" style="width:220px;font-size:11px;font-family:monospace;text-align:left"></div>';
-    h+='<div class="adm-row"><span class="adm-lbl">Modèle</span><select class="adm-inp" id="adm-ai-model" style="width:180px"><option value="claude-haiku-4-5-20251001"'+(C.ai.model==='claude-haiku-4-5-20251001'?' selected':'')+'>Haiku (rapide)</option><option value="claude-sonnet-4-6"'+(C.ai.model==='claude-sonnet-4-6'||!C.ai.model?' selected':'')+'>Sonnet (recommandé)</option></select></div>';
+    var aim=C.ai.model||'claude-sonnet-5';
+    h+='<div class="adm-row"><span class="adm-lbl">Modèle</span><select class="adm-inp" id="adm-ai-model" style="width:200px"><option value="claude-haiku-4-5-20251001"'+(aim==='claude-haiku-4-5-20251001'?' selected':'')+'>Haiku 4.5 (rapide)</option><option value="claude-sonnet-5"'+(aim==='claude-sonnet-5'||/sonnet-4/.test(aim)?' selected':'')+'>Sonnet 5 (recommandé)</option><option value="claude-opus-4-8"'+(aim==='claude-opus-4-8'?' selected':'')+'>Opus 4.8 (le plus puissant)</option></select></div>';
     h+='</div>';
   } else if(t==='packs'){
     h+='<div class="adm-note"><strong>Prix de base packs</strong> — valeur PME ×1.0.</div>';

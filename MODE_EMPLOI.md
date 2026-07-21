@@ -44,6 +44,7 @@ Créez un raccourci de ce fichier sur le bureau pour y accéder en un clic.
 |---|---|
 | **RH & équipe** | 4 sous-onglets : Personnel (poste, pôle, permission, contrat), Recrutement, Congés & absences, Activités. Tout modifiable/supprimable. |
 | **Audit terrain** | Le formulaire d'audit Google intégré + bouton pour l'ouvrir. Les réponses arrivent dans ton Sheet R5, puis s'importent ici. |
+| **Fiches réflexes** | Procédures d'urgence par type de crise (cyberattaque, incendie, fraude, cyclone, rupture fournisseur, réputation). 6 fiches fournies, **toutes modifiables/supprimables**, + création de nouvelles fiches. |
 | **Analyses & Conseils** | Alertes automatiques (retards, trésorerie, relances, **risques critiques, recommandations en retard, risques récurrents par secteur**) + conseils manuels. |
 
 ## 3bis. Importer depuis le Sheet R5 (bouton « ⇊ Importer R5 »)

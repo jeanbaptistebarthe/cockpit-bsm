@@ -173,6 +173,13 @@
   .clk{cursor:pointer;transition:.15s;}
   .clk:hover{border-color:var(--gold)!important;transform:translateY(-1px);box-shadow:0 3px 12px rgba(16,42,67,.08);}
   .brandlogo{height:26px;width:26px;object-fit:contain;border-radius:5px;vertical-align:middle;margin-right:7px;}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+  .fiche-card{border:1px solid var(--line);border-radius:10px;padding:16px;background:#fff;}
+  .fiche-card .ico{font-size:24px;}
+  .fiche-card h4{margin:8px 0 6px;color:var(--navy);font-size:14.5px;}
+  .fiche-card ol{margin:0 0 12px;padding-left:18px;font-size:12px;color:var(--muted);}
+  .fiche-card ol li{margin-bottom:3px;}
+  body.dark .fiche-card h4{color:var(--ink);}
   .gsearch{position:relative;}
   .gsearch input{padding:7px 12px;border:1px solid var(--line);border-radius:6px;font-size:13px;min-width:190px;font-family:inherit;}
   .gs-results{position:absolute;top:112%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(16,42,67,.15);z-index:60;max-height:340px;overflow-y:auto;display:none;}
@@ -214,7 +221,7 @@
   body.dark .cal .day.out{background:#111a26;color:#3a4757;}
   body.dark .infobox{background:#14212f;border-color:#273241;color:#cdd6e2;}
   body.dark .modcard.sel,body.dark .imp-mode.sel{background:#1c2836;}
-  @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.grid2,.grid2.wide{grid-template-columns:1fr;}.sidebar{width:60px;}.sidebar .logo,.sidebar .who,.navgroup,.navitem span.lbl{display:none;}.navitem{justify-content:center;}.imp-modes{grid-template-columns:1fr;}.gauges{grid-template-columns:repeat(2,1fr);}}
+  @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.grid2,.grid2.wide{grid-template-columns:1fr;}.sidebar{width:60px;}.sidebar .logo,.sidebar .who,.navgroup,.navitem span.lbl{display:none;}.navitem{justify-content:center;}.imp-modes{grid-template-columns:1fr;}.gauges{grid-template-columns:repeat(2,1fr);}.grid3{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -254,6 +261,7 @@
     <div class="navgroup">CABINET</div>
     <div class="navitem" data-scr="rh" onclick="setScreen('rh')"><span class="ic">🧑‍💼</span><span class="lbl">RH & équipe</span></div>
     <div class="navitem" data-scr="audit" onclick="setScreen('audit')"><span class="ic">📝</span><span class="lbl">Audit terrain</span></div>
+    <div class="navitem" data-scr="fiches" onclick="setScreen('fiches')"><span class="ic">🆘</span><span class="lbl">Fiches réflexes</span></div>
     <div class="navitem" data-scr="analyses" onclick="setScreen('analyses')"><span class="ic">🧠</span><span class="lbl">Analyses & Conseils</span><span id="nav-advice-badge" class="badge-nav" style="display:none">0</span></div>
   </div>
 
@@ -270,6 +278,7 @@
     <div class="screen" id="scr-rh"></div>
     <div class="screen" id="scr-audit"></div>
     <div class="screen" id="scr-commercial"></div>
+    <div class="screen" id="scr-fiches"></div>
     <div class="screen" id="scr-clientfiche"></div>
     <div class="screen" id="scr-analyses"></div>
   </div>
@@ -337,7 +346,7 @@ function defaultDB(){
     meta:{ version:2, defaultCurrency:"MGA", rateEurMga:5000, created:todayISO(), r5SheetId:"" },
     clients:[], events:[], transactions:[],
     missions:[], risks:[], recommendations:[],
-    employees:[], recruitments:[], leaves:[], activities:[], documents:[],
+    employees:[], recruitments:[], leaves:[], activities:[], documents:[], playbooks:[],
     advice:{ dismissed:[], edits:{}, custom:[] }
   };
 }
@@ -405,6 +414,8 @@ function load(){
   DB.clients = DB.clients||[]; DB.events=DB.events||[]; DB.transactions=DB.transactions||[];
   DB.missions=DB.missions||[]; DB.risks=DB.risks||[]; DB.recommendations=DB.recommendations||[];
   DB.employees=DB.employees||[]; DB.recruitments=DB.recruitments||[]; DB.leaves=DB.leaves||[]; DB.activities=DB.activities||[]; DB.documents=DB.documents||[];
+  DB.playbooks=DB.playbooks||[];
+  if(!DB.meta.playbooksSeeded){ DB.playbooks=defaultPlaybooks(); DB.meta.playbooksSeeded=true; save(); }
 }
 function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }
 
@@ -437,7 +448,7 @@ function renderScreen(name){
   ({dashboard:renderDashboard, clients:renderClients, agenda:renderAgenda,
     budget:renderBudget, ca:renderCA, missions:renderMissions, risks:renderRisks,
     carto:renderCarto, recos:renderRecos, rh:renderRH, audit:renderAudit,
-    commercial:renderCommercial, clientfiche:renderClientFiche, analyses:renderAnalyses}[name]||(()=>{}))();
+    commercial:renderCommercial, fiches:renderFiches, clientfiche:renderClientFiche, analyses:renderAnalyses}[name]||(()=>{}))();
 }
 function refreshAll(){
   const active = document.querySelector(".screen.active").id.replace("scr-","");
@@ -715,6 +726,69 @@ function renderClientFiche(){
     </div>
     <div class="card"><h2>Risques (${rs.length})</h2>${rs.length?`<table><thead><tr><th>Réf</th><th>Description</th><th>P×I</th><th>Niveau</th><th>Statut</th></tr></thead><tbody>`+rs.map(r=>{const s=r.probabilite*r.impact;return `<tr><td>${esc(r.ref||'—')}</td><td style="max-width:300px">${esc(r.description||r.categorie||'—')}</td><td><b>${s}</b></td><td><span class="badge ${r5Badge(r5Niveau(s))}">${r5Niveau(s)}</span></td><td><span class="badge ${r.status==='traite'?'b-green':r.status==='en_cours'?'b-orange':'b-grey'}">${r.status==='traite'?'Traité':r.status==='en_cours'?'En cours':'À traiter'}</span></td></tr>`;}).join('')+`</tbody></table>`:`<div class="empty">Aucun risque.</div>`}</div>
     <div class="card"><h2>Recommandations (${recos.length})</h2>${recos.length?`<table><tbody>`+recos.map(r=>`<tr><td><b>${esc(r.ref||'')}</b> ${esc(r.texte||'')}</td><td style="text-align:right"><span class="badge ${recoPrioBadge(r.priorite)}">${esc(r.priorite||'')}</span></td><td style="width:96px"><div class="progress"><i style="width:${r.avancement||0}%"></i></div></td></tr>`).join('')+`</tbody></table>`:`<div class="empty">Aucune recommandation.</div>`}</div>`;
+}
+
+/* ----------------------------- Fiches réflexes ----------------------------- */
+function defaultPlaybooks(){ return [
+  {id:uid(),icon:"🖥️",title:"Cyberattaque / Rançongiciel",steps:["Isoler immédiatement les postes et serveurs touchés du réseau","Ne pas éteindre les machines infectées (préservation des preuves)","Activer la cellule de crise interne","Alerter BSM","Ne payer aucune rançon sans validation de la direction","Notifier l'autorité compétente si des données personnelles sont concernées"]},
+  {id:uid(),icon:"🔥",title:"Incendie / Sinistre",steps:["Déclencher l'alarme et évacuer selon le plan d'évacuation","Appeler les secours (118 — pompiers Madagascar)","Sécuriser le périmètre, interdire l'accès","Alerter BSM et l'assureur dans les 24h","Ne rien déplacer avant l'expertise assurance","Activer le PCA si la production est impactée"]},
+  {id:uid(),icon:"⚠️",title:"Fraude interne",steps:["Ne pas confronter directement la personne suspectée","Sécuriser les preuves (accès, journaux, documents)","Alerter la direction générale et le DAF","Contacter BSM pour lancer l'investigation","Évaluer l'opportunité d'un dépôt de plainte","Renforcer les contrôles sur le processus concerné"]},
+  {id:uid(),icon:"🌪️",title:"Catastrophe naturelle (cyclone)",steps:["Suivre les alertes du BNGRC","Mettre en sécurité le personnel avant tout","Sauvegarder les données critiques hors site","Activer le PCA et le télétravail si possible","Alerter BSM pour l'activation de la cellule de crise","Documenter les dégâts pour l'assurance"]},
+  {id:uid(),icon:"📦",title:"Rupture fournisseur critique",steps:["Activer le fournisseur de secours identifié dans le PCA","Évaluer l'impact sur les délais clients","Communiquer de façon proactive aux clients impactés","Alerter BSM pour réévaluer le plan de continuité","Négocier un plan de sortie de crise avec le fournisseur"]},
+  {id:uid(),icon:"📢",title:"Crise réputationnelle",steps:["Ne jamais répondre à chaud sur les réseaux sociaux","Centraliser la communication auprès d'un seul porte-parole","Alerter BSM pour activer la stratégie de communication de crise","Préparer un communiqué de position sous 4h","Monitorer les mentions et le sentiment en continu"]}
+]; }
+function renderFiches(){
+  document.getElementById("scr-fiches").innerHTML=`
+    <div class="pagetitle"><div><h1>Fiches réflexes</h1><div class="sub">Procédures d'urgence par type de crise — modifiables & imprimables</div></div>
+      <button class="cta" onclick="openFicheForm()">+ Nouvelle fiche</button></div>
+    <div class="grid3">
+      ${DB.playbooks.length? DB.playbooks.map(f=>`
+        <div class="fiche-card">
+          <div class="ico">${f.icon||'📄'}</div>
+          <h4>${esc(f.title)}</h4>
+          <ol>${(f.steps||[]).slice(0,3).map(s=>`<li>${esc(s)}</li>`).join("")}</ol>
+          <div style="display:flex;gap:6px">
+            <button class="cta ghost sm" style="flex:1" onclick="openFicheView('${f.id}')">Voir la fiche</button>
+            <button class="iconbtn" title="Modifier" onclick="openFicheForm('${f.id}')">✎</button>
+            <button class="iconbtn del" title="Supprimer" onclick="deleteFiche('${f.id}')">🗑</button>
+          </div>
+        </div>`).join("") : `<div class="empty">Aucune fiche. Cliquez « + Nouvelle fiche ».</div>`}
+    </div>`;
+}
+function openFicheView(id){
+  const f=DB.playbooks.find(x=>x.id===id); if(!f) return;
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <div style="font-size:28px">${f.icon||'📄'}</div>
+    <h2>${esc(f.title)}</h2>
+    <div class="msub">Fiche réflexe — procédure d'urgence</div>
+    <ol style="padding-left:20px;font-size:13.5px;line-height:1.7">${(f.steps||[]).map(s=>`<li>${esc(s)}</li>`).join("")}</ol>
+    <div class="modal-actions"><button class="cta ghost" onclick="openFicheForm('${f.id}')">✎ Modifier</button><button class="cta" onclick="closeModal()">Fermer</button></div>`);
+}
+function openFicheForm(id){
+  const f=id?DB.playbooks.find(x=>x.id===id):{icon:"🆘",title:"",steps:[]};
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>${id?"Modifier la fiche":"Nouvelle fiche réflexe"}</h2>
+    <div class="field row2"><label>Icône & titre</label>
+      <input id="f-ficon" value="${esc(f.icon||'🆘')}" placeholder="🆘" style="text-align:center">
+      <input id="f-ftitle" value="${esc(f.title||'')}" placeholder="Type de crise"></div>
+    <div class="field"><label>Étapes (une par ligne)</label><textarea id="f-fsteps" rows="7">${esc((f.steps||[]).join("\n"))}</textarea></div>
+    <div class="hint">Chaque ligne devient une étape numérotée de la procédure.</div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveFiche('${id||''}')">Enregistrer</button></div>`);
+}
+function saveFiche(id){
+  const title=val("f-ftitle").trim();
+  if(!title){ toast("Le titre est obligatoire."); return; }
+  const steps=val("f-fsteps").split("\n").map(s=>s.trim()).filter(Boolean);
+  const obj={icon:val("f-ficon").trim()||"🆘",title,steps};
+  if(id){ Object.assign(DB.playbooks.find(x=>x.id===id),obj); }
+  else { obj.id=uid(); DB.playbooks.push(obj); }
+  save(); closeModal(); renderFiches(); toast("Fiche enregistrée.");
+}
+function deleteFiche(id){
+  const f=DB.playbooks.find(x=>x.id===id);
+  confirmModal("Supprimer cette fiche ?", f?esc(f.title):"", ()=>{ DB.playbooks=DB.playbooks.filter(x=>x.id!==id); save(); renderFiches(); toast("Fiche supprimée."); });
 }
 
 /* ----------------------------- Commercial (simulateur intégré) ----------------------------- */
