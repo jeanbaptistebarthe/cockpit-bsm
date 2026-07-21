@@ -45,7 +45,13 @@ Créez un raccourci de ce fichier sur le bureau pour y accéder en un clic.
 | **RH & équipe** | 4 sous-onglets : Personnel (poste, pôle, permission, contrat), Recrutement, Congés & absences, Activités. Tout modifiable/supprimable. |
 | **Audit terrain** | Le formulaire d'audit Google intégré + bouton pour l'ouvrir. Les réponses arrivent dans ton Sheet R5, puis s'importent ici. |
 | **Fiches réflexes** | Procédures d'urgence par type de crise (cyberattaque, incendie, fraude, cyclone, rupture fournisseur, réputation). 6 fiches fournies, **toutes modifiables/supprimables**, + création de nouvelles fiches. |
-| **Analyses & Conseils** | Alertes automatiques (retards, trésorerie, relances, **risques critiques, recommandations en retard, risques récurrents par secteur**) + conseils manuels. |
+| **Analyses & Conseils** | Alertes automatiques (retards, trésorerie, relances, **risques critiques, recommandations en retard, risques récurrents par secteur**) + conseils manuels + **Assistant IA (Mistral)** : génération de conseils sur mesure et questions en langage naturel sur ton portefeuille. |
+
+### 3sexies. Assistant IA (Mistral)
+- Configure ta **clé API Mistral** dans ⚙ Paramètres (champ « Assistant IA — Clé API Mistral ») + choisis le modèle (Small éco / Medium / Large recommandé).
+- **Onglet Analyses & Conseils** : bouton **« Générer des conseils IA »** (analyse tes données et propose des conseils, que tu peux **ajouter et modifier**), et une **barre de question** (« Quels sont mes 3 clients les plus à risque ? »).
+- **Fiche client** : bouton **« 🤖 Conseil IA »** → synthèse + conseils pour ce client, enregistrables dans son résumé de suivi.
+- ℹ️ Les données envoyées à Mistral servent uniquement à générer les réponses. La clé reste **locale**, jamais dans le code. Facturation Mistral **à l'usage**.
 
 ## 3bis. Importer depuis le Sheet R5 (bouton « ⇊ Importer R5 »)
 Deux modes :

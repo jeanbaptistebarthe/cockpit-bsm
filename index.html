@@ -689,7 +689,7 @@ function renderClientFiche(){
     <button class="backlink" onclick="setScreen('clients')">← Retour aux clients</button>
     <div class="pagetitle">
       <div><h1>${esc(c.company)}</h1><div class="sub">${esc(c.sector||'—')} · <span class="badge ${statusBadge(c.status)}">${cap(c.status)}</span>${c.contactName?' · '+esc(c.contactName):''}${c.contactPhone?' · '+esc(c.contactPhone):''}${c.contactEmail?' · '+esc(c.contactEmail):''}</div></div>
-      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="printClientReport('${c.id}')">🖨 Rapport</button><button class="cta ghost" onclick="openClientForm('${c.id}')">✎ Modifier</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="cta ghost" onclick="aiClientAdvice('${c.id}')">🤖 Conseil IA</button><button class="cta ghost" onclick="printClientReport('${c.id}')">🖨 Rapport</button><button class="cta ghost" onclick="openClientForm('${c.id}')">✎ Modifier</button></div>
     </div>
     <div class="card">
       <h2>Scores R5®</h2>
@@ -1184,13 +1184,20 @@ function renderAnalyses(){
       <h2>Recommandations</h2>
       ${adv.length? adv.map(adviceHtml).join("") : `<div class="empty">Aucune recommandation : le pilotage est à jour ✅</div>`}
     </div>
-    <div class="card" style="background:#FCFAF5;border-style:dashed;">
-      <h2>🤖 Assistant IA (à venir)</h2>
-      <div style="font-size:13px;color:var(--muted);line-height:1.6">
-        Emplacement prêt pour brancher une IA générative (Claude / OpenAI) : rédaction automatique de conseils personnalisés, questions en langage naturel
-        (« quels sont mes 3 clients les plus rentables ? »), et synthèse des tendances. Activation dès que vous fournissez une clé API — les règles ci-dessus fonctionnent déjà sans IA.
-        <div style="margin-top:10px"><button class="cta ghost sm" onclick="openSettings()">Configurer plus tard</button></div>
-      </div>
+    <div class="card">
+      <h2>🤖 Assistant IA (Mistral)</h2>
+      ${DB.meta.mistralKey?`
+      <div style="margin-bottom:10px"><button class="cta" id="ai-gen-btn" onclick="aiGenerateAdvice()">✦ Générer des conseils IA</button></div>
+      <div id="ai-advice-out" style="margin-bottom:14px"></div>
+      <div class="field"><label>Poser une question sur ton portefeuille</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="ai-q" placeholder="Ex. Quels sont mes 3 clients les plus à risque ?" style="flex:1;min-width:200px;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;font-family:inherit" onkeydown="if(event.key==='Enter')aiAskQuestion()">
+        <button class="cta ghost" id="ai-ask-btn" onclick="aiAskQuestion()">Demander</button></div></div>
+      <div id="ai-answer-out"></div>
+      <div class="hint" style="margin-top:8px">L'IA s'appuie sur tes données (clients, risques, CA…) pour proposer des conseils modifiables et répondre à tes questions. Modèle : ${esc(DB.meta.aiModel||'mistral-large-latest')}.</div>
+      `:`
+      <div class="infobox">Configure ta <b>clé API Mistral</b> dans ⚙ Paramètres pour activer l'assistant : génération de conseils sur mesure et questions en langage naturel sur ton portefeuille.
+        <div style="margin-top:10px"><button class="cta ghost sm" onclick="openSettings()">⚙ Configurer la clé IA</button></div></div>
+      `}
     </div>`;
   updateAdviceBadge();
 }
@@ -1268,6 +1275,11 @@ function openSettings(){
       ${DB.meta.logo?`<div style="margin-top:8px;display:flex;align-items:center;gap:10px"><img src="${DB.meta.logo}" style="height:42px;border:1px solid var(--line);border-radius:6px;padding:4px;background:#fff"><button class="cta ghost sm" onclick="removeLogo()">Retirer le logo</button></div>`:''}
       <div class="hint">Image légère (PNG/JPG, &lt; 400 Ko). S'affiche dans l'en-tête, le portail et les rapports.</div></div>
     <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
+    <div class="field"><label>Assistant IA — Clé API Mistral</label><input id="s-mistral" value="${esc(DB.meta.mistralKey||'')}" placeholder="Colle ta clé Mistral"></div>
+    <div class="field"><label>Modèle IA</label><select id="s-aimodel">
+      ${[["mistral-small-latest","Mistral Small (rapide / éco)"],["mistral-medium-latest","Mistral Medium"],["mistral-large-latest","Mistral Large (recommandé)"]].map(m=>`<option value="${m[0]}" ${(DB.meta.aiModel||'mistral-large-latest')===m[0]?'selected':''}>${m[1]}</option>`).join("")}</select></div>
+    <div class="hint">Clé stockée localement, jamais publiée. Active l'assistant IA (onglet Analyses & fiches client). Les données envoyées à Mistral servent uniquement à générer les conseils.</div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
     <div class="field"><label>Sauvegarde</label>
       <div style="display:flex;gap:8px"><button class="cta ghost sm" onclick="exportData()">⬇ Exporter un fichier</button>
       <button class="cta ghost sm" onclick="document.getElementById('import-file').click()">⬆ Restaurer un fichier</button></div>
@@ -1281,6 +1293,7 @@ function saveSettings(){
   const r=parseFloat(val("s-rate")); DB.meta.rateEurMga=(!isNaN(r)&&r>0)?r:DB.meta.rateEurMga;
   DB.meta.accessCode=val("s-code");
   DB.meta.cabinetName=val("s-cabinet");
+  DB.meta.mistralKey=val("s-mistral"); DB.meta.aiModel=val("s-aimodel");
   save(); applyBranding(); closeModal(); document.getElementById("currency-indicator").textContent=DB.meta.defaultCurrency==="MGA"?"Ar / €":"€ / Ar";
   refreshAll(); toast("Paramètres enregistrés.");
 }
@@ -1959,6 +1972,105 @@ function printPortfolioReport(){
     ${rows.map(x=>`<tr><td>${esc(x.c.company)}</td><td>${esc(x.c.sector||"—")}</td><td>${cap(x.c.status)}</td><td>${x.nr}</td><td>${x.sc.hasData?x.sc.maturite:"—"}</td><td>${x.sc.hasData?x.sc.resilience:"—"}</td><td>${x.sc.hasData?x.sc.gouvernance:"—"}</td><td>${x.sc.hasData?x.sc.risque:"—"}</td></tr>`).join("")}</table>
   </div>`;
   window.print();
+}
+
+/* ----------------------------- IA générative (Mistral) ----------------------------- */
+let lastAIAdvice="";
+async function aiChat(system, user, maxTokens){
+  const key=(DB.meta.mistralKey||"").trim();
+  if(!key||key.length<10) throw new Error("Clé API Mistral non configurée — ouvre ⚙ Paramètres pour la saisir.");
+  const resp=await fetch("https://api.mistral.ai/v1/chat/completions",{
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},
+    body:JSON.stringify({model:DB.meta.aiModel||"mistral-large-latest",max_tokens:maxTokens||900,messages:[{role:"system",content:system},{role:"user",content:user}]})
+  });
+  if(!resp.ok){ let e={}; try{e=await resp.json();}catch(_){} throw new Error((e.error&&e.error.message)||e.message||(typeof e.detail==="string"?e.detail:"")||"Erreur API "+resp.status); }
+  const data=await resp.json(); return data.choices[0].message.content;
+}
+function buildAIContext(){
+  const a=agg();
+  let t=`Cabinet : ${DB.meta.cabinetName||"BSM Advisory & Consulting"} — gouvernance des risques, Madagascar, méthode R5.\n`;
+  t+=`Finances (devise ${DB.meta.defaultCurrency}) : CA effectif ${fmtD(a.caEffectif)}, CA provisoire ${fmtD(a.caProvisoire)}, solde net ${fmtD(a.solde)}, encaissements en retard ${fmtD(a.enRetard)}.\n`;
+  t+=`Clients (${DB.clients.length}) :\n`;
+  DB.clients.forEach(c=>{
+    const rs=DB.risks.filter(r=>r.clientId===c.id);
+    const crit=rs.filter(r=>r.probabilite*r.impact>=15&&r.status!=="traite").length;
+    const sc=clientScores(c.id);
+    t+=`- ${c.company} [${c.sector||"—"}, ${c.status}] : ${rs.length} risque(s) dont ${crit} critique(s)`+(sc.hasData?` ; scores maturité ${sc.maturite} / résilience ${sc.resilience} / gouvernance ${sc.gouvernance} / maîtrise ${sc.risque}`:"")+".\n";
+  });
+  const topR=DB.risks.slice().sort((x,y)=>y.probabilite*y.impact-x.probabilite*x.impact).slice(0,12);
+  if(topR.length){ t+=`Principaux risques :\n`; topR.forEach(r=>{ t+=`- ${clientName(r.clientId)} · ${r.famille}/${r.categorie} · ${r.description||""} (score ${r.probabilite*r.impact}, ${r5Niveau(r.probabilite*r.impact)}, ${r.status})\n`; }); }
+  const openReco=DB.recommendations.filter(r=>r.status!=="fait");
+  if(openReco.length){ t+=`Recommandations en cours (${openReco.length}) :\n`; openReco.slice(0,10).forEach(r=>{ t+=`- ${clientName(r.clientId)} · ${r.texte} (priorité ${r.priorite||"—"}, ${r.avancement||0}%)\n`; }); }
+  const adv=generateAdvice().slice(0,8);
+  if(adv.length){ t+=`Alertes détectées automatiquement :\n`; adv.forEach(x=>{ t+=`- [${x.level}] ${x.title} : ${x.text}\n`; }); }
+  return t.length>6500?t.slice(0,6500)+"…":t;
+}
+function buildClientContext(c){
+  const sc=clientScores(c.id);
+  const rs=DB.risks.filter(r=>r.clientId===c.id).sort((a,b)=>b.probabilite*b.impact-a.probabilite*a.impact);
+  const recos=DB.recommendations.filter(r=>r.clientId===c.id);
+  const miss=DB.missions.filter(m=>m.clientId===c.id);
+  let t=`Client : ${c.company} (secteur ${c.sector||"—"}, statut ${c.status}).\n`;
+  if(sc.hasData) t+=`Scores R5 (sur 100) : maturité ${sc.maturite}, résilience ${sc.resilience}, gouvernance ${sc.gouvernance}, maîtrise du risque ${sc.risque}.\n`;
+  if(c.contractType) t+=`Contrat : ${c.contractType}${c.signatureDate?", signé le "+frDate(c.signatureDate):""}.\n`;
+  if(c.missionSummary) t+=`Résumé de mission : ${c.missionSummary}\n`;
+  if(c.followupSummary) t+=`Suivi actuel : ${c.followupSummary}\n`;
+  if(miss.length) t+=`Missions : `+miss.map(m=>(m.type||"")+" ("+(R5_LABELS[m.phase]||m.phase||"")+")").join(" ; ")+".\n";
+  if(rs.length){ t+=`Risques :\n`; rs.slice(0,15).forEach(r=>{ t+=`- ${r.famille}/${r.categorie} : ${r.description||""} (score ${r.probabilite*r.impact}, ${r5Niveau(r.probabilite*r.impact)}, ${r.status})\n`; }); }
+  if(recos.length){ t+=`Recommandations :\n`; recos.forEach(r=>{ t+=`- ${r.texte} (${r.priorite||""}, ${r.avancement||0}%)\n`; }); }
+  return t.length>5000?t.slice(0,5000)+"…":t;
+}
+async function aiGenerateAdvice(){
+  const btn=document.getElementById("ai-gen-btn"), out=document.getElementById("ai-advice-out");
+  if(!out) return;
+  if(btn){ btn.disabled=true; btn.textContent="⏳ Analyse…"; }
+  out.innerHTML=`<div class="hint">Génération en cours…</div>`;
+  try{
+    const sys="Tu es un consultant senior en gouvernance des risques chez BSM Advisory & Consulting (méthode R5, Madagascar). À partir des données du portefeuille, propose 3 à 5 conseils d'action concrets et priorisés, chacun en 1-2 phrases, orientés décision. Précis et actionnable. Format : liste à puces, sans préambule ni conclusion.";
+    const res=await aiChat(sys, "Données du portefeuille :\n"+buildAIContext());
+    lastAIAdvice=res;
+    out.innerHTML=`<div class="advice info"><div class="ic">🤖</div><div class="body"><div class="t">Conseils générés par l'IA</div><div class="x" style="white-space:pre-wrap">${esc(res)}</div></div></div>
+      <div style="display:flex;gap:8px;margin-top:6px"><button class="cta ghost sm" onclick="aiSaveAdvice()">+ Ajouter aux conseils</button><button class="cta ghost sm" onclick="aiGenerateAdvice()">↻ Régénérer</button></div>`;
+  }catch(e){ out.innerHTML=`<div class="imp-err">⚠ ${esc(e.message)}</div>`; }
+  if(btn){ btn.disabled=false; btn.textContent="✦ Générer des conseils IA"; }
+}
+function aiSaveAdvice(){
+  if(!lastAIAdvice) return;
+  DB.advice.custom.push({id:"ai-"+uid(), level:"info", icon:"🤖", title:"Conseil IA", text:lastAIAdvice});
+  save(); renderAnalyses(); toast("Conseil IA ajouté (éditable).");
+}
+async function aiAskQuestion(){
+  const inp=document.getElementById("ai-q"), out=document.getElementById("ai-answer-out"), btn=document.getElementById("ai-ask-btn");
+  const q=((inp&&inp.value)||"").trim();
+  if(!q){ if(out)out.innerHTML=`<div class="hint">Écris une question.</div>`; return; }
+  if(btn){ btn.disabled=true; btn.textContent="⏳"; }
+  if(out) out.innerHTML=`<div class="hint">Recherche…</div>`;
+  try{
+    const sys="Tu es l'assistant analytique de BSM Advisory & Consulting. Réponds à la question uniquement à partir des données fournies. Si l'information n'y figure pas, dis-le clairement. Concis et factuel.";
+    const res=await aiChat(sys, "Données :\n"+buildAIContext()+"\n\nQuestion : "+q, 600);
+    if(out) out.innerHTML=`<div class="advice good"><div class="ic">💬</div><div class="body"><div class="x" style="white-space:pre-wrap">${esc(res)}</div></div></div>`;
+  }catch(e){ if(out) out.innerHTML=`<div class="imp-err">⚠ ${esc(e.message)}</div>`; }
+  if(btn){ btn.disabled=false; btn.textContent="Demander"; }
+}
+async function aiClientAdvice(id){
+  const c=DB.clients.find(x=>x.id===id); if(!c) return;
+  if(!(DB.meta.mistralKey||"").trim()){ toast("Configure ta clé Mistral dans ⚙ Paramètres."); openSettings(); return; }
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Conseil IA — ${esc(c.company)}</h2><div class="msub">Généré à partir des données de ce client.</div><div id="cai-out"><div class="hint">Génération en cours…</div></div>`);
+  try{
+    const sys="Tu es consultant senior en gouvernance des risques chez BSM Advisory & Consulting (méthode R5). Rédige pour ce client : une synthèse de suivi (2-3 phrases) puis 3 conseils d'action priorisés, concrets et actionnables. Concis, orienté décision, sans préambule.";
+    const res=await aiChat(sys, buildClientContext(c));
+    window.__caiRes=res; window.__caiId=id;
+    const el=document.getElementById("cai-out");
+    if(el) el.innerHTML=`<div style="white-space:pre-wrap;font-size:13.5px;line-height:1.6">${esc(res)}</div>
+      <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="aiSaveClientAdvice()">Enregistrer dans le suivi</button></div>`;
+  }catch(e){ const el=document.getElementById("cai-out"); if(el) el.innerHTML=`<div class="imp-err">⚠ ${esc(e.message)}</div>`; }
+}
+function aiSaveClientAdvice(){
+  const c=DB.clients.find(x=>x.id===window.__caiId);
+  if(!c||!window.__caiRes) return;
+  c.followupSummary=(c.followupSummary?c.followupSummary+"\n\n":"")+"[IA] "+window.__caiRes;
+  save(); closeModal(); renderClientFiche(); toast("Conseil enregistré dans le résumé de suivi.");
 }
 
 /* ----------------------------- Portail d'accès ----------------------------- */
