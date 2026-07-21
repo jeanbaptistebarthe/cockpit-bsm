@@ -162,7 +162,15 @@
   .portal .rem{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;justify-content:center;margin-bottom:16px;}
   .portal .err{color:var(--red);font-size:12.5px;min-height:16px;margin-bottom:8px;}
   .portal .foot{font-size:11px;color:var(--muted);margin-top:18px;line-height:1.55;}
-  @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.grid2,.grid2.wide{grid-template-columns:1fr;}.sidebar{width:60px;}.sidebar .logo,.sidebar .who,.navgroup,.navitem span.lbl{display:none;}.navitem{justify-content:center;}.imp-modes{grid-template-columns:1fr;}}
+  .gauges{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  .gauge{text-align:center;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 8px;}
+  .gauge svg{width:94px;height:94px;}
+  .gauge-l{font-size:11.5px;color:var(--muted);margin-top:2px;font-weight:600;}
+  .backlink{background:none;border:none;color:var(--navy);font-weight:600;font-size:13px;cursor:pointer;padding:0;margin-bottom:10px;}
+  .backlink:hover{color:var(--gold);}
+  .clink{color:var(--navy);font-weight:700;cursor:pointer;text-decoration:none;}
+  .clink:hover{color:var(--gold);text-decoration:underline;}
+  @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.grid2,.grid2.wide{grid-template-columns:1fr;}.sidebar{width:60px;}.sidebar .logo,.sidebar .who,.navgroup,.navitem span.lbl{display:none;}.navitem{justify-content:center;}.imp-modes{grid-template-columns:1fr;}.gauges{grid-template-columns:repeat(2,1fr);}}
 </style>
 </head>
 <body>
@@ -213,6 +221,7 @@
     <div class="screen" id="scr-recos"></div>
     <div class="screen" id="scr-rh"></div>
     <div class="screen" id="scr-audit"></div>
+    <div class="screen" id="scr-clientfiche"></div>
     <div class="screen" id="scr-analyses"></div>
   </div>
 </div>
@@ -377,7 +386,7 @@ function renderScreen(name){
   ({dashboard:renderDashboard, clients:renderClients, agenda:renderAgenda,
     budget:renderBudget, ca:renderCA, missions:renderMissions, risks:renderRisks,
     carto:renderCarto, recos:renderRecos, rh:renderRH, audit:renderAudit,
-    analyses:renderAnalyses}[name]||(()=>{}))();
+    clientfiche:renderClientFiche, analyses:renderAnalyses}[name]||(()=>{}))();
 }
 function refreshAll(){
   const active = document.querySelector(".screen.active").id.replace("scr-","");
@@ -511,12 +520,12 @@ function renderClients(){
       ${list.length? `<table><thead><tr><th>Société</th><th>Secteur</th><th>Contact</th><th>Statut</th><th>CA encaissé</th><th></th></tr></thead><tbody>`+
       list.map(c=>{
         const ca=DB.transactions.filter(t=>t.clientId===c.id&&t.sens==="entrant"&&t.status==="realise").reduce((s,t)=>s+toDefault(t.amount,t.currency),0);
-        return `<tr><td><b>${esc(c.company)}</b>${c.notes?`<br><span style="color:var(--muted);font-size:11.5px">${esc(c.notes).slice(0,60)}</span>`:""}</td>
+        return `<tr><td><a class="clink" onclick="openClientFiche('${c.id}')">${esc(c.company)}</a>${c.notes?`<br><span style="color:var(--muted);font-size:11.5px">${esc(c.notes).slice(0,60)}</span>`:""}</td>
         <td>${esc(c.sector||"—")}</td>
         <td>${esc(c.contactName||"—")}${c.contactPhone?`<br><span style="color:var(--muted);font-size:11.5px">${esc(c.contactPhone)}</span>`:""}</td>
         <td><span class="badge ${statusBadge(c.status)}">${cap(c.status)}</span></td>
         <td>${ca?fmtD(ca):"—"}</td>
-        <td><div class="rowact"><button class="iconbtn" onclick="openClientForm('${c.id}')">✎</button><button class="iconbtn del" onclick="deleteClient('${c.id}')">🗑</button></div></td></tr>`;
+        <td><div class="rowact"><button class="iconbtn" title="Fiche 360°" onclick="openClientFiche('${c.id}')">👁</button><button class="iconbtn" title="Modifier" onclick="openClientForm('${c.id}')">✎</button><button class="iconbtn del" title="Supprimer" onclick="deleteClient('${c.id}')">🗑</button></div></td></tr>`;
       }).join("")+`</tbody></table>`
       : `<div class="empty">Aucun client ${clientFilter!=='tous'?'dans ce filtre':'pour le moment'}. Cliquez « + Nouveau client ».</div>`}
     </div>`;
@@ -545,7 +554,7 @@ function saveClient(id){
     contactEmail:val("f-cemail"), status:val("f-status"), notes:val("f-notes") };
   if(id){ Object.assign(DB.clients.find(x=>x.id===id), obj); }
   else { obj.id=uid(); obj.createdAt=todayISO(); DB.clients.push(obj); }
-  save(); closeModal(); renderClients(); toast("Client enregistré.");
+  save(); closeModal(); refreshAll(); toast("Client enregistré.");
 }
 function deleteClient(id){
   const c=DB.clients.find(x=>x.id===id);
@@ -557,6 +566,73 @@ function deleteClient(id){
       DB.events.forEach(e=>{if(e.clientId===id)e.clientId="";});
       DB.transactions.forEach(t=>{if(t.clientId===id)t.clientId="";});
       save(); renderClients(); toast("Client supprimé."); });
+}
+
+/* ----------------------------- Fiche client 360° + Scores R5 ----------------------------- */
+let currentClientId=null;
+function clientScores(id){
+  const rs=DB.risks.filter(r=>r.clientId===id);
+  const open=rs.filter(r=>r.status!=="traite");
+  const nOpen=open.length;
+  const avg=nOpen?open.reduce((s,r)=>s+r.probabilite*r.impact,0)/nOpen:0;
+  const risque=nOpen?Math.max(0,Math.min(100,Math.round(100-(avg/25*100)))):100;
+  const withOwner=open.filter(r=>(r.responsable||"").trim()).length;
+  const gouvernance=nOpen?Math.round(100*withOwner/nOpen):100;
+  const crit=open.filter(r=>r.probabilite*r.impact>=15).length;
+  const resilience=nOpen?Math.max(0,Math.round(100-(100*crit/nOpen))):100;
+  const fam=new Set(rs.map(r=>r.famille).filter(Boolean)).size;
+  const totalR=rs.length, closed=rs.filter(r=>r.status==="traite").length;
+  const recos=DB.recommendations.filter(x=>x.clientId===id);
+  const recoDone=recos.filter(x=>x.status==="fait").length;
+  const t1=Math.min(1,fam/7), t2=totalR?closed/totalR:0, t3=recos.length?recoDone/recos.length:0;
+  const maturite=Math.round(100*(0.4*t1+0.3*t2+0.3*t3));
+  return {maturite,resilience,gouvernance,risque,hasData:totalR>0||recos.length>0};
+}
+function scoreColor(v){ return v>=75?'#2F855A':v>=50?'#C7A25A':'#C0392B'; }
+function scoreGauge(v,label){
+  const C=2*Math.PI*42, off=C*(1-v/100);
+  return `<div class="gauge"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#EEE8DC" stroke-width="9"/><circle cx="50" cy="50" r="42" fill="none" stroke="${scoreColor(v)}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 50 50)"/><text x="50" y="58" text-anchor="middle" font-size="26" font-weight="700" fill="#102A43">${v}</text></svg><div class="gauge-l">${label}</div></div>`;
+}
+function openClientFiche(id){
+  currentClientId=id;
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+  document.getElementById("scr-clientfiche").classList.add("active");
+  renderClientFiche();
+}
+function renderClientFiche(){
+  const el=document.getElementById("scr-clientfiche");
+  const c=DB.clients.find(x=>x.id===currentClientId);
+  if(!c){ el.innerHTML=`<button class="backlink" onclick="setScreen('clients')">← Retour aux clients</button><div class="empty">Client introuvable.</div>`; return; }
+  const sc=clientScores(c.id);
+  const miss=DB.missions.filter(m=>m.clientId===c.id);
+  const rs=DB.risks.filter(r=>r.clientId===c.id).sort((a,b)=>b.probabilite*b.impact-a.probabilite*a.impact);
+  const crit=rs.filter(r=>r.probabilite*r.impact>=15&&r.status!=="traite").length;
+  const recos=DB.recommendations.filter(x=>x.clientId===c.id);
+  const evs=DB.events.filter(e=>e.clientId===c.id&&e.date>=todayISO()&&e.status!=="annule").sort((a,b)=>a.date.localeCompare(b.date));
+  const caEff=DB.transactions.filter(t=>t.clientId===c.id&&t.sens==="entrant"&&t.status==="realise").reduce((s,t)=>s+toDefault(t.amount,t.currency),0);
+  const caProv=DB.transactions.filter(t=>t.clientId===c.id&&t.sens==="entrant"&&t.status==="prevu").reduce((s,t)=>s+toDefault(t.amount,t.currency),0);
+  el.innerHTML=`
+    <button class="backlink" onclick="setScreen('clients')">← Retour aux clients</button>
+    <div class="pagetitle">
+      <div><h1>${esc(c.company)}</h1><div class="sub">${esc(c.sector||'—')} · <span class="badge ${statusBadge(c.status)}">${cap(c.status)}</span>${c.contactName?' · '+esc(c.contactName):''}${c.contactPhone?' · '+esc(c.contactPhone):''}${c.contactEmail?' · '+esc(c.contactEmail):''}</div></div>
+      <button class="cta ghost" onclick="openClientForm('${c.id}')">✎ Modifier</button>
+    </div>
+    <div class="card">
+      <h2>Scores R5®</h2>
+      ${sc.hasData?`<div class="gauges">${scoreGauge(sc.maturite,'Maturité')}${scoreGauge(sc.resilience,'Résilience')}${scoreGauge(sc.gouvernance,'Gouvernance')}${scoreGauge(sc.risque,'Maîtrise du risque')}</div>`:`<div class="empty">Aucune donnée de risque pour calculer les scores. Ajoute des risques ou importe un audit.</div>`}
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="v">${miss.length}</div><div class="l">Missions</div></div>
+      <div class="kpi"><div class="v ${crit>0?'danger':''}">${crit}</div><div class="l">Risques critiques ouverts</div></div>
+      <div class="kpi"><div class="v good">${fmtD(caEff)}</div><div class="l">CA encaissé</div></div>
+      <div class="kpi"><div class="v">${fmtD(caProv)}</div><div class="l">CA à encaisser</div></div>
+    </div>
+    <div class="grid2 wide">
+      <div class="card"><h2>Missions (${miss.length})</h2>${miss.length?`<table><tbody>`+miss.map(m=>`<tr><td><b>${esc(m.ref||'—')}</b> ${esc(m.type||'')}</td><td style="font-size:11.5px;color:var(--muted)">${R5_LABELS[m.phase]||esc(m.phase||'')}</td><td style="text-align:right"><span class="badge ${m.status==='termine'?'b-green':m.status==='suspendue'?'b-grey':'b-blue'}">${m.status==='termine'?'Terminée':m.status==='suspendue'?'Suspendue':'En cours'}</span></td></tr>`).join('')+`</tbody></table>`:`<div class="empty">Aucune mission.</div>`}</div>
+      <div class="card"><h2>Prochains rendez-vous</h2>${evs.length?`<div class="mini-list">`+evs.slice(0,5).map(e=>`<div class="li"><span><span class="badge ${evBadge(e.type)}">${EVENT_TYPES[e.type]}</span> ${esc(e.title)}</span><span class="d">${frDate(e.date)}</span></div>`).join('')+`</div>`:`<div class="empty">Aucun rendez-vous à venir.</div>`}</div>
+    </div>
+    <div class="card"><h2>Risques (${rs.length})</h2>${rs.length?`<table><thead><tr><th>Réf</th><th>Description</th><th>P×I</th><th>Niveau</th><th>Statut</th></tr></thead><tbody>`+rs.map(r=>{const s=r.probabilite*r.impact;return `<tr><td>${esc(r.ref||'—')}</td><td style="max-width:300px">${esc(r.description||r.categorie||'—')}</td><td><b>${s}</b></td><td><span class="badge ${r5Badge(r5Niveau(s))}">${r5Niveau(s)}</span></td><td><span class="badge ${r.status==='traite'?'b-green':r.status==='en_cours'?'b-orange':'b-grey'}">${r.status==='traite'?'Traité':r.status==='en_cours'?'En cours':'À traiter'}</span></td></tr>`;}).join('')+`</tbody></table>`:`<div class="empty">Aucun risque.</div>`}</div>
+    <div class="card"><h2>Recommandations (${recos.length})</h2>${recos.length?`<table><tbody>`+recos.map(r=>`<tr><td><b>${esc(r.ref||'')}</b> ${esc(r.texte||'')}</td><td style="text-align:right"><span class="badge ${recoPrioBadge(r.priorite)}">${esc(r.priorite||'')}</span></td><td style="width:96px"><div class="progress"><i style="width:${r.avancement||0}%"></i></div></td></tr>`).join('')+`</tbody></table>`:`<div class="empty">Aucune recommandation.</div>`}</div>`;
 }
 
 /* ----------------------------- Agenda ----------------------------- */

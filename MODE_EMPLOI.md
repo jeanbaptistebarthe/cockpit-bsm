@@ -21,7 +21,7 @@ Créez un raccourci de ce fichier sur le bureau pour y accéder en un clic.
 | Onglet | À quoi ça sert |
 |---|---|
 | **Tableau de bord** | Vue d'ensemble : CA, solde, indicateurs R5, alertes, prochains événements. |
-| **Clients** | Ajouter / suivre / archiver / supprimer clients et prospects. |
+| **Clients** | Ajouter / suivre / archiver / supprimer. **Cliquer un client ouvre sa fiche 360°** : scores R5 (jauges), missions, risques, recommandations, CA et rendez-vous. |
 | **Agenda** | Dater audits, prospections, rendez-vous. Calendrier + liste. |
 | **Budget** | Entrées, dépenses, prévisions, par mode de paiement (CB, Chèque, Mvola, Orange Money, Espèces, Virement). |
 | **Chiffre d'affaires** | CA provisoire (à encaisser) vs effectif (encaissé), par mois et par client. |
