@@ -60,6 +60,12 @@ Au lancement, un **portail** s'affiche.
 
 > ℹ️ C'est une **première couche** de sécurité (locale à l'appareil). L'authentification complète multi-utilisateur (chacun ses accès, données protégées) arrivera avec la **version cloud** (Supabase).
 
+## 3quater. Rapports, recherche, thème & branding
+- **🖨 Rapport** : bouton sur la **fiche client** (rapport client complet : scores, missions, risques, recommandations) et sur le **tableau de bord** (rapport de portefeuille). Ouvre la fenêtre d'impression → choisis **« Enregistrer au format PDF »**.
+- **Recherche globale** : la barre en haut cherche dans clients, missions, risques, recommandations et RH. Clique un résultat pour y aller.
+- **🌙 / ☀️ Thème** : bascule clair / sombre (bouton en haut).
+- **Branding** : ⚙ Paramètres → **nom du cabinet** + **logo** (affichés dans l'en-tête, le portail et les rapports).
+
 ## 4. Principes clés
 - **Tout est modifiable** : bouton ✎ pour éditer, 🗑 pour supprimer (avec confirmation).
 - **Prévu vs Réalisé** : un mouvement « Prévu » alimente le CA *provisoire* ; « Réalisé » alimente le CA *effectif*. Le bouton ✓ passe un prévu en réalisé.

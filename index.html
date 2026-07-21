@@ -170,15 +170,59 @@
   .backlink:hover{color:var(--gold);}
   .clink{color:var(--navy);font-weight:700;cursor:pointer;text-decoration:none;}
   .clink:hover{color:var(--gold);text-decoration:underline;}
+  .brandlogo{height:26px;width:26px;object-fit:contain;border-radius:5px;vertical-align:middle;margin-right:7px;}
+  .gsearch{position:relative;}
+  .gsearch input{padding:7px 12px;border:1px solid var(--line);border-radius:6px;font-size:13px;min-width:190px;font-family:inherit;}
+  .gs-results{position:absolute;top:112%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(16,42,67,.15);z-index:60;max-height:340px;overflow-y:auto;display:none;}
+  .gs-results.show{display:block;}
+  .gs-item{padding:9px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;}
+  .gs-item:last-child{border-bottom:none;}
+  .gs-item:hover{background:var(--cream);}
+  .gs-item .gt{font-size:10px;color:var(--muted);margin-left:auto;text-transform:uppercase;letter-spacing:.03em;}
+  .gs-empty{padding:12px;font-size:12.5px;color:var(--muted);text-align:center;}
+  #report{display:none;}
+  .rep{color:#102A43;font-family:inherit;}
+  .rep-head{display:flex;align-items:center;gap:14px;border-bottom:2px solid #C7A25A;padding-bottom:12px;margin-bottom:16px;}
+  .rep-logo{width:54px;height:54px;flex-shrink:0;border-radius:10px;background:#102A43;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;overflow:hidden;}
+  .rep-logo img{width:100%;height:100%;object-fit:contain;}
+  .rep h1{font-size:19px;margin:0;color:#102A43;}
+  .rep h2{font-size:14px;color:#102A43;border-bottom:1px solid #E4E0D6;padding-bottom:5px;margin:18px 0 8px;}
+  .rep table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:4px;}
+  .rep th,.rep td{border:1px solid #E4E0D6;padding:6px 8px;text-align:left;}
+  .rep th{background:#F6F1E8;}
+  .rep .meta{font-size:11px;color:#6B7280;margin:4px 0;}
+  .rep-scores{display:flex;gap:16px;margin:8px 0;flex-wrap:wrap;}
+  @media screen{#report{display:none!important;}}
+  @media print{
+    .topbar,.app,.portal,.overlay,.toast{display:none!important;}
+    #report{display:block!important;}
+    body{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    @page{margin:14mm;}
+  }
+  .gauge{color:#102A43;}
+  body.dark{--cream:#0f1722;--ink:#e6e9ee;--muted:#94a3b8;--line:#273241;}
+  body.dark .topbar,body.dark .card,body.dark .kpi,body.dark .modal,body.dark .gauge,body.dark .tb-btn,body.dark .chip,body.dark .searchbox,body.dark .gsearch input,body.dark .iconbtn,body.dark .panel,body.dark .modcard,body.dark .fiche-card,body.dark .cal .day,body.dark .gs-results,body.dark .imp-mode,body.dark .doccat span,body.dark input,body.dark select,body.dark textarea,body.dark .cta.ghost{background:#16202e;color:var(--ink);border-color:#273241;}
+  body.dark .brand,body.dark .pagetitle h1,body.dark h1,body.dark h2,body.dark .card h2,body.dark .modal h2,body.dark .tab.active,body.dark .subtab.active,body.dark .bar-val,body.dark .gauge{color:var(--ink);}
+  body.dark .brand span{color:var(--gold);}
+  body.dark .kpi .v{color:var(--ink);}
+  body.dark .kpi .v.warn{color:var(--orange);} body.dark .kpi .v.danger{color:var(--red);} body.dark .kpi .v.good{color:var(--green);}
+  body.dark table th{color:var(--muted);}
+  body.dark tbody tr:hover{background:#1b2736;}
+  body.dark .tb-btn:hover,body.dark .iconbtn:hover,body.dark .chip:hover,body.dark .gs-item:hover{background:#1b2736;}
+  body.dark .cal .day.out{background:#111a26;color:#3a4757;}
+  body.dark .infobox{background:#14212f;border-color:#273241;color:#cdd6e2;}
+  body.dark .modcard.sel,body.dark .imp-mode.sel{background:#1c2836;}
   @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.grid2,.grid2.wide{grid-template-columns:1fr;}.sidebar{width:60px;}.sidebar .logo,.sidebar .who,.navgroup,.navitem span.lbl{display:none;}.navitem{justify-content:center;}.imp-modes{grid-template-columns:1fr;}.gauges{grid-template-columns:repeat(2,1fr);}}
 </style>
 </head>
 <body>
 
 <div class="topbar">
-  <div class="brand">BSM <span>COCKPIT</span> — Pilotage interne</div>
+  <div class="brand" id="brandbox">BSM <span>COCKPIT</span> — Pilotage interne</div>
   <div class="topbar-right">
+    <div class="gsearch"><input id="globalsearch" placeholder="Rechercher un client, risque…" autocomplete="off" oninput="globalSearch(this.value)" onblur="setTimeout(hideSearch,180)"><div class="gs-results" id="gs-results"></div></div>
     <button class="tb-btn" onclick="openImport()" title="Importer depuis le Sheet R5 / CSV">⇊ Importer R5</button>
+    <button class="tb-btn" id="theme-btn" onclick="toggleTheme()" title="Thème clair / sombre">🌙</button>
     <button class="tb-btn" onclick="lockPortal()" title="Verrouiller le cockpit">🔒</button>
     <span id="currency-indicator" class="tb-btn" onclick="openSettings()" title="Devise & paramètres">Ar / €</span>
     <button class="tb-btn" onclick="exportData()">⬇ Sauvegarde</button>
@@ -228,7 +272,7 @@
 
 <div class="portal" id="portal">
   <div class="portal-card">
-    <div class="plogo-badge">B<b>S</b>M</div>
+    <div class="plogo-badge" id="portal-badge">B<b>S</b>M</div>
     <div class="logo">BSM <span>COCKPIT</span></div>
     <div class="sub">Portail d'accès — pilotage interne</div>
     <div class="err" id="portal-err"></div>
@@ -243,6 +287,7 @@
   <div class="modal" id="modal-content"></div>
 </div>
 <div class="toast" id="toast"></div>
+<div id="report"></div>
 
 <script>
 /* =========================================================================
@@ -445,7 +490,7 @@ function renderDashboard(){
 
   document.getElementById("scr-dashboard").innerHTML = `
     <div class="pagetitle"><div><h1>Tableau de bord</h1><div class="sub">Vue d'ensemble ${curYear()} — devise : ${DB.meta.defaultCurrency==="MGA"?"Ariary":"Euro"}</div></div>
-      <button class="cta" onclick="quickAdd()">+ Ajout rapide</button></div>
+      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="printPortfolioReport()">🖨 Rapport</button><button class="cta" onclick="quickAdd()">+ Ajout rapide</button></div></div>
     <div class="kpis">
       <div class="kpi"><div class="v good">${fmtD(a.caEffectif)}</div><div class="l">CA effectif (encaissé ${curYear()})</div></div>
       <div class="kpi"><div class="v">${fmtD(a.caProvisoire)}</div><div class="l">CA provisoire (à encaisser)</div></div>
@@ -591,7 +636,7 @@ function clientScores(id){
 function scoreColor(v){ return v>=75?'#2F855A':v>=50?'#C7A25A':'#C0392B'; }
 function scoreGauge(v,label){
   const C=2*Math.PI*42, off=C*(1-v/100);
-  return `<div class="gauge"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#EEE8DC" stroke-width="9"/><circle cx="50" cy="50" r="42" fill="none" stroke="${scoreColor(v)}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 50 50)"/><text x="50" y="58" text-anchor="middle" font-size="26" font-weight="700" fill="#102A43">${v}</text></svg><div class="gauge-l">${label}</div></div>`;
+  return `<div class="gauge"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#EEE8DC" stroke-width="9"/><circle cx="50" cy="50" r="42" fill="none" stroke="${scoreColor(v)}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 50 50)"/><text x="50" y="58" text-anchor="middle" font-size="26" font-weight="700" fill="currentColor">${v}</text></svg><div class="gauge-l">${label}</div></div>`;
 }
 function openClientFiche(id){
   currentClientId=id;
@@ -615,7 +660,7 @@ function renderClientFiche(){
     <button class="backlink" onclick="setScreen('clients')">← Retour aux clients</button>
     <div class="pagetitle">
       <div><h1>${esc(c.company)}</h1><div class="sub">${esc(c.sector||'—')} · <span class="badge ${statusBadge(c.status)}">${cap(c.status)}</span>${c.contactName?' · '+esc(c.contactName):''}${c.contactPhone?' · '+esc(c.contactPhone):''}${c.contactEmail?' · '+esc(c.contactEmail):''}</div></div>
-      <button class="cta ghost" onclick="openClientForm('${c.id}')">✎ Modifier</button>
+      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="printClientReport('${c.id}')">🖨 Rapport</button><button class="cta ghost" onclick="openClientForm('${c.id}')">✎ Modifier</button></div>
     </div>
     <div class="card">
       <h2>Scores R5®</h2>
@@ -1070,6 +1115,12 @@ function openSettings(){
     <div class="field"><label>Code d'accès du portail (laisser vide = aucun)</label><input id="s-code" value="${esc(DB.meta.accessCode||'')}"></div>
     <div class="hint">Première couche de sécurité, locale à cet appareil. La sécurité multi-utilisateur complète viendra avec la version cloud.</div>
     <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
+    <div class="field"><label>Nom du cabinet (rapports & portail)</label><input id="s-cabinet" value="${esc(DB.meta.cabinetName||'BSM Advisory & Consulting')}"></div>
+    <div class="field"><label>Logo du cabinet</label>
+      <input type="file" id="s-logo" accept="image/*" onchange="onLogoChosen()">
+      ${DB.meta.logo?`<div style="margin-top:8px;display:flex;align-items:center;gap:10px"><img src="${DB.meta.logo}" style="height:42px;border:1px solid var(--line);border-radius:6px;padding:4px;background:#fff"><button class="cta ghost sm" onclick="removeLogo()">Retirer le logo</button></div>`:''}
+      <div class="hint">Image légère (PNG/JPG, &lt; 400 Ko). S'affiche dans l'en-tête, le portail et les rapports.</div></div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
     <div class="field"><label>Sauvegarde</label>
       <div style="display:flex;gap:8px"><button class="cta ghost sm" onclick="exportData()">⬇ Exporter un fichier</button>
       <button class="cta ghost sm" onclick="document.getElementById('import-file').click()">⬆ Restaurer un fichier</button></div>
@@ -1082,7 +1133,8 @@ function saveSettings(){
   DB.meta.defaultCurrency=val("s-cur");
   const r=parseFloat(val("s-rate")); DB.meta.rateEurMga=(!isNaN(r)&&r>0)?r:DB.meta.rateEurMga;
   DB.meta.accessCode=val("s-code");
-  save(); closeModal(); document.getElementById("currency-indicator").textContent=DB.meta.defaultCurrency==="MGA"?"Ar / €":"€ / Ar";
+  DB.meta.cabinetName=val("s-cabinet");
+  save(); applyBranding(); closeModal(); document.getElementById("currency-indicator").textContent=DB.meta.defaultCurrency==="MGA"?"Ar / €":"€ / Ar";
   refreshAll(); toast("Paramètres enregistrés.");
 }
 function exportData(){
@@ -1683,6 +1735,82 @@ function applyImportAudit(rows){
   return `${nc} client(s) créé(s), ${uc} mis à jour · ${nm} mission(s) · ${nr} risque(s) · ${nre} recommandation(s). Tout est réparti dans les onglets Clients, Missions, Matrice des risques et Recommandations.`;
 }
 
+/* ----------------------------- Branding (nom & logo cabinet) ----------------------------- */
+function applyBranding(){
+  const logo=DB.meta.logo;
+  const bb=document.getElementById("brandbox");
+  if(bb) bb.innerHTML=`${logo?`<img class="brandlogo" src="${logo}">`:''}BSM <span>COCKPIT</span> — Pilotage interne`;
+  const pb=document.getElementById("portal-badge");
+  if(pb) pb.innerHTML=logo?`<img src="${logo}" style="width:100%;height:100%;object-fit:contain">`:'B<b>S</b>M';
+  const ps=document.querySelector(".portal .sub");
+  if(ps) ps.textContent=(DB.meta.cabinetName||"BSM Advisory & Consulting")+" — pilotage interne";
+}
+function onLogoChosen(){
+  const f=document.getElementById("s-logo").files[0]; if(!f) return;
+  if(f.size>400*1024){ toast("Logo trop lourd (max 400 Ko)."); return; }
+  const rd=new FileReader();
+  rd.onload=()=>{ DB.meta.logo=rd.result; save(); applyBranding(); openSettings(); toast("Logo enregistré."); };
+  rd.readAsDataURL(f);
+}
+function removeLogo(){ DB.meta.logo=""; save(); applyBranding(); openSettings(); toast("Logo retiré."); }
+function applyTheme(){ document.body.classList.toggle("dark", DB.meta.theme==="dark"); const b=document.getElementById("theme-btn"); if(b) b.textContent=DB.meta.theme==="dark"?"☀️":"🌙"; }
+function toggleTheme(){ DB.meta.theme=DB.meta.theme==="dark"?"light":"dark"; save(); applyTheme(); }
+
+/* ----------------------------- Recherche globale ----------------------------- */
+function globalSearch(q){
+  q=(q||"").trim().toLowerCase(); const el=document.getElementById("gs-results");
+  if(!el) return;
+  if(q.length<2){ el.classList.remove("show"); el.innerHTML=""; return; }
+  const res=[];
+  DB.clients.forEach(c=>{ if((c.company+" "+(c.sector||"")).toLowerCase().includes(q)) res.push({t:"Client",ic:"👥",label:c.company,go:`openClientFiche('${c.id}')`}); });
+  DB.missions.forEach(m=>{ if(((m.ref||"")+" "+(m.type||"")+" "+clientName(m.clientId)).toLowerCase().includes(q)) res.push({t:"Mission",ic:"🎯",label:(m.ref?m.ref+" — ":"")+(m.type||"")+" · "+clientName(m.clientId),go:"setScreen('missions')"}); });
+  DB.risks.forEach(r=>{ if(((r.description||"")+" "+(r.categorie||"")+" "+(r.famille||"")+" "+(r.ref||"")).toLowerCase().includes(q)) res.push({t:"Risque",ic:"⚠️",label:(r.description||r.categorie||r.ref)+" · "+clientName(r.clientId),go:"setScreen('risks')"}); });
+  DB.recommendations.forEach(r=>{ if((r.texte||"").toLowerCase().includes(q)) res.push({t:"Reco",ic:"✅",label:r.texte,go:"setScreen('recos')"}); });
+  DB.employees.forEach(e=>{ if((e.name+" "+(e.poste||"")).toLowerCase().includes(q)) res.push({t:"RH",ic:"🧑‍💼",label:e.name+" · "+(e.poste||""),go:"setScreen('rh')"}); });
+  const top=res.slice(0,12);
+  el.innerHTML=top.length? top.map(x=>`<div class="gs-item" onmousedown="${x.go};clearSearch()"><span>${x.ic}</span><span>${esc(x.label).slice(0,54)}</span><span class="gt">${x.t}</span></div>`).join("") : `<div class="gs-empty">Aucun résultat</div>`;
+  el.classList.add("show");
+}
+function hideSearch(){ const el=document.getElementById("gs-results"); if(el) el.classList.remove("show"); }
+function clearSearch(){ const i=document.getElementById("globalsearch"); if(i) i.value=""; hideSearch(); }
+
+/* ----------------------------- Rapports (impression → PDF) ----------------------------- */
+function repHeader(title,sub){
+  const logo=DB.meta.logo?`<div class="rep-logo"><img src="${DB.meta.logo}"></div>`:`<div class="rep-logo">BSM</div>`;
+  return `<div class="rep-head">${logo}<div><h1>${esc(title)}</h1><div class="meta">${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")} · ${sub} · Édité le ${frDate(todayISO())}</div></div></div>`;
+}
+function printClientReport(id){
+  const c=DB.clients.find(x=>x.id===id); if(!c) return;
+  const sc=clientScores(c.id);
+  const rs=DB.risks.filter(r=>r.clientId===c.id).sort((a,b)=>b.probabilite*b.impact-a.probabilite*a.impact);
+  const recos=DB.recommendations.filter(x=>x.clientId===c.id);
+  const miss=DB.missions.filter(m=>m.clientId===c.id);
+  const gauges=sc.hasData?`<div class="rep-scores">${scoreGauge(sc.maturite,"Maturité")}${scoreGauge(sc.resilience,"Résilience")}${scoreGauge(sc.gouvernance,"Gouvernance")}${scoreGauge(sc.risque,"Maîtrise du risque")}</div>`:`<p class="meta">Scores non disponibles (aucun risque saisi).</p>`;
+  document.getElementById("report").innerHTML=`<div class="rep">
+    ${repHeader("Rapport client — "+c.company,"Gouvernance des risques R5®")}
+    <p class="meta">Secteur : ${esc(c.sector||"—")} · Statut : ${cap(c.status)}${c.contactName?" · Contact : "+esc(c.contactName):""}${c.contactPhone?" · "+esc(c.contactPhone):""}</p>
+    <h2>Scores R5®</h2>${gauges}
+    <h2>Missions (${miss.length})</h2>${miss.length?`<table><tr><th>Réf</th><th>Type</th><th>Phase R5</th><th>Statut</th></tr>`+miss.map(m=>`<tr><td>${esc(m.ref||"")}</td><td>${esc(m.type||"")}</td><td>${R5_LABELS[m.phase]||esc(m.phase||"")}</td><td>${m.status==="termine"?"Terminée":m.status==="suspendue"?"Suspendue":"En cours"}</td></tr>`).join("")+`</table>`:`<p class="meta">Aucune mission.</p>`}
+    <h2>Cartographie des risques (${rs.length})</h2>${rs.length?`<table><tr><th>Réf</th><th>Description</th><th>Famille</th><th>P</th><th>I</th><th>Score</th><th>Niveau</th><th>Statut</th></tr>`+rs.map(r=>{const s=r.probabilite*r.impact;return `<tr><td>${esc(r.ref||"")}</td><td>${esc(r.description||r.categorie||"")}</td><td>${esc(r.famille||"")}</td><td>${r.probabilite}</td><td>${r.impact}</td><td>${s}</td><td>${r5Niveau(s)}</td><td>${r.status==="traite"?"Traité":r.status==="en_cours"?"En cours":"À traiter"}</td></tr>`;}).join("")+`</table>`:`<p class="meta">Aucun risque.</p>`}
+    <h2>Recommandations (${recos.length})</h2>${recos.length?`<table><tr><th>Réf</th><th>Recommandation</th><th>Priorité</th><th>Horizon</th><th>Avanc.</th></tr>`+recos.map(r=>`<tr><td>${esc(r.ref||"")}</td><td>${esc(r.texte||"")}</td><td>${esc(r.priorite||"")}</td><td>${esc(r.horizon||"")}</td><td>${r.avancement||0}%</td></tr>`).join("")+`</table>`:`<p class="meta">Aucune recommandation.</p>`}
+  </div>`;
+  window.print();
+}
+function printPortfolioReport(){
+  const a=agg();
+  const rows=DB.clients.map(c=>({c,sc:clientScores(c.id),nr:DB.risks.filter(r=>r.clientId===c.id).length}));
+  document.getElementById("report").innerHTML=`<div class="rep">
+    ${repHeader("Rapport de portefeuille","Vue consolidée "+curYear())}
+    <h2>Indicateurs clés</h2>
+    <table><tr><th>Clients actifs</th><th>Missions en cours</th><th>Risques critiques</th><th>CA encaissé</th><th>CA à encaisser</th></tr>
+    <tr><td>${DB.clients.filter(c=>c.status==="actif").length}</td><td>${DB.missions.filter(m=>m.status==="en_cours").length}</td><td>${DB.risks.filter(r=>r.probabilite*r.impact>=15&&r.status!=="traite").length}</td><td>${fmtD(a.caEffectif)}</td><td>${fmtD(a.caProvisoire)}</td></tr></table>
+    <h2>Clients & scores R5®</h2>
+    <table><tr><th>Client</th><th>Secteur</th><th>Statut</th><th>Risques</th><th>Maturité</th><th>Résilience</th><th>Gouvernance</th><th>Maîtrise</th></tr>
+    ${rows.map(x=>`<tr><td>${esc(x.c.company)}</td><td>${esc(x.c.sector||"—")}</td><td>${cap(x.c.status)}</td><td>${x.nr}</td><td>${x.sc.hasData?x.sc.maturite:"—"}</td><td>${x.sc.hasData?x.sc.resilience:"—"}</td><td>${x.sc.hasData?x.sc.gouvernance:"—"}</td><td>${x.sc.hasData?x.sc.risque:"—"}</td></tr>`).join("")}</table>
+  </div>`;
+  window.print();
+}
+
 /* ----------------------------- Portail d'accès ----------------------------- */
 function portalNeeded(){ return !(localStorage.getItem("bsm_portal_ok")||sessionStorage.getItem("bsm_portal_ok")); }
 function showPortal(){
@@ -1707,6 +1835,8 @@ function lockPortal(){ localStorage.removeItem("bsm_portal_ok"); sessionStorage.
 /* ----------------------------- Démarrage ----------------------------- */
 load();
 document.getElementById("currency-indicator").textContent = DB.meta.defaultCurrency==="MGA"?"Ar / €":"€ / Ar";
+applyBranding();
+applyTheme();
 renderDashboard();
 updateAdviceBadge();
 if(portalNeeded()) showPortal();
