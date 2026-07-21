@@ -170,6 +170,8 @@
   .backlink:hover{color:var(--gold);}
   .clink{color:var(--navy);font-weight:700;cursor:pointer;text-decoration:none;}
   .clink:hover{color:var(--gold);text-decoration:underline;}
+  .clk{cursor:pointer;transition:.15s;}
+  .clk:hover{border-color:var(--gold)!important;transform:translateY(-1px);box-shadow:0 3px 12px rgba(16,42,67,.08);}
   .brandlogo{height:26px;width:26px;object-fit:contain;border-radius:5px;vertical-align:middle;margin-right:7px;}
   .gsearch{position:relative;}
   .gsearch input{padding:7px 12px;border:1px solid var(--line);border-radius:6px;font-size:13px;min-width:190px;font-family:inherit;}
@@ -247,6 +249,8 @@
     <div class="navitem" data-scr="risks" onclick="setScreen('risks')"><span class="ic">⚠️</span><span class="lbl">Matrice des risques</span></div>
     <div class="navitem" data-scr="carto" onclick="setScreen('carto')"><span class="ic">🗺️</span><span class="lbl">Cartographie</span></div>
     <div class="navitem" data-scr="recos" onclick="setScreen('recos')"><span class="ic">✅</span><span class="lbl">Recommandations</span></div>
+    <div class="navgroup">COMMERCIAL</div>
+    <div class="navitem" data-scr="commercial" onclick="setScreen('commercial')"><span class="ic">💼</span><span class="lbl">Simulateur</span></div>
     <div class="navgroup">CABINET</div>
     <div class="navitem" data-scr="rh" onclick="setScreen('rh')"><span class="ic">🧑‍💼</span><span class="lbl">RH & équipe</span></div>
     <div class="navitem" data-scr="audit" onclick="setScreen('audit')"><span class="ic">📝</span><span class="lbl">Audit terrain</span></div>
@@ -265,6 +269,7 @@
     <div class="screen" id="scr-recos"></div>
     <div class="screen" id="scr-rh"></div>
     <div class="screen" id="scr-audit"></div>
+    <div class="screen" id="scr-commercial"></div>
     <div class="screen" id="scr-clientfiche"></div>
     <div class="screen" id="scr-analyses"></div>
   </div>
@@ -314,6 +319,7 @@ const RECO_PRIORITIES = ["Critique","Élevée","Modérée","Faible"];
 const RH_POLES = ["Direction","Audit / Conseil","Analyse des risques","Commercial","Administratif","Terrain","Support IT"];
 const RH_PERMISSIONS = ["Administrateur","Consultant","Analyste","Assistant","Lecture seule"];
 const CONTRACT_TYPES = ["CDI","CDD","Stage","Prestation","Poste à pourvoir"];
+const CONTRACT_KINDS = ["Audit ponctuel","Accompagnement annuel","Forfait mission","Diagnostic R5","Veille / Abonnement","Autre"];
 const LEAVE_TYPES = ["Congé payé","Maladie","Sans solde","Récupération","Mission terrain","Formation"];
 const AUDIT_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSd7P7NzygqF1RizjTcYJvaFCbRUV71-XAdPe7Ly0Kth08vi4A/viewform";
 function r5Niveau(score){ return score>=15?"CRITIQUE":score>=9?"HAUTE":score>=4?"MOYENNE":"FAIBLE"; }
@@ -331,7 +337,7 @@ function defaultDB(){
     meta:{ version:2, defaultCurrency:"MGA", rateEurMga:5000, created:todayISO(), r5SheetId:"" },
     clients:[], events:[], transactions:[],
     missions:[], risks:[], recommendations:[],
-    employees:[], recruitments:[], leaves:[], activities:[],
+    employees:[], recruitments:[], leaves:[], activities:[], documents:[],
     advice:{ dismissed:[], edits:{}, custom:[] }
   };
 }
@@ -398,7 +404,7 @@ function load(){
   DB.advice = DB.advice || {dismissed:[],edits:{},custom:[]};
   DB.clients = DB.clients||[]; DB.events=DB.events||[]; DB.transactions=DB.transactions||[];
   DB.missions=DB.missions||[]; DB.risks=DB.risks||[]; DB.recommendations=DB.recommendations||[];
-  DB.employees=DB.employees||[]; DB.recruitments=DB.recruitments||[]; DB.leaves=DB.leaves||[]; DB.activities=DB.activities||[];
+  DB.employees=DB.employees||[]; DB.recruitments=DB.recruitments||[]; DB.leaves=DB.leaves||[]; DB.activities=DB.activities||[]; DB.documents=DB.documents||[];
 }
 function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }
 
@@ -431,7 +437,7 @@ function renderScreen(name){
   ({dashboard:renderDashboard, clients:renderClients, agenda:renderAgenda,
     budget:renderBudget, ca:renderCA, missions:renderMissions, risks:renderRisks,
     carto:renderCarto, recos:renderRecos, rh:renderRH, audit:renderAudit,
-    clientfiche:renderClientFiche, analyses:renderAnalyses}[name]||(()=>{}))();
+    commercial:renderCommercial, clientfiche:renderClientFiche, analyses:renderAnalyses}[name]||(()=>{}))();
 }
 function refreshAll(){
   const active = document.querySelector(".screen.active").id.replace("scr-","");
@@ -492,16 +498,16 @@ function renderDashboard(){
     <div class="pagetitle"><div><h1>Tableau de bord</h1><div class="sub">Vue d'ensemble ${curYear()} — devise : ${DB.meta.defaultCurrency==="MGA"?"Ariary":"Euro"}</div></div>
       <div style="display:flex;gap:8px"><button class="cta ghost" onclick="printPortfolioReport()">🖨 Rapport</button><button class="cta" onclick="quickAdd()">+ Ajout rapide</button></div></div>
     <div class="kpis">
-      <div class="kpi"><div class="v good">${fmtD(a.caEffectif)}</div><div class="l">CA effectif (encaissé ${curYear()})</div></div>
-      <div class="kpi"><div class="v">${fmtD(a.caProvisoire)}</div><div class="l">CA provisoire (à encaisser)</div></div>
-      <div class="kpi"><div class="v ${a.solde<0?'danger':'good'}">${fmtD(a.solde)}</div><div class="l">Solde net (encaissé − payé)</div></div>
-      <div class="kpi"><div class="v ${a.enRetard>0?'danger':''}">${fmtD(a.enRetard)}</div><div class="l">Encaissements en retard</div></div>
+      <div class="kpi clk" onclick="setScreen('ca')"><div class="v good">${fmtD(a.caEffectif)}</div><div class="l">CA effectif (encaissé ${curYear()}) →</div></div>
+      <div class="kpi clk" onclick="setScreen('ca')"><div class="v">${fmtD(a.caProvisoire)}</div><div class="l">CA provisoire (à encaisser) →</div></div>
+      <div class="kpi clk" onclick="setScreen('budget')"><div class="v ${a.solde<0?'danger':'good'}">${fmtD(a.solde)}</div><div class="l">Solde net (encaissé − payé) →</div></div>
+      <div class="kpi clk" onclick="setScreen('budget')"><div class="v ${a.enRetard>0?'danger':''}">${fmtD(a.enRetard)}</div><div class="l">Encaissements en retard →</div></div>
     </div>
     <div class="kpis">
-      <div class="kpi"><div class="v">${DB.missions.filter(m=>m.status==="en_cours").length}</div><div class="l">Missions R5 en cours</div></div>
-      <div class="kpi"><div class="v ${critR>0?'danger':''}">${critR}</div><div class="l">Risques critiques ouverts</div></div>
-      <div class="kpi"><div class="v ${lateR>0?'warn':''}">${lateR}</div><div class="l">Recommandations en retard</div></div>
-      <div class="kpi"><div class="v">${DB.employees.filter(e=>e.status==="actif").length}</div><div class="l">Collaborateurs actifs</div></div>
+      <div class="kpi clk" onclick="setScreen('missions')"><div class="v">${DB.missions.filter(m=>m.status==="en_cours").length}</div><div class="l">Missions R5 en cours →</div></div>
+      <div class="kpi clk" onclick="setScreen('risks')"><div class="v ${critR>0?'danger':''}">${critR}</div><div class="l">Risques critiques ouverts →</div></div>
+      <div class="kpi clk" onclick="setScreen('recos')"><div class="v ${lateR>0?'warn':''}">${lateR}</div><div class="l">Recommandations en retard →</div></div>
+      <div class="kpi clk" onclick="setScreen('rh')"><div class="v">${DB.employees.filter(e=>e.status==="actif").length}</div><div class="l">Collaborateurs actifs →</div></div>
     </div>
     <div class="grid2 wide">
       <div class="card">
@@ -589,6 +595,16 @@ function openClientForm(id){
     <div class="field"><label>Email</label><input id="f-cemail" value="${esc(c.contactEmail||'')}"></div>
     <div class="field"><label>Statut</label><select id="f-status">
       ${["prospect","actif","archive"].map(s=>`<option value="${s}" ${c.status===s?'selected':''}>${cap(s)}</option>`).join("")}</select></div>
+    <div style="border-top:1px solid var(--line);margin:6px 0 12px;padding-top:10px;font-size:11px;color:var(--muted);letter-spacing:.04em">CONTRAT & MISSION</div>
+    <div class="field row2"><label>Date de signature & type de contrat</label>
+      <input type="date" id="f-sign" value="${c.signatureDate||''}">
+      <select id="f-ctype"><option value="">— Type —</option>${CONTRACT_KINDS.map(x=>`<option ${c.contractType===x?'selected':''}>${x}</option>`).join("")}</select></div>
+    <div class="field"><label>NDA</label>
+      <label style="font-weight:400;font-size:13px"><input type="checkbox" id="f-cnda" ${c.ndaSigned?'checked':''}> NDA signé</label>
+      &nbsp;&nbsp;le <input type="date" id="f-cndadate" value="${c.ndaDate||''}" style="width:auto;display:inline-block"></div>
+    <div class="field"><label>Informations contrat (référence, montant, échéance…)</label><input id="f-cinfo" value="${esc(c.contractInfo||'')}"></div>
+    <div class="field"><label>Résumé de mission</label><textarea id="f-msum" rows="2">${esc(c.missionSummary||'')}</textarea></div>
+    <div class="field"><label>Résumé de suivi</label><textarea id="f-fsum" rows="2">${esc(c.followupSummary||'')}</textarea></div>
     <div class="field"><label>Notes</label><textarea id="f-notes" rows="2">${esc(c.notes||'')}</textarea></div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveClient('${id||''}')">Enregistrer</button></div>`);
 }
@@ -596,7 +612,9 @@ function saveClient(id){
   const company=val("f-company").trim();
   if(!company){ toast("Le nom de la société est obligatoire."); return; }
   const obj={ company, sector:val("f-sector"), contactName:val("f-cname"), contactPhone:val("f-cphone"),
-    contactEmail:val("f-cemail"), status:val("f-status"), notes:val("f-notes") };
+    contactEmail:val("f-cemail"), status:val("f-status"), notes:val("f-notes"),
+    signatureDate:val("f-sign"), contractType:val("f-ctype"), ndaSigned:document.getElementById("f-cnda").checked,
+    ndaDate:val("f-cndadate"), contractInfo:val("f-cinfo"), missionSummary:val("f-msum"), followupSummary:val("f-fsum") };
   if(id){ Object.assign(DB.clients.find(x=>x.id===id), obj); }
   else { obj.id=uid(); obj.createdAt=todayISO(); DB.clients.push(obj); }
   save(); closeModal(); refreshAll(); toast("Client enregistré.");
@@ -672,12 +690,67 @@ function renderClientFiche(){
       <div class="kpi"><div class="v good">${fmtD(caEff)}</div><div class="l">CA encaissé</div></div>
       <div class="kpi"><div class="v">${fmtD(caProv)}</div><div class="l">CA à encaisser</div></div>
     </div>
+    <div class="card">
+      <h2>Contrat, NDA & documents</h2>
+      <div class="mini-list">
+        <div class="li"><span>Date de signature</span><b>${c.signatureDate?frDate(c.signatureDate):'—'}</b></div>
+        <div class="li"><span>Type de contrat</span><b>${esc(c.contractType||'—')}</b></div>
+        <div class="li"><span>NDA</span><b>${c.ndaSigned?'Signé'+(c.ndaDate?' le '+frDate(c.ndaDate):''):'Non signé'}</b></div>
+        ${c.contractInfo?`<div class="li"><span>Infos contrat</span><span style="text-align:right;max-width:60%">${esc(c.contractInfo)}</span></div>`:''}
+      </div>
+      ${c.missionSummary?`<div style="margin-top:12px"><b style="font-size:12.5px;color:var(--navy)">Résumé de mission</b><div style="font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.5">${esc(c.missionSummary)}</div></div>`:''}
+      ${c.followupSummary?`<div style="margin-top:10px"><b style="font-size:12.5px;color:var(--navy)">Résumé de suivi</b><div style="font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.5">${esc(c.followupSummary)}</div></div>`:''}
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="cta ghost sm" onclick="uploadClientDoc('${c.id}','Devis')">+ Devis</button>
+        <button class="cta ghost sm" onclick="uploadClientDoc('${c.id}','NDA')">+ NDA</button>
+        <button class="cta ghost sm" onclick="uploadClientDoc('${c.id}','Contrat')">+ Contrat</button>
+        <button class="cta ghost sm" onclick="uploadClientDoc('${c.id}','Rapport')">+ Rapport d'audit</button>
+        <button class="cta ghost sm" onclick="uploadClientDoc('${c.id}','Autre')">+ Autre</button>
+      </div>
+      ${docsList(c.id)}
+    </div>
     <div class="grid2 wide">
       <div class="card"><h2>Missions (${miss.length})</h2>${miss.length?`<table><tbody>`+miss.map(m=>`<tr><td><b>${esc(m.ref||'—')}</b> ${esc(m.type||'')}</td><td style="font-size:11.5px;color:var(--muted)">${R5_LABELS[m.phase]||esc(m.phase||'')}</td><td style="text-align:right"><span class="badge ${m.status==='termine'?'b-green':m.status==='suspendue'?'b-grey':'b-blue'}">${m.status==='termine'?'Terminée':m.status==='suspendue'?'Suspendue':'En cours'}</span></td></tr>`).join('')+`</tbody></table>`:`<div class="empty">Aucune mission.</div>`}</div>
       <div class="card"><h2>Prochains rendez-vous</h2>${evs.length?`<div class="mini-list">`+evs.slice(0,5).map(e=>`<div class="li"><span><span class="badge ${evBadge(e.type)}">${EVENT_TYPES[e.type]}</span> ${esc(e.title)}</span><span class="d">${frDate(e.date)}</span></div>`).join('')+`</div>`:`<div class="empty">Aucun rendez-vous à venir.</div>`}</div>
     </div>
     <div class="card"><h2>Risques (${rs.length})</h2>${rs.length?`<table><thead><tr><th>Réf</th><th>Description</th><th>P×I</th><th>Niveau</th><th>Statut</th></tr></thead><tbody>`+rs.map(r=>{const s=r.probabilite*r.impact;return `<tr><td>${esc(r.ref||'—')}</td><td style="max-width:300px">${esc(r.description||r.categorie||'—')}</td><td><b>${s}</b></td><td><span class="badge ${r5Badge(r5Niveau(s))}">${r5Niveau(s)}</span></td><td><span class="badge ${r.status==='traite'?'b-green':r.status==='en_cours'?'b-orange':'b-grey'}">${r.status==='traite'?'Traité':r.status==='en_cours'?'En cours':'À traiter'}</span></td></tr>`;}).join('')+`</tbody></table>`:`<div class="empty">Aucun risque.</div>`}</div>
     <div class="card"><h2>Recommandations (${recos.length})</h2>${recos.length?`<table><tbody>`+recos.map(r=>`<tr><td><b>${esc(r.ref||'')}</b> ${esc(r.texte||'')}</td><td style="text-align:right"><span class="badge ${recoPrioBadge(r.priorite)}">${esc(r.priorite||'')}</span></td><td style="width:96px"><div class="progress"><i style="width:${r.avancement||0}%"></i></div></td></tr>`).join('')+`</tbody></table>`:`<div class="empty">Aucune recommandation.</div>`}</div>`;
+}
+
+/* ----------------------------- Commercial (simulateur intégré) ----------------------------- */
+function renderCommercial(){
+  document.getElementById("scr-commercial").innerHTML=`
+    <div class="pagetitle"><div><h1>Simulateur commercial</h1><div class="sub">Tarification & configuration d'offres — intégré au cockpit</div></div>
+      <a href="simulateur.html" target="_blank" rel="noopener"><button class="cta ghost">Ouvrir en plein écran ↗</button></a></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <iframe src="simulateur.html" title="Simulateur commercial BSM" style="width:100%;height:80vh;border:none;display:block;background:#fff"></iframe>
+    </div>
+    <div class="hint" style="margin-top:-8px">Le simulateur est autonome : ses tarifs et sa clé IA se règlent dans son propre panneau. Un devis généré peut être importé dans la fiche d'un client (bouton « + Devis »).</div>`;
+}
+
+/* ----------------------------- Documents client (devis, NDA, contrats…) ----------------------------- */
+function docsList(id){
+  const docs=DB.documents.filter(d=>d.clientId===id);
+  if(!docs.length) return `<div class="hint" style="margin-top:8px">Aucun document. Importe un devis, une NDA, un contrat…</div>`;
+  return `<table style="margin-top:10px"><tbody>`+docs.map(d=>`<tr>
+    <td><span class="badge b-blue">${esc(d.category)}</span> ${esc(d.name)}</td>
+    <td style="font-size:11.5px;color:var(--muted)">${frDate(d.date)}${d.size?' · '+Math.round(d.size/1024)+' Ko':''}</td>
+    <td style="text-align:right"><a class="clink" href="${d.dataURL}" download="${esc(d.name)}">Télécharger</a> &nbsp;<button class="iconbtn del" onclick="deleteDoc('${d.id}')">🗑</button></td></tr>`).join("")+`</tbody></table>`;
+}
+function uploadClientDoc(clientId, category){
+  const inp=document.createElement("input");
+  inp.type="file"; inp.accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xlsx,.csv,image/*,application/pdf";
+  inp.onchange=()=>{ const f=inp.files[0]; if(!f) return;
+    if(f.size>1.5*1024*1024){ toast("Fichier trop lourd (max 1,5 Mo en stockage local)."); return; }
+    const rd=new FileReader();
+    rd.onload=()=>{ DB.documents.push({id:uid(),clientId,category,name:f.name,dataURL:rd.result,size:f.size,date:todayISO()}); save(); renderClientFiche(); toast(category+" importé."); };
+    rd.readAsDataURL(f);
+  };
+  inp.click();
+}
+function deleteDoc(id){
+  const d=DB.documents.find(x=>x.id===id);
+  confirmModal("Supprimer ce document ?", d?esc(d.name):"", ()=>{ DB.documents=DB.documents.filter(x=>x.id!==id); save(); renderClientFiche(); toast("Document supprimé."); });
 }
 
 /* ----------------------------- Agenda ----------------------------- */
@@ -1789,6 +1862,9 @@ function printClientReport(id){
   document.getElementById("report").innerHTML=`<div class="rep">
     ${repHeader("Rapport client — "+c.company,"Gouvernance des risques R5®")}
     <p class="meta">Secteur : ${esc(c.sector||"—")} · Statut : ${cap(c.status)}${c.contactName?" · Contact : "+esc(c.contactName):""}${c.contactPhone?" · "+esc(c.contactPhone):""}</p>
+    ${(c.signatureDate||c.contractType||c.ndaSigned||c.contractInfo)?`<p class="meta">Signature : ${c.signatureDate?frDate(c.signatureDate):"—"} · Contrat : ${esc(c.contractType||"—")} · NDA : ${c.ndaSigned?"signé":"non"}${c.contractInfo?" · "+esc(c.contractInfo):""}</p>`:""}
+    ${c.missionSummary?`<p class="meta"><b>Mission :</b> ${esc(c.missionSummary)}</p>`:""}
+    ${c.followupSummary?`<p class="meta"><b>Suivi :</b> ${esc(c.followupSummary)}</p>`:""}
     <h2>Scores R5®</h2>${gauges}
     <h2>Missions (${miss.length})</h2>${miss.length?`<table><tr><th>Réf</th><th>Type</th><th>Phase R5</th><th>Statut</th></tr>`+miss.map(m=>`<tr><td>${esc(m.ref||"")}</td><td>${esc(m.type||"")}</td><td>${R5_LABELS[m.phase]||esc(m.phase||"")}</td><td>${m.status==="termine"?"Terminée":m.status==="suspendue"?"Suspendue":"En cours"}</td></tr>`).join("")+`</table>`:`<p class="meta">Aucune mission.</p>`}
     <h2>Cartographie des risques (${rs.length})</h2>${rs.length?`<table><tr><th>Réf</th><th>Description</th><th>Famille</th><th>P</th><th>I</th><th>Score</th><th>Niveau</th><th>Statut</th></tr>`+rs.map(r=>{const s=r.probabilite*r.impact;return `<tr><td>${esc(r.ref||"")}</td><td>${esc(r.description||r.categorie||"")}</td><td>${esc(r.famille||"")}</td><td>${r.probabilite}</td><td>${r.impact}</td><td>${s}</td><td>${r5Niveau(s)}</td><td>${r.status==="traite"?"Traité":r.status==="en_cours"?"En cours":"À traiter"}</td></tr>`;}).join("")+`</table>`:`<p class="meta">Aucun risque.</p>`}

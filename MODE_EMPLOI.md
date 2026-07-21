@@ -21,7 +21,7 @@ Créez un raccourci de ce fichier sur le bureau pour y accéder en un clic.
 | Onglet | À quoi ça sert |
 |---|---|
 | **Tableau de bord** | Vue d'ensemble : CA, solde, indicateurs R5, alertes, prochains événements. |
-| **Clients** | Ajouter / suivre / archiver / supprimer. **Cliquer un client ouvre sa fiche 360°** : scores R5 (jauges), missions, risques, recommandations, CA et rendez-vous. |
+| **Clients** | Ajouter / suivre / archiver / supprimer. **Cliquer un client ouvre sa fiche 360°** : scores R5, contrat (date de signature, type, NDA), résumés de mission & suivi, **documents (devis/NDA/contrats/rapports d'audit à importer)**, missions, risques, recommandations, CA, rendez-vous. Le tableau de bord est **cliquable** (chaque indicateur mène à son détail). |
 | **Agenda** | Dater audits, prospections, rendez-vous. Calendrier + liste. |
 | **Budget** | Entrées, dépenses, prévisions, par mode de paiement (CB, Chèque, Mvola, Orange Money, Espèces, Virement). |
 | **Chiffre d'affaires** | CA provisoire (à encaisser) vs effectif (encaissé), par mois et par client. |
@@ -33,6 +33,11 @@ Créez un raccourci de ce fichier sur le bureau pour y accéder en un clic.
 | **Matrice des risques** | Saisie des risques : Probabilité × Impact → score et niveau (CRITIQUE ≥15, HAUTE, MOYENNE, FAIBLE) calculés automatiquement. |
 | **Cartographie** | Heatmap 5×5 automatique des risques + répartition par niveau et par famille. Cliquer un point ouvre le risque. |
 | **Recommandations** | Plan d'action R5 : horizon, priorité, responsable, indicateur, avancement % (suivi intégré). |
+
+**COMMERCIAL**
+| Onglet | À quoi ça sert |
+|---|---|
+| **Simulateur** | Le simulateur tarifaire BSM intégré directement dans le cockpit (tarifs & clé IA dans son propre panneau). Bouton pour l'ouvrir en plein écran. |
 
 **CABINET**
 | Onglet | À quoi ça sert |
