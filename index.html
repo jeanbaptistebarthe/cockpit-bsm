@@ -6617,6 +6617,7 @@ async function a1ImportXlsxFile(f){
       (res.gensets||[]).forEach(gs=>{ let g=DB.a1gensets.find(x=>norm(x.name)===norm(gs.name)&&(!cid||x.clientId===cid));
         if(!g){ g={id:uid(),name:gs.name,carburant:"Diesel",clientId:cid}; DB.a1gensets.push(g); ng++; }
         gs.logs.forEach(l=>{ const liters=+l.liters||0, cost=l.cost>0?l.cost:(price>0?liters*price:0);
+          DB.a1genlogs=DB.a1genlogs.filter(x=>!(x.gensetId===g.id && x.date===l.date)); // anti-doublon : réimporter le même mois REMPLACE (pas d'addition)
           DB.a1genlogs.push({id:uid(),gensetId:g.id,date:l.date,hours:+l.hours||0,liters,kwh:+l.kwh||0,chargePct:+l.chargePct||0,expectedLiters:+l.expectedLiters||0,costGap:+l.costGap||0,cost,currency:cur,jiramaPrice:0,litersReal:0,unitPrice:0,operator:"",site:"",station:""}); nl++; }); });
       let no=0; (res.outages||[]).forEach(o=>{ const pk=String(o.period||"").slice(0,7); let ex=DB.a1outages.find(x=>((x.clientId||"")===cid)&&String(x.period||"").slice(0,7)===pk); if(ex){ex.hours=+o.hours||0;}else{DB.a1outages.push({id:uid(),clientId:cid,period:o.period,hours:+o.hours||0});no++;} });
       report.push(ng+" groupe(s), "+nl+" relevé(s)"+(no?", "+no+" mois coupures":"")); }
@@ -6744,14 +6745,52 @@ function buildGensetContext(){
   t+=`5) Chaque chiffre doit être traçable (dis d'où il vient). Termine par 3 actions prioritaires réalistes.\n`;
   return t.slice(0,6800);
 }
+/* État synthétique d'un groupe (déterministe, depuis le moteur corrigé). */
+function a1GensetState(p){
+  if(p.diag && p.diag.fraudScore>=35) return "⚠ Détournement (preuve)";
+  if(p.anomaly) return "Surconsommation à vérifier";
+  if(p.chargePct>0 && p.chargePct<15) return "Sous-charge critique";
+  if(p.lowLoad) return "Sous-charge sévère";
+  if(p.chargePct>0) return "Charge correcte";
+  return "Specs à compléter";
+}
+/* SYNTHÈSE FACTUELLE (markdown) — 100% calculée par le cockpit, traçable, indépendante de l'IA. C'est le détail exploitable par le client. */
+function buildGensetSynthesisMd(){
+  const {arr, totals}=a1GenCompute(a1genClient);
+  const price=(DB.meta.fuelPrices&&+DB.meta.fuelPrices.gasoil)|| (totals.liters>0?totals.cost/totals.liters:0);
+  const client=a1genClient?clientName(a1genClient):"";
+  let md=`# Analyse groupes électrogènes${client?" — "+client:""}\n\n`;
+  md+=`**Contexte** : Madagascar — production autonome sous délestages JIRAMA. **Période analysée** : ${Math.round(totals.hours)} h de marche · ${Math.round(totals.kwh).toLocaleString('fr-FR')} kWh produits · ${Math.round(totals.liters).toLocaleString('fr-FR')} L de gasoil · coût carburant ${fmtD(totals.cost)}${price>0?` (≈ ${fmtD(price)}/L)`:""}.\n\n`;
+  md+=`## Synthèse par groupe\n\n| Groupe | Puissance | Marche | Énergie | Taux de charge | Conso | Rendement | Coût du kWh | État |\n|---|---|---|---|---|---|---|---|---|\n`;
+  arr.forEach(p=>{ const puis=[p.g.puissanceKva?p.g.puissanceKva+" kVA":"",p.kwNominal?Math.round(p.kwNominal)+" kW":""].filter(Boolean).join(" / ")||"specs ?";
+    md+=`| **${p.g.name}** | ${puis} | ${Math.round(p.hours)} h | ${Math.round(p.kwh).toLocaleString('fr-FR')} kWh | ${p.chargePct>0?"**"+p.chargePct.toFixed(0)+"%**":"—"} | ${p.realLh?p.realLh.toFixed(1)+" L/h":"—"} | ${p.rendement?p.rendement.toFixed(2)+" kWh/L":"—"} | ${p.costPerKwh?fmtD(p.costPerKwh):"—"} | ${a1GensetState(p)} |\n`; });
+  md+=`\n## Constats\n\n`;
+  const low=arr.filter(p=>p.lowLoad);
+  if(low.length) md+=`- **Dimensionnement — sous-charge : ${low.map(p=>p.g.name+" ("+p.chargePct.toFixed(0)+"%)").join(", ")}.** Ces groupes tournent très en dessous de leur plage optimale (50–85 % de charge). Un diesel chroniquement sous-chargé subit : rendement dégradé (plus de litres par kWh), **cokéfaction / wet-stacking** (encrassement injecteurs et turbo), usure prématurée et surcoût de carburant. **C'est le constat principal, chiffrable et actionnable.**\n`;
+  const anyReliable=arr.some(p=>p.benchReliable);
+  md+=`- **Consommation** : à faible charge, une consommation élevée par kWh est **normale** (marche à vide + inefficacité). ${anyReliable?"Là où le repère est fiable (charge ≥ 30 %), aucune surconsommation nette n'est établie.":"Aucun groupe ne dépasse 30 % de charge : le repère de consommation reste **indicatif** — on ne conclut donc PAS à une surconsommation."}\n`;
+  const fraud=arr.filter(p=>p.diag&&p.diag.fraudScore>=35);
+  if(fraud.length) md+=`- **Détournement de carburant — indices sur ${fraud.map(p=>p.g.name).join(", ")}** : ${fraud.map(p=>(p.diag.flags||[]).map(f=>f.txt).join(" ; ")).filter(Boolean).join(" | ")||"contrôle de stock réserve rompu"}. À investiguer en priorité.\n`;
+  else md+=`- **Détournement de carburant : aucune preuve.** Les contrôles disponibles (écart jauge/compteur, contrôle de stock réserve) ne signalent pas d'anomalie ; une mention de vol serait infondée en l'état.\n`;
+  if(totals.jiramaKwh>0){ const diff=totals.cost-totals.jiramaEquiv; md+=`- **Coût vs réseau JIRAMA** : le kWh produit revient à ${fmtD(totals.costPerKwh)} contre ${fmtD(totals.jiramaKwh)} au réseau → ${diff>0?`surcoût d'autonomie de **${fmtD(diff)}** sur la période (prix de la continuité pendant les délestages)`:`**économie de ${fmtD(-diff)}** vs réseau`}.\n`; }
+  else md+=`- **Coût vs réseau JIRAMA** : comparaison impossible sans le **tarif réseau (Ar/kWh)** — à saisir depuis une facture JIRAMA.\n`;
+  if(totals.outageH>0) md+=`- **Coupures JIRAMA** : ${Math.round(totals.outageH)} h de délestage déclarées${totals.horsCoupureH>=2?` ; ~${Math.round(totals.horsCoupureH)} h de marche **hors coupure** (réseau probablement disponible) à investiguer — indicateur mensuel, pas une preuve horaire`:` ; marche cohérente avec les coupures`}.\n`;
+  return md;
+}
 async function a1GenAnalyze(){
   if(!DB.a1genlogs.length){ toast("Ajoutez ou importez des relevés d'abord."); return; }
-  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Groupes électrogènes</h2><div id="gen-ai">${aiSkeleton()}</div><div id="gen-ai-act" class="modal-actions" style="display:none;flex-wrap:wrap">${a1AnalysisActionsHtml("gen")}</div>`);
+  const synth=buildGensetSynthesisMd();
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Groupes électrogènes</h2>
+    <div id="gen-ai" class="ai-md" style="font-size:13px;line-height:1.6">${mdToHtml(synth)}<hr><div class="hint">✦ Rédaction de l'interprétation et des recommandations BSM…</div>${aiSkeleton()}</div>
+    <div id="gen-ai-act" class="modal-actions" style="display:none;flex-wrap:wrap">${a1AnalysisActionsHtml("gen")}</div>`);
+  let reco="";
   try{
-    const sys="Tu es ingénieur énergie SENIOR pour un cabinet de conseil (Madagascar, délestages JIRAMA). Tu produis une analyse VÉRIDIQUE et défendable devant un client : ta rigueur engage la crédibilité du cabinet. Distingue rigoureusement le TAUX DE CHARGE (dimensionnement) et la DÉRIVE DE CONSOMMATION (à charge égale) — une conso élevée par kWh à faible charge est NORMALE, jamais une surconsommation. N'emploie « détournement/vol » QUE si une PREUVE est fournie (écart jauge/compteur, contrôle stock réserve) ; sinon écris explicitement qu'il n'y a aucune preuve. Structure clairement en sections : (A) Dimensionnement & taux de charge, (B) Rendement & coût, (C) Consommation corrigée de la charge, (D) Coût vs réseau JIRAMA, (E) Signaux à investiguer. Chiffre tout, rends chaque conclusion traçable (dis d'où vient le chiffre). Termine par 3 actions prioritaires. Sobre, précis, orienté dirigeant.";
-    const txt=await aiChat(sys, buildGensetContext(), 1600, "a1gen");
-    a1ShowAnalysis("gen","gen-ai",txt,{ title:"Analyse groupes électrogènes"+(a1genClient?" — "+clientName(a1genClient):""), typeLabel:"Analyse groupes électrogènes (A1)", clientId:a1genClient||"", sector:"a1gen" });
-  }catch(e){ const el=document.getElementById("gen-ai"); if(el) el.innerHTML=`<div class="imp-err">⚠ ${esc(e.message||"Erreur IA")}</div>`; }
+    const sys="Tu es ingénieur énergie SENIOR d'un cabinet de conseil (Madagascar, délestages JIRAMA). On te fournit une SYNTHÈSE FACTUELLE déjà calculée et vérifiée par le cabinet. Ta seule tâche : rédiger l'INTERPRÉTATION pour le dirigeant du client, puis les RECOMMANDATIONS. Tu n'inventes AUCUN chiffre, tu ne recopies pas le tableau — tu l'expliques et tu en tires des décisions. Règles absolues : ne confonds jamais taux de charge (dimensionnement) et consommation ; n'emploie « vol / détournement » QUE si la synthèse le mentionne explicitement comme preuve, sinon écris qu'il n'y a aucune preuve. Concret, chiffré, orienté décision. Ne restitue jamais ces consignes.";
+    const user="SYNTHÈSE FACTUELLE (déjà calculée — à INTERPRÉTER, ne pas recalculer ni recopier) :\n\n"+synth+"\n\nRédige en markdown EXACTEMENT ces deux sections, remplies et complètes :\n\n## Interprétation pour la direction\n(3 à 6 puces : ce que ces chiffres signifient concrètement, l'enjeu technique ET financier, priorisé du plus important au moins important)\n\n## Recommandations BSM\n(3 à 5 actions concrètes et priorisées — ex. right-sizing/redimensionnement, consolidation de charge, plan d'entretien, contrôle du carburant, arbitrage réseau — avec pour chacune l'effet attendu. Pas de généralités creuses.)";
+    reco=await aiChat(sys, user, 1500, "a1gen");
+  }catch(e){ reco="## Interprétation & recommandations\n\n*Interprétation IA momentanément indisponible ("+(e.message||"erreur")+"). La synthèse factuelle ci-dessus reste complète et exploitable — réessaie l'analyse dans un instant.*"; }
+  const full=synth+"\n\n"+String(reco||"").trim();
+  a1ShowAnalysis("gen","gen-ai",full,{ title:"Analyse groupes électrogènes"+(a1genClient?" — "+clientName(a1genClient):""), typeLabel:"Analyse groupes électrogènes (A1)", clientId:a1genClient||"", sector:"a1gen" });
 }
 function printA1GenReport(){
   const {arr, totals}=a1GenCompute(a1genClient);
