@@ -578,7 +578,7 @@ function load(){
   DB.playbooks=DB.playbooks||[]; DB.aiMemory=DB.aiMemory||[]; DB.aiChat=DB.aiChat||[];
   DB.recurring=DB.recurring||[]; DB.jobs=DB.jobs||[]; DB.primes=DB.primes||[]; DB.devis=DB.devis||[];
   DB.users=DB.users||[]; DB.activityLog=DB.activityLog||[]; DB.notifications=DB.notifications||[]; DB.moneyRequests=DB.moneyRequests||[]; DB.investments=DB.investments||[]; DB.decisions=DB.decisions||[];
-  DB.a1vehicles=DB.a1vehicles||[]; DB.a1logs=DB.a1logs||[]; DB.a1gensets=DB.a1gensets||[]; DB.a1genlogs=DB.a1genlogs||[]; DB.a1offers=DB.a1offers||[];
+  DB.a1vehicles=DB.a1vehicles||[]; DB.a1logs=DB.a1logs||[]; DB.a1gensets=DB.a1gensets||[]; DB.a1genlogs=DB.a1genlogs||[]; DB.a1offers=DB.a1offers||[]; DB.a1outages=DB.a1outages||[];
   DB.a1offers.forEach(o=>{ if(!o.product) o.product="flotte"; }); // migration : offres existantes = programme flotte
   if(!DB.meta.fuelPrices) DB.meta.fuelPrices={gasoil:0,essence:0};
   if(!DB.meta.a1Thresholds) DB.meta.a1Thresholds={driftFleet:10,driftGen:15,idle:35,plausFactor:1.5};
@@ -5835,6 +5835,10 @@ function a1DiagGen(p){
   if(flags.some(f=>/Coût\/L/.test(f.txt))) causes.vol+=20;
   if(drift>60) causes.vol+=10;
   if(hardFraud) causes.mecanique=Math.max(0,causes.mecanique-15);
+  // Fonctionnement HORS COUPURE JIRAMA : le groupe a tourné plus d'heures qu'il n'y a eu de délestage déclaré → usage à justifier (réseau dispo : gaspillage, ou marche non autorisée). Screening mensuel, pas une preuve horaire.
+  if(p.gridBacked!==false && (p.horsCoupureH||0)>=2){ const ratio=p.hours>0?(p.horsCoupureH/p.hours):0;
+    flags.push({sev:"w", txt:`${Math.round(p.horsCoupureH)} h hors coupure JIRAMA (marche au-delà des délestages déclarés — réseau probablement disponible)`});
+    causes.perte += Math.min(40, Math.round(ratio*100)); if(ratio>=0.20) causes.vol+=10; }
   const res=a1DiagFinalize(causes, flags, trend, loss, excess, drift); res.diverted=diverted; return res;
 }
 // Analyse de concentration : un même chauffeur/station récurrent sur des relevés suspects = signal de complicité.
@@ -6331,6 +6335,8 @@ function a1GenExpectedLh(consoTheoLh, chargePct){ if(!(consoTheoLh>0)) return 0;
 function a1GenCompute(clientId){
   const yr=new Date().getFullYear(); const perG={};
   DB.a1gensets.filter(g=>!clientId||g.clientId===clientId).forEach(g=>{ perG[g.id]={g, hours:0, liters:0, kwh:0, cost:0, chW:0, jkwh:0, jkwhW:0, expL:0, gap:0, n:0, logs:[]}; });
+  // Coupures JIRAMA par mois (heures de délestage DÉCLARÉES) → base des « heures hors coupure ». Jamais inventé.
+  const outMap={}; (DB.a1outages||[]).forEach(o=>{ outMap[(o.clientId||"")+"|"+String(o.period||"").slice(0,7)]=+o.hours||0; });
   DB.a1genlogs.forEach(l=>{ const p=perG[l.gensetId]; if(!p) return;
     const h=+l.hours||0; p.hours+=h; p.liters+=(+l.liters||0); p.kwh+=(+l.kwh||0);
     p.cost+=a1LogCost(l, p.g.carburant); p.logs.push(l);
@@ -6352,12 +6358,17 @@ function a1GenCompute(clientId){
     p.rendement = p.liters>0 ? p.kwh/p.liters : 0; // kWh par litre
     p.costPerKwh = p.kwh>0 ? p.cost/p.kwh : 0;
     p.costPerHour = p.hours>0 ? p.cost/p.hours : 0;
-    p.jiramaKwh = p.jkwhW>0 ? p.jkwh/p.jkwhW : 0;
+    p.jiramaKwh = p.jkwhW>0 ? p.jkwh/p.jkwhW : (+DB.meta.jiramaKwhPrice||0); // tarif réseau : par relevé, sinon tarif global (facture)
     p.vsJirama = (p.costPerKwh>0 && p.jiramaKwh>0) ? p.costPerKwh - p.jiramaKwh : null; // >0 = plus cher que le réseau
     p.age = p.g.annee ? Math.max(0,yr-(+p.g.annee)) : null;
     p.anomaly = p.driftLh!=null && p.driftLh>20;           // surconso vs attendu → entretien / détournement
     p.lowLoad = p.chargePct>0 && p.chargePct<30;           // sous-charge → groupe surdimensionné, rendement dégradé
     p.logs.sort((x,y)=>String(x.date||"").localeCompare(String(y.date||"")));
+    // Heures hors coupure : mois par mois, ce qui dépasse la durée de coupure JIRAMA connue (réseau probablement dispo → à investiguer).
+    p.horsCoupureH=0; p.outageMonths=0; p.hasOutage=false;
+    p.gridBacked=!/continu|isol/i.test(norm(p.g.usage||"")); // un site isolé n'a pas de réseau → la notion « hors coupure » n'a pas de sens
+    (p.logs||[]).forEach(l=>{ const oh=outMap[(p.g.clientId||"")+"|"+String(l.date||"").slice(0,7)];
+      if(oh!=null){ p.hasOutage=true; p.outageMonths++; if(p.gridBacked) p.horsCoupureH+=Math.max(0,(+l.hours||0)-oh); } });
     p.diag=a1DiagGen(p);                                    // diagnostic déterministe (cause probable, fraude, impact €)
     return p;
   });
@@ -6366,6 +6377,8 @@ function a1GenCompute(clientId){
   totals.costPerKwh = totals.kwh>0 ? totals.cost/totals.kwh : 0;
   const jArr=arr.filter(p=>p.jiramaKwh>0); totals.jiramaKwh = jArr.length? jArr.reduce((s,p)=>s+p.jiramaKwh,0)/jArr.length : 0;
   totals.jiramaEquiv = totals.jiramaKwh>0 ? totals.kwh*totals.jiramaKwh : 0; // ce que le même kWh coûterait au réseau
+  totals.horsCoupureH = arr.reduce((s,p)=>s+(p.horsCoupureH||0),0);
+  { const seen={}; let s=0; (DB.a1outages||[]).forEach(o=>{ if(clientId && (o.clientId||"")!==clientId) return; const k=(o.clientId||"")+"|"+String(o.period||"").slice(0,7); if(!seen[k]){ seen[k]=1; s+=+o.hours||0; } }); totals.outageH=s; }
   return {arr, totals};
 }
 function renderA1Genset(){
@@ -6401,6 +6414,7 @@ function renderA1Genset(){
       <div class="kpi"><div class="v ${anomalies.length?'danger':''}">${anomalies.length}</div><div class="l">Groupes en surconsommation</div></div>
     </div>
     ${totals.jiramaKwh>0?`<div class="card" style="border-left:3px solid var(--navy)"><b>⚡ Comparatif réseau JIRAMA :</b> ${Math.round(totals.kwh).toLocaleString('fr-FR')} kWh produits au groupe = <b>${fmtD(totals.cost)}</b> ; au tarif réseau (${fmtD(totals.jiramaKwh)}/kWh) cela coûterait <b>${fmtD(totals.jiramaEquiv)}</b> → ${totals.cost>totals.jiramaEquiv?`surcoût d'autonomie de <b style="color:var(--amber)">${fmtD(totals.cost-totals.jiramaEquiv)}</b> (prix de la continuité pendant les délestages)`:`<b style="color:var(--green)">économie de ${fmtD(totals.jiramaEquiv-totals.cost)}</b> vs réseau`}.</div>`:""}
+    ${arr.length?(totals.outageH>0?`<div class="card" style="border-left:3px solid ${totals.horsCoupureH>=2?'var(--amber)':'var(--navy)'}"><b>🔌 Coupures JIRAMA :</b> ${Math.round(totals.outageH).toLocaleString('fr-FR')} h de délestage déclarées · ${Math.round(totals.hours).toLocaleString('fr-FR')} h de marche groupes (couverture ${(totals.hours/totals.outageH).toFixed(2)}×).${totals.horsCoupureH>=2?` <b style="color:var(--amber)">~${Math.round(totals.horsCoupureH)} h HORS COUPURE</b> — marche au-delà des délestages (réseau probablement disponible, à investiguer) : ${arr.filter(p=>p.horsCoupureH>=2).map(p=>esc(p.g.name)+" +"+Math.round(p.horsCoupureH)+"h").join(" · ")}.`:` Marche cohérente avec les coupures ✅.`}<div class="hint" style="margin-top:4px">Indicateur mensuel de <b>screening</b> (pas une preuve horaire). Comparaison prix « vs réseau » = renseigne le tarif JIRAMA (facture).</div></div>`:`<div class="card" style="border-left:3px solid var(--muted)"><b>🔌 Coupures JIRAMA :</b> durée non renseignée → <b>heures hors coupure non calculables</b>. Importe le tableau de bord (colonne « Durée coupures (h) ») ou saisis-les.</div>`):""}
     ${anomalies.length||lowLoads.length?`<div class="card" style="border-left:3px solid var(--red)">${anomalies.length?`<b>⚠️ Surconsommations :</b> ${anomalies.map(p=>esc(p.g.name)+" ("+p.realLh.toFixed(1)+" L/h, +"+p.driftLh.toFixed(0)+"% vs attendu)").join(" · ")}. À vérifier : entretien, injecteurs, charge, ou détournement de carburant.`:""}${anomalies.length&&lowLoads.length?"<br>":""}${lowLoads.length?`<b style="color:var(--amber)">Sous-charge :</b> ${lowLoads.map(p=>esc(p.g.name)+" ("+p.chargePct.toFixed(0)+"%)").join(" · ")} — groupe surdimensionné, rendement et durée de vie dégradés.`:""}</div>`:""}
     ${(function(){const tl=arr.reduce((s,p)=>s+((p.diag&&p.diag.loss)||0),0);const fr=arr.filter(p=>p.diag&&p.diag.fraudScore>=35);return (tl>0||fr.length)?`<div class="card" style="border-left:3px solid var(--navy)">${tl>0?`<b>💸 Impact financier estimé (surconsommation) :</b> ${fmtD(tl)}. `:""}${fr.length?`<b style="color:var(--red)">🚨 ${fr.length} groupe(s) à risque de détournement</b> (score ≥ 35) — ouvrez le 🔬 diagnostic.`:""}${tl<=0&&!DB.meta.fuelPrices.gasoil?` <span style="color:var(--muted)">Renseignez les <b>⛽ prix carburant</b> pour chiffrer l'impact.</span>`:""}</div>`:"";})()}
     ${a1ConcentrationCard("gen")}
@@ -6489,7 +6503,10 @@ function openA1GenImport(){
     <div class="field row2"><label>Client & devise des coûts</label>
       <select id="gi-client"><option value="">— Aucun client (usage interne BSM) —</option>${DB.clients.map(c=>`<option value="${c.id}" ${a1genClient===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select>
       <select id="gi-cur">${curOptions(DB.meta.defaultCurrency)}</select></div>
-    <div class="field"><label>Prix du carburant (par litre) — optionnel, pour calculer le coût du kWh</label><input type="number" step="0.01" id="gi-price" placeholder="Ex : 5000"></div>
+    <div class="field row2"><label>Prix carburant (Ar/L) & tarif réseau JIRAMA (Ar/kWh)</label>
+      <input type="number" step="0.01" id="gi-price" value="${(DB.meta.fuelPrices&&DB.meta.fuelPrices.gasoil)||''}" placeholder="Prix GO/L (ex : 5100)" title="Prix du gasoil au litre → coût du kWh + calcul des pertes">
+      <input type="number" step="0.01" id="gi-jirama" value="${DB.meta.jiramaKwhPrice||''}" placeholder="Tarif JIRAMA/kWh (ex : 600)" title="Tarif réseau depuis ta facture JIRAMA → comparaison « groupe vs réseau »"></div>
+    <div class="hint">💡 Le tarif JIRAMA (Ar/kWh) est sur ta <b>facture</b> (montant ÷ kWh) — sans lui, la comparaison « vs réseau » reste vide. La colonne <b>« Durée coupures (h) »</b> du tableau de bord est lue automatiquement → analyse des <b>heures hors coupure</b>.</div>
     <div class="field"><label style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--ink)"><input type="checkbox" id="gi-replace"> Remplacer les groupes existants de ce périmètre (repart propre après un import raté)</label></div>
     <div class="hint">Si un import précédent a créé des groupes incohérents (noms de mois, « TOTAL »…), coche « Remplacer » pour nettoyer avant de réimporter.</div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="runA1GenImport()">Importer</button></div>`);
@@ -6545,22 +6562,29 @@ function a1GenImportParse(text){
     let iEc=-1; for(let j=start;j<end;j++){ const h=H[j]||""; if(h.includes("ecart")&&/\(ar|ar\)|ariary/.test(h)){ iEc=j; break; } } // écart valorisé (Ar), pas l'écart en litres
     if(iL>=0 && iH>=0) blocks.push({ name:(blockRow[start]||"Groupe").trim(), iH, iK, iL, iExp, iEc }); // bloc = groupe si conso réelle + heures
   }
-  if(!blocks.length) return {gensets:[], mode:"matrice-vide"};
+  if(!blocks.length) return {gensets:[], outages:[], mode:"matrice-vide"};
+  // Durée des coupures JIRAMA (délestage) : colonne « Durée coupures (h) » — surtout PAS le ratio ni « Heures GE totales ».
+  const iOut = H.findIndex(h=>h.includes("coupure") && !h.includes("ratio") && !h.includes("heures ge") && !h.includes("total"));
   const gensets=blocks.map(b=>({name:b.name, logs:[]}));
+  const outages=[];
   for(let r=hdr+1;r<rows.length;r++){ const c=rows[r]; const period=(c[0]||"").trim();
     if(!period||/^total/i.test(period)) continue; const iso=a1FrMonthISO(period); if(!iso) continue;
+    if(iOut>=0){ const oh=a1frNum(c[iOut]); if(oh>0) outages.push({period:iso, hours:oh}); } // heures de coupure du mois (donnée déclarée, jamais inventée)
     blocks.forEach((b,bi)=>{ const hours=a1frNum(c[b.iH]), liters=a1frNum(c[b.iL]), kwh=a1frNum(b.iK>=0?c[b.iK]:0);
       if(!hours && !liters && !kwh) return;
       gensets[bi].logs.push({ date:iso, hours, liters, kwh, expectedLiters:a1frNum(b.iExp>=0?c[b.iExp]:0), costGap:a1frNum(b.iEc>=0?c[b.iEc]:0), chargePct:0, cost:0, jiramaPrice:0 }); });
   }
-  return {gensets:gensets.filter(g=>g.logs.length), mode:"matrice"};
+  return {gensets:gensets.filter(g=>g.logs.length), outages, mode:"matrice"};
 }
 function runA1GenImport(){
   const res=a1GenImportParse(val("gi-csv"));
   const cur=val("gi-cur")||DB.meta.defaultCurrency, cid=val("gi-client")||"";
   const price=parseFloat((val("gi-price")||"").replace(",","."))||0;
+  const jtar=parseFloat((val("gi-jirama")||"").replace(",","."))||0;
   const replace=document.getElementById("gi-replace") && document.getElementById("gi-replace").checked;
   if(!res.gensets.length){ toast("Fichier non reconnu — il faut une colonne mois/groupe + des colonnes heures/kWh/conso."); return; }
+  if(price>0){ DB.meta.fuelPrices=DB.meta.fuelPrices||{}; DB.meta.fuelPrices.gasoil=price; }   // prix GO mémorisé → coût/kWh + calcul des pertes
+  if(jtar>0){ DB.meta.jiramaKwhPrice=jtar; }                                                    // tarif réseau JIRAMA (Ar/kWh) depuis la facture → comparaison « vs réseau »
   if(replace){ const inScope = cid? (g=>g.clientId===cid) : (g=>!g.clientId);
     const ids=DB.a1gensets.filter(inScope).map(g=>g.id);
     DB.a1gensets=DB.a1gensets.filter(g=>!inScope(g));
@@ -6572,14 +6596,18 @@ function runA1GenImport(){
       DB.a1genlogs.push({ id:uid(), gensetId:g.id, date:l.date, hours:+l.hours||0, liters, kwh:+l.kwh||0, chargePct:+l.chargePct||0,
         expectedLiters:+l.expectedLiters||0, costGap:+l.costGap||0, cost, currency:cur, jiramaPrice:+l.jiramaPrice||0,
         litersReal:+l.litersReal||0, unitPrice:+l.unitPrice||0, operator:l.operator||"", site:l.site||"", station:l.station||"" }); nl++; }); });
+  // Coupures JIRAMA (par mois) : upsert dans le périmètre client (jamais inventé — seulement ce qui est dans le fichier).
+  let no=0; (res.outages||[]).forEach(o=>{ const pk=String(o.period||"").slice(0,7);
+    let ex=DB.a1outages.find(x=>((x.clientId||"")===cid) && String(x.period||"").slice(0,7)===pk);
+    if(ex){ ex.hours=+o.hours||0; ex.period=o.period; } else { DB.a1outages.push({id:uid(), clientId:cid, period:o.period, hours:+o.hours||0}); no++; } });
   save(); closeModal(); renderA1Genset();
-  toast(nl+" relevé(s) importé(s), "+ng+" groupe(s)"+(res.mode==="matrice"?" — format tableau de bord mensuel ✅":"")+".");
+  toast(nl+" relevé(s), "+ng+" groupe(s)"+(no?", "+no+" mois de coupures JIRAMA":"")+(res.mode==="matrice"?" — tableau de bord mensuel ✅":"")+".");
 }
 function buildGensetContext(){
   const {arr, totals}=a1GenCompute(a1genClient);
-  let t=`Analyse de groupes électrogènes (méthode BSM, Madagascar — contexte délestages JIRAMA). Devise ${DB.meta.defaultCurrency}. Total ${Math.round(totals.hours)} h, ${Math.round(totals.liters)} L, ${Math.round(totals.kwh)} kWh, coût carburant ${fmtD(totals.cost)}. Rendement moyen ${totals.rendement?totals.rendement.toFixed(2):"?"} kWh/L, coût ${fmtD(totals.costPerKwh)}/kWh${totals.jiramaKwh?`, tarif réseau JIRAMA ${fmtD(totals.jiramaKwh)}/kWh (équivalent réseau ${fmtD(totals.jiramaEquiv)})`:""}.\nGroupes :\n`;
-  arr.forEach(p=>{ t+=`- ${p.g.name} (${[p.g.puissanceKva?p.g.puissanceKva+" kVA":"",p.g.carburant,p.age!=null?p.age+" ans":""].filter(Boolean).join(", ")||"?"}) : ${Math.round(p.hours)} h, ${Math.round(p.liters)} L, ${Math.round(p.kwh)} kWh, conso réelle ${p.realLh?p.realLh.toFixed(1):"?"} L/h${p.expLiters>0?` (conso attendue ${Math.round(p.expLiters)} L selon tableau de bord → dérive ${p.driftLh!=null?(p.driftLh>0?"+":"")+p.driftLh.toFixed(0)+"%":"?"}${p.gap?", écart valorisé "+fmtD(p.gap):""})`:(p.consoTheo?` (constructeur ${p.consoTheo} L/h à pleine charge ; attendu ${p.expectedLh.toFixed(1)} à ${p.chargePct?p.chargePct.toFixed(0)+"% de charge":"charge inconnue"} → dérive ${p.driftLh!=null?(p.driftLh>0?"+":"")+p.driftLh.toFixed(0)+"%":"?"})`:"")}, rendement ${p.rendement?p.rendement.toFixed(2):"?"} kWh/L, ${fmtD(p.costPerKwh)}/kWh${p.vsJirama!=null?` (${p.vsJirama>0?"+":""}${fmtD(p.vsJirama)}/kWh vs réseau)`:""}${p.anomaly?" [SURCONSOMMATION]":""}${p.lowLoad?" [SOUS-CHARGE]":""}${p.diag?" | DIAGNOSTIC BSM: "+((A1_CAUSES[p.diag.top.key]||{}).label||"")+" (score "+p.diag.top.score+", tendance "+p.diag.trend+")"+(p.diag.fraudScore>=35?", RISQUE DÉTOURNEMENT "+p.diag.fraudScore+"/100":"")+(p.diag.loss>0?", impact ~"+fmtD(p.diag.loss):"")+(p.diag.flags.length?" [signaux: "+p.diag.flags.map(f=>f.txt).join(" ; ")+"]":""):""}${p.g.verdict?" | CONCLUSION AUDITEUR: "+((A1_CAUSES[p.g.verdict.cause]||{}).label||"à investiguer")+" ("+(p.g.verdict.status||"")+")"+(p.g.verdict.note?" - "+p.g.verdict.note:""):""}.\n`; });
-  t+="\nIdentifie : surconsommations (entretien, injecteurs, filtres, ou détournement de carburant), groupes en sous-charge (surdimensionnés → rendement et durée de vie dégradés), rendement anormalement bas, et l'arbitrage coût groupe vs réseau JIRAMA. Donne des recommandations concrètes, chiffrées et hiérarchisées, en tenant compte des délestages.";
+  let t=`Analyse de groupes électrogènes (méthode BSM, Madagascar — contexte délestages JIRAMA). Devise ${DB.meta.defaultCurrency}. Total ${Math.round(totals.hours)} h, ${Math.round(totals.liters)} L, ${Math.round(totals.kwh)} kWh, coût carburant ${fmtD(totals.cost)}. Rendement moyen ${totals.rendement?totals.rendement.toFixed(2):"?"} kWh/L, coût ${fmtD(totals.costPerKwh)}/kWh${totals.jiramaKwh?`, tarif réseau JIRAMA ${fmtD(totals.jiramaKwh)}/kWh (équivalent réseau ${fmtD(totals.jiramaEquiv)})`:", tarif réseau JIRAMA non renseigné → comparaison groupe vs réseau impossible"}.${totals.outageH>0?` Coupures JIRAMA déclarées : ${Math.round(totals.outageH)} h au total ; heures de marche AU-DELÀ des coupures (réseau probablement disponible) : ~${Math.round(totals.horsCoupureH)} h — à investiguer (screening mensuel, pas une preuve horaire).`:" Durée des coupures JIRAMA non renseignée → heures hors coupure non calculables."}\nGroupes :\n`;
+  arr.forEach(p=>{ t+=`- ${p.g.name} (${[p.g.puissanceKva?p.g.puissanceKva+" kVA":"",p.g.carburant,p.age!=null?p.age+" ans":""].filter(Boolean).join(", ")||"?"}) : ${Math.round(p.hours)} h, ${Math.round(p.liters)} L, ${Math.round(p.kwh)} kWh, conso réelle ${p.realLh?p.realLh.toFixed(1):"?"} L/h${p.expLiters>0?` (conso attendue ${Math.round(p.expLiters)} L selon tableau de bord → dérive ${p.driftLh!=null?(p.driftLh>0?"+":"")+p.driftLh.toFixed(0)+"%":"?"}${p.gap?", écart valorisé "+fmtD(p.gap):""})`:(p.consoTheo?` (constructeur ${p.consoTheo} L/h à pleine charge ; attendu ${p.expectedLh.toFixed(1)} à ${p.chargePct?p.chargePct.toFixed(0)+"% de charge":"charge inconnue"} → dérive ${p.driftLh!=null?(p.driftLh>0?"+":"")+p.driftLh.toFixed(0)+"%":"?"})`:"")}, rendement ${p.rendement?p.rendement.toFixed(2):"?"} kWh/L, ${fmtD(p.costPerKwh)}/kWh${p.vsJirama!=null?` (${p.vsJirama>0?"+":""}${fmtD(p.vsJirama)}/kWh vs réseau)`:""}${p.anomaly?" [SURCONSOMMATION]":""}${p.lowLoad?" [SOUS-CHARGE]":""}${(p.hasOutage&&p.horsCoupureH>=2)?" [HORS COUPURE ~"+Math.round(p.horsCoupureH)+"h à investiguer]":(p.hasOutage?" [marche cohérente avec les coupures]":"")}${p.diag?" | DIAGNOSTIC BSM: "+((A1_CAUSES[p.diag.top.key]||{}).label||"")+" (score "+p.diag.top.score+", tendance "+p.diag.trend+")"+(p.diag.fraudScore>=35?", RISQUE DÉTOURNEMENT "+p.diag.fraudScore+"/100":"")+(p.diag.loss>0?", impact ~"+fmtD(p.diag.loss):"")+(p.diag.flags.length?" [signaux: "+p.diag.flags.map(f=>f.txt).join(" ; ")+"]":""):""}${p.g.verdict?" | CONCLUSION AUDITEUR: "+((A1_CAUSES[p.g.verdict.cause]||{}).label||"à investiguer")+" ("+(p.g.verdict.status||"")+")"+(p.g.verdict.note?" - "+p.g.verdict.note:""):""}.\n`; });
+  t+="\nIdentifie : surconsommations (entretien, injecteurs, filtres, ou détournement de carburant), groupes en sous-charge (surdimensionnés → rendement et durée de vie dégradés), rendement anormalement bas, et l'arbitrage coût groupe vs réseau JIRAMA. Quand un groupe présente des HEURES HORS COUPURE, traite-le comme un usage à justifier (gaspillage, ou marche non autorisée / détournement d'usage) — présente-le comme une piste à investiguer, PAS comme une preuve (donnée mensuelle). Si le tarif réseau JIRAMA manque, signale que la comparaison réseau nécessite la facture. Donne des recommandations concrètes, chiffrées et hiérarchisées, en tenant compte des délestages.";
   return t.slice(0,6500);
 }
 async function a1GenAnalyze(){
