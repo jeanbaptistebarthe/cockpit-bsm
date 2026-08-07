@@ -234,17 +234,27 @@
   .gs-item .gt{font-size:10px;color:var(--muted);margin-left:auto;text-transform:uppercase;letter-spacing:.03em;}
   .gs-empty{padding:12px;font-size:12.5px;color:var(--muted);text-align:center;}
   #report{display:none;}
-  .rep{color:#102A43;font-family:inherit;}
-  .rep-head{display:flex;align-items:center;gap:14px;border-bottom:2px solid #C7A25A;padding-bottom:12px;margin-bottom:16px;}
-  .rep-logo{width:54px;height:54px;flex-shrink:0;border-radius:10px;background:#102A43;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;overflow:hidden;}
+  .rep{color:#111827;font-family:Raleway,var(--serif),Arial,sans-serif;}
+  .rep-head{display:flex;align-items:flex-start;gap:14px;border-bottom:3px solid #C7A25A;padding-bottom:14px;margin-bottom:8px;}
+  .rep-logo{width:52px;height:52px;flex-shrink:0;border-radius:10px;background:#102A43;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;overflow:hidden;}
   .rep-logo img{width:100%;height:100%;object-fit:contain;}
-  .rep h1{font-size:19px;margin:0;color:#102A43;}
-  .rep h2{font-size:14px;color:#102A43;border-bottom:1px solid #E4E0D6;padding-bottom:5px;margin:18px 0 8px;}
-  .rep table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:4px;}
-  .rep th,.rep td{border:1px solid #E4E0D6;padding:6px 8px;text-align:left;}
-  .rep th{background:#F6F1E8;}
+  .rep-cab{font-family:var(--serif);font-size:20px;font-weight:600;color:#111827;line-height:1.1;}
+  .rep-tag{font-size:10px;color:#6B7280;letter-spacing:.04em;margin-top:2px;text-transform:uppercase;}
+  .rep-coord{font-size:10.5px;color:#6B7280;margin-top:5px;line-height:1.5;}
+  .rep-idbadges{display:flex;flex-direction:column;gap:4px;text-align:right;}
+  .rep-idbadges span{font-size:9px;color:#6B7280;background:#F9FAFB;border:1px solid #E5E7EB;padding:2px 8px;border-radius:3px;white-space:nowrap;}
+  .rep-title{margin:14px 0 12px;}
+  .rep-title h1{font-family:var(--serif);font-size:25px;font-weight:600;margin:0;color:#102A43;line-height:1.12;}
+  .rep-title .rep-sub{font-size:11px;color:#6B7280;margin-top:3px;letter-spacing:.02em;}
+  .rep h1{font-family:var(--serif);font-size:22px;margin:0;color:#102A43;font-weight:600;}
+  .rep h2{font-family:var(--serif);font-size:16px;font-weight:600;color:#102A43;border-bottom:1px solid #E4E0D6;padding-bottom:5px;margin:18px 0 8px;}
+  .rep table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .rep th,.rep td{border:1px solid #E4E0D6;padding:6px 9px;text-align:left;}
+  .rep th{background:#F6F1E8;color:#102A43;font-weight:700;font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;}
+  .rep tbody tr:nth-child(even){background:#FCFBF7;}
   .rep .meta{font-size:11px;color:#6B7280;margin:4px 0;}
   .rep-scores{display:flex;gap:16px;margin:8px 0;flex-wrap:wrap;}
+  .rep-foot{margin-top:26px;padding-top:12px;border-top:2px solid #C7A25A;text-align:center;font-size:9.5px;color:#6B7280;line-height:1.5;}
   @media screen{#report{display:none!important;}}
   @media print{
     .topbar,.app,.portal,.overlay,.toast,#ai-fab,.ai-drawer,#notif-bell,#home-btn{display:none!important;}
@@ -6647,8 +6657,23 @@ function clearSearch(){ const i=document.getElementById("globalsearch"); if(i) i
 
 /* ----------------------------- Rapports (impression → PDF) ----------------------------- */
 function repHeader(title,sub){
+  const s=(typeof docIdentity==="function")?docIdentity():{}; const cabinet=DB.meta.cabinetName||"BSM Advisory & Consulting";
   const logo=DB.meta.logo?`<div class="rep-logo"><img src="${DB.meta.logo}"></div>`:`<div class="rep-logo">BSM</div>`;
-  return `<div class="rep-head">${logo}<div><h1>${esc(title)}</h1><div class="meta">${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")} · ${sub} · Édité le ${frDate(todayISO())}</div></div></div>`;
+  const dstr=(typeof frLong==="function")?frLong(todayISO()):frDate(todayISO());
+  return `<div class="rep-head">
+    ${logo}
+    <div style="flex:1">
+      <div class="rep-cab">${esc(cabinet)}</div>
+      <div class="rep-tag">Risk Governance · Operational Resilience · Crisis Management</div>
+      ${(s.adr||s.email)?`<div class="rep-coord">${esc(s.adr||"")}${s.email?" · "+esc(s.email):""}${s.tel?" · "+esc(s.tel):""}</div>`:""}
+    </div>
+    ${(s.nif||s.stat)?`<div class="rep-idbadges"><span>NIF ${esc(s.nif||"—")}</span><span>STAT ${esc(s.stat||"—")}</span></div>`:""}
+  </div>
+  <div class="rep-title"><h1>${esc(title)}</h1><div class="rep-sub">${sub} · Édité le ${dstr}</div></div>`;
+}
+function repFooter(){
+  const s=(typeof docIdentity==="function")?docIdentity():{}; const cabinet=DB.meta.cabinetName||"BSM Advisory & Consulting";
+  return `<div class="rep-foot">${esc(cabinet)}${s.adr?" — "+esc(s.adr):""}${s.email?" — "+esc(s.email):""}${s.tel?" · "+esc(s.tel):""}${(s.nif||s.stat)?" · NIF "+esc(s.nif||"—")+" · STAT "+esc(s.stat||"—"):""}</div>`;
 }
 function printClientReport(id){
   const c=DB.clients.find(x=>x.id===id); if(!c) return;
