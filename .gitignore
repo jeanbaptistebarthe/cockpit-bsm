@@ -4,6 +4,49 @@ BSM_Cockpit.html
 # Sauvegardes exportées depuis l'application
 BSM_Cockpit_sauvegarde_*.json
 
+# Base de connaissances (IP interne BSM : méthode/pricing/CGV) — importée dans le cockpit, jamais publiée
+knowledge_seed.json
+
+# Serveur local (Bloc 2A) — reste sur le PC, jamais en ligne
+data/
+backups/
+
+# SECRETS — ne JAMAIS committer (token/URL du pont Google, clés)
+config.json
+google_bridge.gs
+
+# Runtime serveur local — inutile sur l'hébergement statique
+server.js
+Demarrer_serveur.bat
+Arreter_serveur.bat
+test_b2.js
+
+
+# Documents internes / perso — NE JAMAIS publier
+*.docx
+*.pdf
+*.gs
+supabase/
+R5 results/
+knowledge_seed.json
+ARCHITECTURE_LOT0_SUPABASE.md
+ARCHITECTURE_SYSTEME_BSM.md
+INSTALLATION_SERVEUR.md
+INTEGRATION_GOOGLE.md
+FORMULAIRE_AUDIT_R5_questions.md
+GUIDE_AUDIT_R5_SECTIONNE.md
+modele_import_flotte.csv
+modele_import_groupes.csv
+
+# Outils de build / scripts locaux — inutiles en ligne
+build.js
+Publier.bat
+scratchpad/
+
+# Fichiers temporaires bureautiques
+.~lock.*#
+~$*
+
 # Systèmes
 Thumbs.db
 .DS_Store

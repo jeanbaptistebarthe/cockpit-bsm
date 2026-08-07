@@ -1545,8 +1545,11 @@ function genDevis(){
   w.document.write(buildDevis(cl,calc,dateStr,vdStr,dev,ref,ST.modal==='ess'));
   w.document.close();
   setTimeout(function(){w.print();},900);
+  bsmPostDevis({client:rs,contact:ct,ref:ref,objet:cl.obj,total:(calc.tot||calc.sub||0),currency:dev,validite:val,kind:(ST.modal==='ess'?'Devis Essentielle':'Devis Standard')});
   closeModal();
 }
+// Envoie le devis au Cockpit parent (quand le simulateur est embarqué en iframe)
+function bsmPostDevis(p){ try{ if(window.parent && window.parent!==window){ p.__bsm='devis'; window.parent.postMessage(p,'*'); } }catch(e){} }
 
 function buildDevis(cl,calc,date,vdStr,dev,ref,isE){
   var G='#B5923A',D='#111827',GR='#6B7280',LT='#F9FAFB';
@@ -1733,6 +1736,7 @@ function genPC(){
   var w=window.open('','_blank');
   w.document.write(buildPC(cl,calc,date));
   w.document.close();setTimeout(function(){w.print();},900);
+  bsmPostDevis({client:cl.rs,contact:cl.ct,ref:ref,objet:cl.ctx||'Proposition commerciale',total:(calc.tot||0),currency:'EUR',validite:30,kind:'Proposition commerciale'});
 }
 function buildPC(cl,calc,date){
   var G='#B5923A',D='#111827',GR='#6B7280',LT='#F9FAFB',NAVY='#0D1F45';
