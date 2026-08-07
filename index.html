@@ -6071,7 +6071,7 @@ async function a1Analyze(){
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Flotte & carburant</h2><div id="a1-ai">${aiSkeleton()}</div><div id="a1-ai-act" class="modal-actions" style="display:none;flex-wrap:wrap">${a1AnalysisActionsHtml("a1")}</div>`);
   try{
     const sys="Tu es un analyste flotte & énergie pour un cabinet de conseil à Madagascar. À partir des données, identifie : surconsommations et causes probables (conduite, entretien, vol de carburant), véhicules les plus coûteux, temps de ralenti excessif, et donne des recommandations concrètes, chiffrées et hiérarchisées. Termine par 3 actions prioritaires. Sois concret et bref.";
-    const txt=await aiChat(sys, buildA1Context(), 900, "a1");
+    const txt=await aiChat(sys, buildA1Context(), 1600, "a1");
     a1ShowAnalysis("a1","a1-ai",txt,{ title:"Analyse flotte & carburant"+(a1Client?" — "+clientName(a1Client):""), typeLabel:"Analyse flotte & carburant (A1)", clientId:a1Client||"", sector:"a1" });
   }catch(e){ const el=document.getElementById("a1-ai"); if(el) el.innerHTML=`<div class="imp-err">⚠ ${esc(e.message||"Erreur IA")}</div>`; }
 }
@@ -6508,7 +6508,7 @@ async function a1GenAnalyze(){
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Groupes électrogènes</h2><div id="gen-ai">${aiSkeleton()}</div><div id="gen-ai-act" class="modal-actions" style="display:none;flex-wrap:wrap">${a1AnalysisActionsHtml("gen")}</div>`);
   try{
     const sys="Tu es un ingénieur énergie / analyste pour un cabinet de conseil à Madagascar (contexte de délestages JIRAMA fréquents). À partir des données de groupes électrogènes, identifie les surconsommations et leurs causes probables (entretien, injecteurs, charge inadaptée, détournement de carburant), les groupes surdimensionnés (sous-charge), le rendement (kWh/L), et l'arbitrage économique entre production autonome et réseau. Donne des recommandations concrètes, chiffrées et hiérarchisées, puis 3 actions prioritaires. Sois concret et bref.";
-    const txt=await aiChat(sys, buildGensetContext(), 900, "a1gen");
+    const txt=await aiChat(sys, buildGensetContext(), 1600, "a1gen");
     a1ShowAnalysis("gen","gen-ai",txt,{ title:"Analyse groupes électrogènes"+(a1genClient?" — "+clientName(a1genClient):""), typeLabel:"Analyse groupes électrogènes (A1)", clientId:a1genClient||"", sector:"a1gen" });
   }catch(e){ const el=document.getElementById("gen-ai"); if(el) el.innerHTML=`<div class="imp-err">⚠ ${esc(e.message||"Erreur IA")}</div>`; }
 }
@@ -7140,6 +7140,9 @@ function mdToHtml(md){
   const esch=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const inl=s=>esch(s).replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/`([^`]+)`/g,"<code>$1</code>").replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g,"$1<em>$2</em>");
   const isRow=l=>/^\s*\|.*\|\s*$/.test(l);
+  // Ligne DANS un tableau : tolère une dernière ligne coupée (réponse IA tronquée) sans « | » final,
+  // pour qu'elle s'affiche quand même dans le tableau au lieu de retomber en markdown brut.
+  const isRowLoose=l=>/^\s*\|/.test(l) && !isSep(l);
   const isSep=l=>/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(l);
   const cells=l=>l.replace(/^\s*\|/,"").replace(/\|\s*$/,"").split("|").map(c=>c.trim());
   const lines=String(md||"").split(/\r?\n/); let out="", lt=null;
@@ -7149,10 +7152,10 @@ function mdToHtml(md){
     // Tableau markdown : ligne « | … | » suivie d'une ligne séparateur « | --- | --- | »
     if(isRow(line) && i+1<lines.length && isSep(lines[i+1])){
       close();
-      const head=cells(line);
+      const head=cells(line); const ncol=head.length;
       let tb="<table class=\"md-table\"><thead><tr>"+head.map(h=>"<th>"+inl(h)+"</th>").join("")+"</tr></thead><tbody>";
       i+=2;
-      for(; i<lines.length && isRow(lines[i]); i++){ const cs=cells(lines[i]); tb+="<tr>"+cs.map(c=>"<td>"+inl(c)+"</td>").join("")+"</tr>"; }
+      for(; i<lines.length && isRowLoose(lines[i]); i++){ let cs=cells(lines[i]); while(cs.length<ncol) cs.push(""); tb+="<tr>"+cs.slice(0,ncol).map(c=>"<td>"+inl(c)+"</td>").join("")+"</tr>"; }
       i--; tb+="</tbody></table>"; out+=tb; continue;
     }
     if(/^\s*$/.test(line)){ close(); continue; }
@@ -7296,17 +7299,65 @@ async function sendReportToClient(id){
     save(); closeModal(); if(typeof renderReports==="function") renderReports(); toast("Rapport envoyé à "+to+" ✅");
   }catch(e){ toast("Échec de l'envoi : "+(e.message||e)); }
 }
+// Retire le premier titre « # … » du markdown : le titre figure déjà dans l'en-tête du document (évite le doublon).
+function stripLeadingH1(md){ return String(md||"").replace(/^﻿?\s*#\s+[^\n]*\r?\n+/, ""); }
+// Document PDF / pièce jointe mail — MÊME charte que les rapports de portefeuille & client (en-tête cabinet, tableaux stylés, pied de page).
 function reportHtml(r){
-  return "<!doctype html><html><head><meta charset=\"utf-8\"><title>"+esc(r.title)+"</title><style>"
-   +"body{font-family:Georgia,'Times New Roman',serif;color:#1A1A1A;max-width:820px;margin:24px auto;padding:0 26px;line-height:1.6}"
-   +".h{border-bottom:3px solid #B5923A;padding-bottom:10px;margin-bottom:18px}.h .b{color:#0D1F45;font-weight:700;font-size:21px}"
-   +".h .m{color:#6B7280;font-size:12px;margin-top:4px}.tag{display:inline-block;background:#0D1F45;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px}"
-   +"h1{color:#0D1F45;font-size:20px;margin:16px 0 8px}h2{color:#0D1F45;font-size:15px;border-bottom:1px solid #e5e0d5;padding-bottom:4px;margin:22px 0 8px}h3{color:#B5923A;font-size:13px;margin:14px 0 6px}"
-   +"ul,ol{margin:6px 0 6px 22px}li{margin:3px 0}p{margin:7px 0}strong{color:#0D1F45}hr{border:none;border-top:1px solid #e5e0d5;margin:14px 0}"
-   +"</style></head><body>"
-   +"<div class=\"h\"><div class=\"b\">"+esc(DB.meta.cabinetName||"BSM Advisory & Consulting")+"</div>"
-   +"<div class=\"m\"><span class=\"tag\">"+esc(r.typeLabel||reportTypeLabel(r.type))+"</span> · Édité le "+esc(frDate(r.ts.slice(0,10)))+" · Confidentialité : "+esc(r.classification||"confidentiel")+"</div></div>"
-   +mdToHtml(r.content)+"</body></html>"; }
+  const s=docIdentity(); const cabinet=DB.meta.cabinetName||"BSM Advisory & Consulting";
+  const logo=DB.meta.logo?`<img src="${DB.meta.logo}" alt="">`:"BSM";
+  const dstr=frLong(r.ts.slice(0,10))||frDate(r.ts.slice(0,10));
+  const typeLbl=r.typeLabel||reportTypeLabel(r.type);
+  const classif=r.classification||"confidentiel";
+  const coord=[s.adr,s.email,s.tel].filter(Boolean).map(esc).join(" · ");
+  const foot=esc(cabinet)+(s.rs?" — "+esc(s.rs):"")+(s.adr?" — "+esc(s.adr):"")+(s.email?" · "+esc(s.email):"")+(s.tel?" · "+esc(s.tel):"")+((s.nif||s.stat)?" · NIF "+esc(s.nif||"—")+" · STAT "+esc(s.stat||"—"):"");
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(r.title)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Raleway:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Raleway,Arial,Helvetica,sans-serif;color:#1F2937;background:#fff;font-size:12.5px;line-height:1.62;max-width:820px;margin:0 auto;padding:26px 30px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rh{display:flex;align-items:flex-start;gap:14px;border-bottom:3px solid #C7A25A;padding-bottom:14px}
+.rlogo{width:54px;height:54px;flex-shrink:0;border-radius:10px;background:#102A43;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;overflow:hidden;font-family:'Cormorant Garamond',Georgia,serif}
+.rlogo img{width:100%;height:100%;object-fit:contain}
+.rcab{font-family:'Cormorant Garamond',Georgia,serif;font-size:22px;font-weight:600;color:#111827;line-height:1.1}
+.rtag{font-size:9.5px;color:#6B7280;letter-spacing:.07em;margin-top:3px;text-transform:uppercase}
+.rcoord{font-size:10px;color:#6B7280;margin-top:5px;line-height:1.5}
+.rbadges{display:flex;flex-direction:column;gap:4px;text-align:right}
+.rbadges span{font-size:8.5px;color:#6B7280;background:#F9FAFB;border:1px solid #E5E7EB;padding:2px 8px;border-radius:3px;white-space:nowrap}
+.rtitle{margin:18px 0 2px;font-family:'Cormorant Garamond',Georgia,serif;font-size:26px;font-weight:600;color:#102A43;line-height:1.12}
+.rmeta{font-size:10px;color:#6B7280;margin-top:5px}
+.rpill{display:inline-block;background:#102A43;color:#fff;padding:2px 9px;border-radius:4px;font-size:9.5px;letter-spacing:.03em;margin-right:6px;text-transform:uppercase}
+.rbody{margin-top:16px}
+.rbody h1{font-family:'Cormorant Garamond',Georgia,serif;font-size:21px;color:#102A43;font-weight:600;margin:20px 0 8px}
+.rbody h2{font-family:'Cormorant Garamond',Georgia,serif;font-size:16.5px;font-weight:600;color:#102A43;border-bottom:1px solid #E4E0D6;padding-bottom:5px;margin:22px 0 9px}
+.rbody h3{font-size:12px;font-weight:700;color:#B5923A;text-transform:uppercase;letter-spacing:.04em;margin:16px 0 6px}
+.rbody h4{font-size:12px;font-weight:700;color:#102A43;margin:12px 0 5px}
+.rbody p{margin:7px 0}.rbody strong{color:#102A43;font-weight:700}
+.rbody ul,.rbody ol{margin:7px 0 7px 22px}.rbody li{margin:4px 0}
+.rbody hr{border:none;border-top:1px solid #E4E0D6;margin:14px 0}
+.rbody code{background:#F3F1EA;border-radius:4px;padding:1px 5px;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+.rbody table{width:100%;border-collapse:collapse;font-size:11px;margin:11px 0;font-variant-numeric:tabular-nums}
+.rbody th,.rbody td{border:1px solid #E4E0D6;padding:6px 9px;text-align:left;vertical-align:top}
+.rbody th{background:#F6F1E8;color:#102A43;font-weight:700;font-size:9.5px;letter-spacing:.03em;text-transform:uppercase}
+.rbody tbody tr:nth-child(even){background:#FCFBF7}
+.rfoot{margin-top:28px;padding-top:12px;border-top:2px solid #C7A25A;text-align:center;font-size:9px;color:#6B7280;line-height:1.5}
+@page{margin:14mm}
+</style></head><body>
+<div class="rh">
+  <div class="rlogo">${logo}</div>
+  <div style="flex:1">
+    <div class="rcab">${esc(cabinet)}</div>
+    <div class="rtag">Risk Governance · Operational Resilience · Crisis Management</div>
+    ${coord?`<div class="rcoord">${coord}</div>`:""}
+  </div>
+  ${(s.nif||s.stat)?`<div class="rbadges"><span>NIF ${esc(s.nif||"—")}</span><span>STAT ${esc(s.stat||"—")}</span></div>`:""}
+</div>
+<div class="rtitle">${esc(r.title)}</div>
+<div class="rmeta"><span class="rpill">${esc(typeLbl)}</span>Édité le ${esc(dstr)} · Confidentialité : ${esc(classif)}${r.author?" · "+esc(r.author):""}</div>
+<div class="rbody">${mdToHtml(stripLeadingH1(r.content))}</div>
+<div class="rfoot">${foot}</div>
+</body></html>`;
+}
 function printReportPDF(id){ const r=(DB.reports||[]).find(x=>x.id===id); if(!r) return; openPrintable(reportHtml(r)); }
 function copyReport(id){ const r=(DB.reports||[]).find(x=>x.id===id); if(!r) return; const txt=r.title+"\n\n"+r.content;
   if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(function(){toast("Rapport copié — colle-le dans ton mail.");},function(){toast("Copie impossible.");}); }
