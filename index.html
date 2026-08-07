@@ -5786,6 +5786,41 @@ function a1CauseBadge(diag){ if(!diag) return ""; const c=A1_CAUSES[diag.top.key
   const showFraud = diag.fraudScore>=35 && diag.top.key!=="vol";
   return `<span class="badge" style="background:${c.col};color:#fff" title="Cause probable (score ${diag.top.score})">${c.ic} ${c.label}</span>${showFraud?` <span class="badge b-red" title="Score de risque de détournement">🚨 ${diag.fraudScore}</span>`:""}`;
 }
+/* Signaux d'un relevé précis (pour la fiche technique — voir OÙ est l'anomalie). */
+function a1LogSignals(kind, m, l){
+  const sig=[]; const isGen=kind==="gen"; const T=a1Thr();
+  const lt=+l.liters||0, lr=+l.litersReal||0, price=a1FuelPrice(isGen?m.carburant:m.motorisation);
+  if(lr>0 && lt>lr*1.05) sig.push({t:"écart jauge −"+Math.round(lt-lr)+" L", sev:"d"});
+  if(isGen){ const h=+l.hours||0, ct=+m.consoTheoLh||0;
+    if(lt>=5 && h<0.5) sig.push({t:Math.round(lt)+" L sans marche", sev:"d"});
+    const maxP=(h>0&&ct>0)?ct*T.plausFactor*h+(+m.reservoirL||0):0; if(maxP>0&&h>1&&lt>maxP) sig.push({t:"excédent (>"+Math.round(maxP)+" L)", sev:"d"});
+  } else { const km=+l.km||0, ct=+m.consoTheo||0, idle=+l.idle||0, hrs=+l.hours||0;
+    if(lt>=5 && km<2) sig.push({t:Math.round(lt)+" L sans déplacement", sev:"d"});
+    const maxP=(km>0)?Math.max(ct>0?ct*T.plausFactor:0,30)/100*km+(+m.reservoir||0):0; if(maxP>0&&km>30&&lt>maxP) sig.push({t:"excédent (>"+Math.round(maxP)+" L)", sev:"d"});
+    if(hrs>0 && idle/hrs>(T.idle/100)) sig.push({t:"ralenti "+Math.round(idle/hrs*100)+"%", sev:"w"});
+  }
+  if(l.cost>0 && lt>0 && price>0){ const u=toDefault(+l.cost,l.currency||DB.meta.defaultCurrency)/lt; if(u>price*1.2) sig.push({t:"coût/L élevé", sev:"w"}); }
+  return sig;
+}
+function a1MachineSpecs(kind, m){
+  const isGen=kind==="gen";
+  const parts = isGen
+    ? [[m.marque,m.modele].filter(Boolean).join(" "), m.puissanceKva?m.puissanceKva+" kVA":"", m.carburant, m.annee?"mise en service "+m.annee:"", m.consoTheoLh?"conso constr. "+m.consoTheoLh+" L/h":"", m.reservoirL?"réservoir "+m.reservoirL+" L":"", m.usage, m.operator?"opérateur : "+m.operator:"", m.station?"fournisseur : "+m.station:""]
+    : [[m.marque,m.modele].filter(Boolean).join(" "), m.type, m.plate, m.motorisation, m.annee?"mise en service "+m.annee:"", m.consoTheo?"conso constr. "+m.consoTheo+" L/100":"", m.reservoir?"réservoir "+m.reservoir+" L":"", m.usage, m.driver?"chauffeur : "+m.driver:"", m.station?"station : "+m.station:""];
+  return parts.filter(Boolean).map(esc).join(" · ") || "—";
+}
+function a1ReasoningPoints(kind, p){
+  const d=p.diag||{}, out=[]; const isGen=kind==="gen";
+  out.push("Écartez d'abord les <b>erreurs de saisie</b> (unités, doublons, décimales) — une valeur aberrante isolée est souvent une faute de frappe.");
+  if(d.trend==="progressive") out.push("Dérive <b>progressive</b> : compatible avec l'<b>usure</b> — vérifiez l'historique d'entretien, l'âge et le kilométrage/heures avant de conclure.");
+  if(d.trend==="ponctuelle") out.push("Pic <b>ponctuel</b> : ciblez le(s) relevé(s) concerné(s) ci-dessus — événement isolé (panne, gros trajet, remplissage bidon légitime) ou détournement ?");
+  if(d.diverted>0) out.push("<b>Écart jauge</b> détecté : confirmez par un <b>contrôle contradictoire du réservoir</b> et recoupez avec les bons de carburant.");
+  if(d.fraudScore>=(a1Thr().fraudMin||35)) out.push("Risque de détournement : regardez si un <b>"+(isGen?"opérateur":"chauffeur")+"/fournisseur</b> revient sur les relevés suspects (concentration).");
+  if(d.top&&d.top.key==="conduite") out.push("Cause conduite : croisez le <b>ralenti</b> et l'<b>usage réel</b> (urbain/chantier) — une conso élevée peut être normale selon l'usage.");
+  if(isGen && p.lowLoad) out.push("<b>Sous-charge</b> : un groupe surdimensionné consomme proportionnellement plus — c'est de l'exploitation, pas forcément de la fraude.");
+  out.push("Ne concluez « détournement » qu'avec des <b>preuves convergentes</b> (jauge + concentration + récurrence). Sinon, statut « à investiguer ».");
+  return out;
+}
 function openA1Diag(kind, id){
   const isGen=kind==="gen";
   const all=(isGen?a1GenCompute(""):a1Compute("")).arr;
@@ -5798,8 +5833,15 @@ function openA1Diag(kind, id){
   const topCause=d.top.key==="ras"?null:d.top.key;
   const recos=topCause?a1RecosFor(topCause, isGen?"gen":"fleet"):[];
   const trendTxt={progressive:"progressive (évoque une usure mécanique)",ponctuelle:"brutale / ponctuelle (évoque une anomalie ou un détournement)",stable:"stable"}[d.trend]||d.trend;
-  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔬 Diagnostic — ${esc(name)}</h2>
-    <div class="msub">Analyse déterministe (règles BSM), indépendante de l'IA. Vous tranchez en bas (jugement d'expert).</div>
+  const specs=a1MachineSpecs(kind, machine);
+  const logs=(p.logs||[]).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+  const histHtml = logs.length? `<div style="overflow-x:auto"><table style="font-size:11.5px"><thead><tr><th>Date</th><th style="text-align:right">${isGen?"Heures":"Km"}</th><th style="text-align:right">L fact.</th><th style="text-align:right">Jauge</th>${isGen?'<th style="text-align:right">kWh</th>':''}<th>${isGen?"Opérateur / fournisseur":"Chauffeur / station"}</th><th>Signaux</th></tr></thead><tbody>`+
+    logs.map(l=>{ const sg=a1LogSignals(kind,machine,l); const who=[(l.driver||l.operator||""),(l.station||"")].filter(Boolean).map(esc).join(" · ");
+      return `<tr><td>${frDate(l.date)}</td><td style="text-align:right">${isGen?Math.round(+l.hours||0):(+l.km||0).toLocaleString('fr-FR')}</td><td style="text-align:right">${Math.round(+l.liters||0)}</td><td style="text-align:right">${l.litersReal?Math.round(+l.litersReal):"—"}</td>${isGen?`<td style="text-align:right">${l.kwh?Math.round(+l.kwh):"—"}</td>`:''}<td>${who||"—"}</td><td>${sg.length?sg.map(s=>`<span style="color:${s.sev==='d'?'var(--red)':'var(--orange)'}">${s.sev==='d'?'🔴':'🟠'} ${esc(s.t)}</span>`).join("<br>"):'<span style="color:var(--green)">✓ RAS</span>'}</td></tr>`;
+    }).join("")+`</tbody></table></div>` : `<div class="hint">Aucun relevé saisi pour cette machine.</div>`;
+  const reasoning=a1ReasoningPoints(kind, p);
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔬 Fiche technique & diagnostic — ${esc(name)}</h2>
+    <div class="msub">Analyse déterministe (règles BSM), indépendante de l'IA. Poussez votre raisonnement ci-dessous, puis tranchez en bas (jugement d'expert).</div>
     <div class="grid2" style="gap:14px">
       <div><h2 style="font-size:14px;margin:4px 0">Causes probables</h2><div class="mini-list">${causesHtml}</div>
         <div class="hint" style="margin-top:6px">Tendance : <b>${trendTxt}</b>${d.drift?` · dérive ${d.drift>0?'+':''}${d.drift.toFixed(0)}%`:""}.</div></div>
@@ -5809,6 +5851,14 @@ function openA1Diag(kind, id){
         ${d.fraudScore>=35?`<div class="hint" style="margin-top:4px"><b>Risque de détournement :</b> ${d.fraudScore}/100.</div>`:""}</div>
     </div>
     ${recos.length?`<h2 style="font-size:14px;margin:12px 0 4px">Orientations recommandées — ${A1_CAUSES[topCause].label}</h2><ul style="margin:0 0 0 16px;line-height:1.6">${recos.map(r=>`<li>${esc(r)}</li>`).join("")}</ul>`:""}
+    <h2 style="font-size:14px;margin:14px 0 4px">📋 Fiche technique</h2>
+    <div class="hint" style="margin:0 0 8px">${specs}</div>
+    <h2 style="font-size:14px;margin:12px 0 4px">📄 Historique des relevés <span style="font-weight:400;color:var(--muted);font-size:11px">— repérez précisément OÙ est l'anomalie</span></h2>
+    ${histHtml}
+    <div class="card" style="border-left:3px solid var(--gold);background:#FCFBF7;margin:12px 0 0">
+      <b style="color:var(--navy)">🧭 Points à vérifier avant de conclure</b>
+      <ul style="margin:6px 0 0 16px;line-height:1.6;font-size:12.5px">${reasoning.map(r=>`<li>${r}</li>`).join("")}</ul>
+    </div>
     <hr style="border:none;border-top:1px solid var(--line);margin:14px 0">
     <h2 style="font-size:14px;margin:0 0 6px">✔ Votre conclusion</h2>
     <div class="field row2"><label>Cause retenue & statut</label>
@@ -6739,25 +6789,32 @@ function printPortfolioReport(){
    via une fonction unique et on COMPTE chaque appel (tokens + coût estimé) pour le reporting + budget.
    Mammouth (passerelle multi-modèles) est prioritaire s'il est configuré. Clé JAMAIS dans le code. */
 let lastAIAdvice="";
-function aiProviderConf(){
-  const mam=(DB.meta.mammouthKey||"").trim(), mis=(DB.meta.mistralKey||"").trim();
-  if(mam.length>=10) return { name:"mammouth", url:"https://api.mammouth.ai/v1/chat/completions", key:mam, model:DB.meta.aiModelMammouth||"mammouth-recommended" };
-  if(mis.length>=10) return { name:"mistral", url:"https://api.mistral.ai/v1/chat/completions", key:mis, model:DB.meta.aiModel||"mistral-large-latest" };
-  return null;
+/* Liste des fournisseurs IA configurés, par ordre de priorité (Mammouth puis Mistral). */
+function aiProvidersList(){
+  const mam=(DB.meta.mammouthKey||"").trim(), mis=(DB.meta.mistralKey||"").trim(); const list=[];
+  if(mam.length>=10) list.push({ name:"mammouth", url:"https://api.mammouth.ai/v1/chat/completions", key:mam, model:DB.meta.aiModelMammouth||"mammouth-recommended" });
+  if(mis.length>=10) list.push({ name:"mistral", url:"https://api.mistral.ai/v1/chat/completions", key:mis, model:DB.meta.aiModel||"mistral-large-latest" });
+  return list;
 }
+function aiProviderConf(){ return aiProvidersList()[0]||null; } // compat (1er fournisseur)
 async function aiComplete(messages, maxTokens, sector, modelOverride){
-  const p=aiProviderConf();
-  if(!p) throw new Error("Aucune clé API IA configurée — ouvre ⚙ Paramètres (Mammouth ou Mistral).");
-  const model=(p.name==="mammouth" && modelOverride) ? modelOverride : p.model;   // le routage par assistant ne s'applique qu'à Mammouth (multi-modèles)
-  const resp=await fetch(p.url,{
-    method:"POST",
-    headers:{"Content-Type":"application/json","Authorization":"Bearer "+p.key},
-    body:JSON.stringify({model:model,max_tokens:maxTokens||900,messages:messages})
-  });
-  if(!resp.ok){ let e={}; try{e=await resp.json();}catch(_){} throw new Error((e.error&&e.error.message)||e.message||(typeof e.detail==="string"?e.detail:"")||"Erreur API "+resp.status); }
-  const data=await resp.json();
-  try{ recordAiUsage(p.name, data.model||model, data.usage, sector); }catch(_){}   // comptage (ne bloque jamais la réponse)
-  return data.choices[0].message.content;
+  const providers=aiProvidersList();
+  if(!providers.length) throw new Error("Aucune clé API IA configurée — ouvre ⚙ Paramètres (Mammouth ou Mistral).");
+  let lastErr=null;
+  for(let i=0;i<providers.length;i++){ const p=providers[i];
+    const model=(p.name==="mammouth" && modelOverride) ? modelOverride : p.model; // routage par assistant : Mammouth uniquement (multi-modèles)
+    try{
+      const resp=await fetch(p.url,{ method:"POST",
+        headers:{"Content-Type":"application/json","Authorization":"Bearer "+p.key},
+        body:JSON.stringify({model:model,max_tokens:maxTokens||900,messages:messages}) });
+      if(!resp.ok){ let e={}; try{e=await resp.json();}catch(_){} throw new Error((e.error&&e.error.message)||e.message||(typeof e.detail==="string"?e.detail:"")||("Erreur "+p.name+" "+resp.status)); }
+      const data=await resp.json();
+      try{ recordAiUsage(p.name, data.model||model, data.usage, sector); }catch(_){}
+      return data.choices[0].message.content;
+    }catch(err){ lastErr=err; } // échec → on tente le fournisseur suivant (bascule automatique)
+  }
+  const names=providers.map(p=>p.name).join(" puis ");
+  throw new Error("Échec IA ("+names+") : "+((lastErr&&lastErr.message)||"connexion impossible")+". Vérifie tes clés/quota dans ⚙ Paramètres.");
 }
 function memoryHint(){
   const mem=DB.aiMemory||[], conseils=DB.advice.custom||[];
