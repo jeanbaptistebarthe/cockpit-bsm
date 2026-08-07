@@ -1581,6 +1581,7 @@ function dashPriorityBand(a, critR, lateR, missionsEC, upcoming){
   if(missNoRisk.length) pri.push({sev:'w',ic:'🎯',txt:missNoRisk.length+' mission'+(missNoRisk.length>1?'s':'')+' sans risque identifié',go:"setScreen('missions')"});
   const todayEv=upcoming.filter(e=>e.date===today);
   if(todayEv.length) pri.push({sev:'i',ic:'📅',txt:todayEv.length+' rendez-vous aujourd'+"'"+'hui',go:"setScreen('agenda')"});
+  if(typeof backupOverdue==="function" && backupOverdue()) pri.push({sev:'w',ic:'💾',txt:'Sauvegarde conseillée (aucune récente)',go:"exportData()"});
   const order={d:0,w:1,i:2}; pri.sort((x,y)=>order[x.sev]-order[y.sev]);
   const col={d:'#E8837E',w:'#E0A93B',i:'#8FB4E0'};
   const chips=pri.slice(0,6).map(p=>`<span onclick="${p.go}" style="cursor:pointer;display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-left:3px solid ${col[p.sev]};border-radius:10px;padding:8px 13px;font-size:13px;color:#fff;transition:background .13s ease" onmouseover="this.style.background='rgba(255,255,255,.14)'" onmouseout="this.style.background='rgba(255,255,255,.07)'">${p.ic} ${esc(p.txt)}</span>`).join("");
@@ -4497,7 +4498,15 @@ function exportData(){
   const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
   a.download="BSM_Cockpit_sauvegarde_"+todayISO()+".json"; a.click();
+  DB.meta.lastBackupExport=todayISO(); save(); // rappel de sauvegarde
   toast("Sauvegarde exportée.");
+}
+function backupOverdue(){ // aucune sauvegarde depuis > 14 jours (ou jamais) alors qu'il y a des données
+  if(!(DB.clients||[]).length && !(DB.transactions||[]).length) return false;
+  const last=DB.meta&&DB.meta.lastBackupExport;
+  if(!last) return true;
+  const days=Math.floor((Date.now()-new Date(last).getTime())/86400000);
+  return days>14;
 }
 function importData(ev){
   const f=ev.target.files[0]; if(!f) return;
@@ -4534,11 +4543,26 @@ function quickAdd(){
 function openModal(html){ document.getElementById("modal-content").innerHTML=html; document.getElementById("overlay").classList.add("show"); }
 function closeModal(){ document.getElementById("overlay").classList.remove("show"); }
 function confirmModal(title, text, onYes){
-  window.__yes=onYes;
+  // Fiabilité : toute action destructive confirmée devient ANNULABLE (instantané mémoire de la DB avant l'action).
+  window.__yes=function(){
+    const destructive=/supprim|vider|effac|remettre|réinitial|reinitial|retirer/i.test(title||"");
+    const snap=destructive?JSON.stringify(DB):null;
+    try{ (onYes||function(){})(); }
+    finally{ if(destructive && snap){ armUndo(String(title).replace(/\s*\?\s*$/,""), snap); } }
+  };
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>${title}</h2>
     <div class="x" style="font-size:13.5px;color:var(--ink);line-height:1.6;margin:8px 0 16px">${text}</div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta danger" onclick="(window.__yes||function(){})()">Confirmer</button></div>`);
 }
+/* Annulation (undo) — restaure l'état d'avant la dernière action destructive. */
+let _undo=null;
+function armUndo(label, snapshot){ _undo={snap:snapshot, ts:Date.now()}; showUndoToast(label||"Élément supprimé"); }
+function bsmUndo(){ if(!_undo) return; let obj; try{ obj=JSON.parse(_undo.snap); }catch(e){ toast("Restauration impossible."); return; }
+  DB=obj; _undo=null; save(); if(typeof refreshAll==="function") refreshAll();
+  const t=document.getElementById("toast"); if(t){ t.classList.remove("show"); } toast("✅ Restauré."); }
+function showUndoToast(label){ const t=document.getElementById("toast"); if(!t) return;
+  t.innerHTML=esc(label)+' <a href="#" onclick="bsmUndo();return false" style="color:var(--gold);font-weight:700;margin-left:12px;text-decoration:underline">↶ Annuler</a>';
+  t.classList.add("show"); clearTimeout(window.__tt); window.__tt=setTimeout(()=>{ t.classList.remove("show"); }, 8000); }
 function val(id){ const e=document.getElementById(id); return e?e.value:""; }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
 function cap(s){ return s?s.charAt(0).toUpperCase()+s.slice(1):s; }
