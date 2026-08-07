@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://docs.google.com; connect-src 'self' https://api.mistral.ai https://api.mammouth.ai https://*.supabase.co https://cdn.jsdelivr.net https://script.google.com https://docs.google.com; frame-src 'self' https://docs.google.com https://www.google.com; object-src 'none'; base-uri 'self'; form-action 'self'">
 <title>BSM Cockpit — Outil interne de pilotage</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#102A43">
@@ -330,6 +331,7 @@
         <button onclick="closeTopMenu();openImport()">⇊&nbsp; Importer R5</button>
         <button onclick="closeTopMenu();exportData()">⬇&nbsp; Sauvegarde (fichier)</button>
         <button onclick="closeTopMenu();document.getElementById('import-file').click()">⬆&nbsp; Restaurer (fichier)</button>
+        <button onclick="closeTopMenu();openSecurityPanel()">🔐&nbsp; Sécurité (chiffrement)</button>
         <button id="logout-btn" onclick="closeTopMenu();lockPortal()">🔒&nbsp; Se déconnecter</button>
       </div>
     </div>
@@ -446,6 +448,8 @@
    ========================================================================= */
 
 const STORE_KEY = "bsm_cockpit_v1";
+/* Coffre chiffré (sécurité) — état en mémoire uniquement. */
+let _encKey=null, _encSaltB64=null, _encLocked=false, _encBlob=null, _pendingRaw=null, _lockTimer=null;
 const PAYMENT_METHODS = ["CB","Chèque","Mvola","Orange Money","Espèces","Virement"];
 const SECTORS = ["Industrie / Distribution","Banque / Finance","Énergie","Aéroportuaire","Télécom","Public / Institutionnel","Santé","Autre"];
 const CAT_IN  = ["Honoraires mission","Abonnement annuel","Diagnostic / Audit","Formation","Veille / Abonnement","Autre"];
@@ -530,8 +534,14 @@ function seedDB(){
 
 function load(){
   try{
-    const raw = localStorage.getItem(STORE_KEY);
-    if(raw){ DB = JSON.parse(raw); }
+    const raw = (_pendingRaw!=null) ? _pendingRaw : localStorage.getItem(STORE_KEY);
+    const fromPending = _pendingRaw!=null; _pendingRaw=null;
+    if(raw){
+      const parsed = JSON.parse(raw);
+      if(!fromPending && parsed && parsed.bsmEnc){ // coffre chiffré verrouillé → NE PAS traiter comme DB, NE PAS écraser
+        _encLocked=true; _encBlob=parsed; _encSaltB64=parsed.salt; DB=seedDB();
+      } else { DB = parsed; }
+    }
     else { DB = seedDB(); save(); }
   }catch(e){ DB = seedDB(); }
   // garde-fous de structure
@@ -653,7 +663,119 @@ function syncEmployeeSalary(emp){
   } else if(existing){ existing.active=false; }
   generateRecurring();
 }
-function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); serverPush(); if(typeof cloudPush==="function") cloudPush(); }
+function save(){
+  if(_encLocked) return; // COFFRE VERROUILLÉ : ne JAMAIS écrire (sinon on écrase le chiffré par du vide) — garde-fou anti-perte
+  if(_encKey){ bsmSaveEncrypted(); } else { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }
+  serverPush(); if(typeof cloudPush==="function") cloudPush();
+}
+/* ===================== SÉCURITÉ — Coffre chiffré (AES-256-GCM, clé dérivée PBKDF2) ===================== */
+function bsmHasCrypto(){ return typeof crypto!=="undefined" && crypto.subtle; }
+function bsmB64(bytes){ let s=""; const b=new Uint8Array(bytes); for(let i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return btoa(s); }
+function bsmUnB64(str){ return Uint8Array.from(atob(str), c=>c.charCodeAt(0)); }
+async function bsmDeriveKey(password, saltBytes){
+  const base=await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2", salt:saltBytes, iterations:150000, hash:"SHA-256"}, base, {name:"AES-GCM", length:256}, false, ["encrypt","decrypt"]);
+}
+async function bsmEncryptObj(obj, key, saltB64){
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, new TextEncoder().encode(JSON.stringify(obj)));
+  return { bsmEnc:1, v:1, salt:saltB64, iv:bsmB64(iv), ct:bsmB64(ct) };
+}
+async function bsmDecryptBlob(blob, key){
+  const pt=await crypto.subtle.decrypt({name:"AES-GCM", iv:bsmUnB64(blob.iv)}, key, bsmUnB64(blob.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+function bsmSaveEncrypted(){ // asynchrone, mais save() reste synchrone (écriture rapide)
+  const snapshot=JSON.stringify(DB);
+  bsmEncryptObj(JSON.parse(snapshot), _encKey, _encSaltB64)
+    .then(blob=>{ localStorage.setItem(STORE_KEY, JSON.stringify(blob)); })
+    .catch(e=>console.warn("Chiffrement échoué :", e));
+}
+function bsmEncOn(){ return !!_encKey || _encLocked; } // le chiffrement est actif (déverrouillé ou verrouillé)
+/* Activation : dérive la clé, chiffre et écrit. (Sauvegarde préalable imposée côté UI.) */
+async function bsmEnableEncryption(password){
+  if(!bsmHasCrypto()) throw new Error("Chiffrement indisponible sur ce navigateur.");
+  const salt=crypto.getRandomValues(new Uint8Array(16)); _encSaltB64=bsmB64(salt);
+  _encKey=await bsmDeriveKey(password, salt); _encLocked=false;
+  const blob=await bsmEncryptObj(DB, _encKey, _encSaltB64); localStorage.setItem(STORE_KEY, JSON.stringify(blob));
+}
+async function bsmDisableEncryption(){ _encKey=null; _encLocked=false; _encSaltB64=null; _encBlob=null; localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }
+/* Déverrouillage du coffre : dérive la clé du mot de passe, tente de déchiffrer (AES-GCM échoue si mauvais mot de passe). */
+async function bsmUnlockVault(password){
+  if(!_encBlob || !_encSaltB64) return false;
+  try{
+    const key=await bsmDeriveKey(password, bsmUnB64(_encSaltB64));
+    const obj=await bsmDecryptBlob(_encBlob, key); // throw si mauvais mot de passe
+    _encKey=key; _encLocked=false; _pendingRaw=JSON.stringify(obj); load(); // recharge la VRAIE DB (rejoue les garde-fous)
+    return true;
+  }catch(e){ return false; }
+}
+/* Verrouillage (auto ou manuel) : oublie la clé, remet l'app en état verrouillé, affiche la porte du coffre. */
+function bsmLockVault(){
+  if(!bsmEncOn()) return;
+  try{ const raw=localStorage.getItem(STORE_KEY); const p=JSON.parse(raw); if(p&&p.bsmEnc){ _encBlob=p; _encSaltB64=p.salt; } }catch(e){}
+  _encKey=null; _encLocked=true; currentUser=null; DB=seedDB();
+  if(typeof clearSession==="function") clearSession();
+  showVaultGate();
+}
+function bsmTouchActivity(){ // ré-arme le minuteur de verrouillage auto
+  if(_lockTimer) clearTimeout(_lockTimer);
+  const min=(DB&&DB.meta&&+DB.meta.autoLockMin)||0;
+  if(_encKey && min>0){ _lockTimer=setTimeout(bsmLockVault, min*60000); }
+}
+/* Porte du coffre (déverrouillage au démarrage / après auto-lock) — réutilise l'overlay du portail. */
+function showVaultGate(){
+  const sub=document.querySelector(".portal .sub"); if(sub) sub.textContent="Coffre chiffré — accès sécurisé";
+  const body=document.getElementById("portal-body");
+  body.innerHTML=`
+    <div class="err" id="portal-err"></div>
+    <div class="hint" style="margin-bottom:8px;text-align:center">🔐 Vos données sont chiffrées. Entrez le mot de passe du coffre.</div>
+    <input type="password" id="pf-vault" placeholder="Mot de passe du coffre" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitVault()">
+    <button class="cta" style="width:100%" onclick="submitVault()">Déverrouiller</button>
+    <div class="foot">Sans le mot de passe, les données restent illisibles — c'est le but. Aucune récupération possible en cas d'oubli.</div>`;
+  setTimeout(()=>{ const e=document.getElementById("pf-vault"); if(e) e.focus(); },60);
+  document.getElementById("portal").classList.add("show");
+}
+async function submitVault(){
+  const pw=val("pf-vault")||""; if(!pw){ portalErr("Entrez le mot de passe."); return; }
+  portalErr("Déchiffrement…");
+  const ok=await bsmUnlockVault(pw);
+  if(!ok){ portalErr("Mot de passe incorrect."); return; }
+  bsmAfterLoad(); // ré-applique branding/thème/session/UI sur la VRAIE DB
+  bsmTouchActivity();
+  if(portalNeeded()) showPortal(); else document.getElementById("portal").classList.remove("show");
+}
+/* Panneau Sécurité (chiffrement + verrou auto). */
+function openSecurityPanel(){
+  const enc=bsmEncOn(), min=(DB.meta&&+DB.meta.autoLockMin)||0;
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔐 Sécurité des données</h2>
+    <div class="msub">Protège les données de ce poste (chiffrement local AES-256).</div>
+    <div class="card" style="margin:0 0 12px;border-left:3px solid ${enc?'var(--green)':'var(--amber)'}">
+      <b>Chiffrement : ${enc?'✅ activé':'⚠️ désactivé'}.</b> ${enc?"Les données (finances, audits, détournements nominatifs, clés API) sont illisibles sans le mot de passe du coffre — même PC en main.":"Les données sont stockées en clair dans le navigateur. Activez le chiffrement pour un usage professionnel."}
+    </div>
+    ${!enc?`<div class="hint" style="color:var(--red);margin-bottom:8px"><b>⚠️ Important :</b> si vous oubliez le mot de passe du coffre, les données sont <b>irrécupérables</b>. Téléchargez d'abord une sauvegarde, et notez le mot de passe en lieu sûr.</div>
+      <div style="margin-bottom:10px"><button class="cta ghost sm" onclick="exportData()">⬇ Télécharger une sauvegarde (obligatoire d'abord)</button></div>
+      <div class="field row2"><label>Mot de passe du coffre & confirmation</label>
+        <input type="password" id="sec-pw" placeholder="mot de passe fort"><input type="password" id="sec-pw2" placeholder="confirmer"></div>
+      <button class="cta" onclick="secEnable()">🔒 Activer le chiffrement</button>`
+    :`<div class="field"><label>Verrouillage automatique après inactivité</label>
+        <select id="sec-lock">${[[0,"Désactivé"],[5,"5 minutes"],[15,"15 minutes"],[30,"30 minutes"],[60,"1 heure"]].map(o=>`<option value="${o[0]}" ${min===o[0]?'selected':''}>${o[1]}</option>`).join("")}</select></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button class="cta ghost sm" onclick="bsmLockVault();closeModal()">🔒 Verrouiller maintenant</button><button class="cta ghost sm" onclick="secDisable()">Désactiver le chiffrement</button></div>`}
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button>${enc?`<button class="cta" onclick="secSaveLock()">Enregistrer</button>`:""}</div>`);
+}
+async function secEnable(){
+  const p1=val("sec-pw")||"", p2=val("sec-pw2")||"";
+  if(p1.length<6){ toast("Mot de passe : au moins 6 caractères."); return; }
+  if(p1!==p2){ toast("Les deux mots de passe ne correspondent pas."); return; }
+  confirmModal("Activer le chiffrement ?", "Avez-vous bien <b>téléchargé une sauvegarde</b> et noté le mot de passe ? Sans lui, les données seront irrécupérables.", async ()=>{
+    try{ await bsmEnableEncryption(p1); if(!DB.meta.autoLockMin) DB.meta.autoLockMin=15; save(); bsmTouchActivity(); closeModal(); toast("Chiffrement activé ✅"); }
+    catch(e){ toast("Échec : "+(e.message||e)); }
+  });
+}
+async function secDisable(){
+  confirmModal("Désactiver le chiffrement ?", "Les données repasseront en clair dans le navigateur.", async ()=>{ await bsmDisableEncryption(); if(_lockTimer) clearTimeout(_lockTimer); closeModal(); toast("Chiffrement désactivé."); });
+}
+function secSaveLock(){ DB.meta.autoLockMin=parseInt(val("sec-lock"))||0; save(); bsmTouchActivity(); closeModal(); toast("Réglage enregistré."); }
 
 /* ============================= CLOUD SUPABASE (bêta) — Lot 0 : sync sécurisée multi-tenant =============================
    Additif & NON bloquant : l'app marche toujours en local. Le cloud se connecte à la demande (Paramètres → Cloud).
@@ -1027,7 +1149,10 @@ async function serverSyncInit(){
     const r=await fetch("/api/status",{cache:"no-store"}); if(!r.ok) throw 0;
     const st=await r.json(); if(!st.ok) throw 0;
     serverEnabled=true; setServerStatus(true);
-    if(st.hasData){
+    if(bsmEncOn()){
+      // COFFRE CHIFFRÉ : le stockage local chiffré est la source de vérité. On NE synchronise PAS depuis le serveur
+      // (sinon on écraserait/contournerait le coffre avec des données en clair).
+    } else if(st.hasData){
       const data=await (await fetch("/api/data",{cache:"no-store"})).json();
       if(data && typeof data==="object" && Array.isArray(data.clients)){
         localStorage.setItem(STORE_KEY, JSON.stringify(data)); load();
@@ -5494,12 +5619,20 @@ function a1Thr(){ return Object.assign({driftFleet:10,driftGen:15,idle:35,plausF
 function openA1Thresholds(){
   const t=a1Thr();
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>⚙ Seuils du diagnostic</h2>
-    <div class="msub">Réglez la méthodologie BSM. Ces seuils pilotent l'attribution des causes et la détection de fraude.</div>
+    <div class="msub">La méthodologie BSM. Ces seuils pilotent l'attribution des causes et la détection de fraude — ajustables par secteur.</div>
     <div class="field row2"><label>Dérive mini flotte (%) & groupes (%)</label>
       <input type="number" id="th-df" value="${t.driftFleet}" placeholder="ex. 10"><input type="number" id="th-dg" value="${t.driftGen}" placeholder="ex. 15"></div>
     <div class="field row2"><label>Ralenti max toléré (%) & facteur de plausibilité carburant</label>
       <input type="number" id="th-idle" value="${t.idle}" placeholder="ex. 35"><input type="number" step="0.1" id="th-plaus" value="${t.plausFactor}" placeholder="ex. 1.5"></div>
-    <div class="hint">Le <b>facteur de plausibilité</b> = marge au-dessus de la conso constructeur au-delà de laquelle le carburant est jugé physiquement excédentaire (1.5 = +50%).</div>
+    <div class="infobox" style="margin-top:4px">
+      <div style="font-weight:700;color:var(--navy);margin-bottom:6px">📖 Guide — à expliquer au client</div>
+      <div style="font-size:12.5px;line-height:1.55">
+        <b>• Dérive mini (${t.driftFleet}% / ${t.driftGen}%)</b> — En dessous de cet écart avec la consommation constructeur, la conso est jugée <b>normale</b>. Au-delà, le Cockpit cherche une cause (usure, conduite, détournement). <i>Justification : une marge évite les fausses alertes dues à la météo, la charge ou la qualité du carburant — on ne signale que les écarts significatifs et répétés.</i><br><br>
+        <b>• Ralenti max (${t.idle}%)</b> — Part du temps moteur passée à l'arrêt, moteur tournant. Au-delà, le ralenti est jugé <b>excessif</b> (surconsommation évitable). <i>Justification : un ralenti modéré est normal (attentes, chargement) ; on n'alerte qu'au-delà du seuil professionnel.</i><br><br>
+        <b>• Facteur de plausibilité (${t.plausFactor})</b> — Marge au-dessus de la conso constructeur au-delà de laquelle le carburant facturé est jugé <b>physiquement impossible</b> à consommer (${t.plausFactor} = +${Math.round((t.plausFactor-1)*100)}%). <i>Justification : garantit qu'une alerte de détournement repose sur une <b>impossibilité physique</b>, pas sur une simple surconso — c'est solide et défendable en réunion.</i><br><br>
+        <b>• Score de risque de détournement</b> — 0 à 100. À partir de <b>35</b>, le dossier est « à investiguer » ; les signaux physiques (écart jauge, carburant sans mouvement) le font monter fort. C'est un <b>indicateur d'alerte</b>, jamais une accusation : l'auditeur tranche.
+      </div>
+    </div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveA1Thresholds()">Enregistrer</button></div>`);
 }
 function saveA1Thresholds(){ DB.meta.a1Thresholds={ driftFleet:parseFloat(val("th-df"))||10, driftGen:parseFloat(val("th-dg"))||15, idle:parseFloat(val("th-idle"))||35, plausFactor:parseFloat(val("th-plaus"))||1.5 }; save(); closeModal(); a1RefreshCurrent(); toast("Seuils enregistrés — diagnostic recalculé."); }
@@ -5742,8 +5875,10 @@ function openA1Vehicle(id){
       <input type="number" step="0.1" id="v-consotheo" value="${v.consoTheo!=null?v.consoTheo:''}" placeholder="Ex : 9.5"><select id="v-usage"><option value="">— Usage —</option>${A1_USAGES.map(t=>`<option ${v.usage===t?'selected':''}>${t}</option>`).join("")}</select></div>
     <div class="field row2"><label>Compteur actuel (km) & périodicité entretien (km)</label>
       <input type="number" id="v-kmactuel" value="${v.kmActuel!=null?v.kmActuel:''}" placeholder="km au compteur"><input type="number" id="v-entretien" value="${v.entretienKm!=null?v.entretienKm:''}" placeholder="Ex : 10000"></div>
+    <div class="field"><label>Affectation (par défaut — reprise automatiquement sur chaque relevé)</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="v-driver" value="${esc(v.driver||'')}" placeholder="Chauffeur affecté" style="flex:1;min-width:120px;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px"><input id="v-site" value="${esc(v.site||'')}" placeholder="Site / dépôt" style="flex:1;min-width:90px;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px"><input id="v-station" value="${esc(v.station||'')}" placeholder="Station habituelle" style="flex:1;min-width:120px;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px"></div></div>
     <div class="field"><label>Client (cockpit)</label><select id="v-client"><option value="">— Aucun —</option>${DB.clients.map(c=>`<option value="${c.id}" ${v.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
-    <div class="hint">La <b>conso constructeur</b> sert de référence : le Cockpit calcule l'écart (dérive %) entre la conso réelle mesurée et cette valeur → détection fine des surconsommations, entretien à prévoir, vol de carburant.</div>
+    <div class="hint">La <b>conso constructeur</b> sert de référence (dérive %). Le <b>chauffeur / la station</b> affectés sont repris automatiquement sur les nouveaux relevés (modifiables au cas par cas) et alimentent l'analyse de concentration des anomalies.</div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveA1Vehicle('${id||''}')">Enregistrer</button></div>`);
 }
 function saveA1Vehicle(id){
@@ -5751,7 +5886,8 @@ function saveA1Vehicle(id){
   const obj={name, type:val("v-type"), plate:val("v-plate"), marque:val("v-marque"), modele:val("v-modele"),
     annee:parseInt(val("v-annee"))||"", motorisation:val("v-motor"), puissance:parseFloat(val("v-puissance"))||"",
     reservoir:parseFloat(val("v-reservoir"))||"", consoTheo:parseFloat(val("v-consotheo"))||"", usage:val("v-usage"),
-    kmActuel:parseFloat(val("v-kmactuel"))||"", entretienKm:parseFloat(val("v-entretien"))||"", clientId:val("v-client")};
+    kmActuel:parseFloat(val("v-kmactuel"))||"", entretienKm:parseFloat(val("v-entretien"))||"", clientId:val("v-client"),
+    driver:(val("v-driver")||"").trim(), site:(val("v-site")||"").trim(), station:(val("v-station")||"").trim()};
   if(id){ Object.assign(DB.a1vehicles.find(x=>x.id===id),obj); } else { obj.id=uid(); DB.a1vehicles.push(obj); }
   save(); closeModal(); renderA1Fleet(); toast("Véhicule enregistré.");
 }
@@ -5759,11 +5895,14 @@ function deleteA1Vehicle(id){ const v=DB.a1vehicles.find(x=>x.id===id); if(!v) r
   const n=DB.a1logs.filter(l=>l.vehicleId===id).length;
   confirmModal("Supprimer ce véhicule ?", esc(v.name)+(n?` et ses ${n} relevé(s)`:""), ()=>{ DB.a1vehicles=DB.a1vehicles.filter(x=>x.id!==id); DB.a1logs=DB.a1logs.filter(l=>l.vehicleId!==id); save(); closeModal(); renderA1Fleet(); toast("Supprimé."); }); }
 function openA1Log(id, vehicleId){
-  const l=id?DB.a1logs.find(x=>x.id===id):{date:todayISO(),currency:DB.meta.defaultCurrency,vehicleId:vehicleId||""};
+  let l;
+  if(id){ l=DB.a1logs.find(x=>x.id===id); }
+  else { l={date:todayISO(),currency:DB.meta.defaultCurrency,vehicleId:vehicleId||(DB.a1vehicles[0]&&DB.a1vehicles[0].id)||""};
+    const v0=DB.a1vehicles.find(x=>x.id===l.vehicleId); if(v0){ l.driver=v0.driver||""; l.site=v0.site||""; l.station=v0.station||""; } } // hérite de l'affectation du véhicule
   if(!DB.a1vehicles.length){ toast("Ajoutez d'abord un véhicule."); return; }
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>${id?"Modifier le relevé":"Nouveau relevé"}</h2>
     <div class="field row2"><label>Véhicule & date</label>
-      <select id="l-veh">${DB.a1vehicles.map(v=>`<option value="${v.id}" ${l.vehicleId===v.id?'selected':''}>${esc(v.name)}</option>`).join("")}</select>
+      <select id="l-veh" onchange="a1LogFillFromVeh()">${DB.a1vehicles.map(v=>`<option value="${v.id}" ${l.vehicleId===v.id?'selected':''}>${esc(v.name)}</option>`).join("")}</select>
       <input type="date" id="l-date" value="${l.date||todayISO()}"></div>
     <div class="field row2"><label>Km parcourus & litres</label>
       <input type="number" id="l-km" value="${l.km!=null?l.km:''}" placeholder="km"><input type="number" id="l-liters" value="${l.liters!=null?l.liters:''}" placeholder="litres"></div>
@@ -5786,6 +5925,9 @@ function saveA1Log(id){
   if(id){ Object.assign(DB.a1logs.find(x=>x.id===id),obj); } else { obj.id=uid(); DB.a1logs.push(obj); }
   save(); closeModal(); renderA1Fleet(); toast("Relevé enregistré.");
 }
+function a1LogFillFromVeh(){ const v=DB.a1vehicles.find(x=>x.id===val("l-veh")); if(!v) return;
+  const d=document.getElementById("l-driver"), s=document.getElementById("l-site"), st=document.getElementById("l-station");
+  if(d&&!d.value.trim()) d.value=v.driver||""; if(s&&!s.value.trim()) s.value=v.site||""; if(st&&!st.value.trim()) st.value=v.station||""; } // remplit seulement les champs vides
 function openA1LogList(vid){
   const v=DB.a1vehicles.find(x=>x.id===vid); const logs=DB.a1logs.filter(l=>l.vehicleId===vid).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>Relevés — ${esc(v?v.name:'')}</h2>
@@ -6115,15 +6257,18 @@ function openA1Genset(id){
       <input type="number" step="0.1" id="g-consotheo" value="${g.consoTheoLh!=null?g.consoTheoLh:''}" placeholder="Ex : 24"><input type="number" id="g-reservoir" value="${g.reservoirL!=null?g.reservoirL:''}" placeholder="litres"></div>
     <div class="field row2"><label>Compteur horaire actuel & usage</label>
       <input type="number" id="g-compteur" value="${g.heuresCompteur!=null?g.heuresCompteur:''}" placeholder="heures au compteur"><select id="g-usage"><option value="">— Usage —</option>${A1_GEN_USAGES.map(t=>`<option ${g.usage===t?'selected':''}>${t}</option>`).join("")}</select></div>
+    <div class="field"><label>Affectation (par défaut — reprise automatiquement sur chaque relevé)</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="g-operator" value="${esc(g.operator||'')}" placeholder="Opérateur / responsable" style="flex:1;min-width:130px;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px"><input id="g-site" value="${esc(g.site||'')}" placeholder="Site" style="flex:1;min-width:80px;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px"><input id="g-station" value="${esc(g.station||'')}" placeholder="Fournisseur habituel" style="flex:1;min-width:130px;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px"></div></div>
     <div class="field"><label>Client (cockpit)</label><select id="g-client"><option value="">— Aucun —</option>${DB.clients.map(c=>`<option value="${c.id}" ${g.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
-    <div class="hint">La <b>conso constructeur</b> (L/h à pleine charge) sert de référence : le Cockpit estime la conso attendue selon la charge réelle et calcule la dérive → détection des surconsommations, sous-charges et anomalies.</div>
+    <div class="hint">La <b>conso constructeur</b> (L/h à pleine charge) sert de référence. L'<b>opérateur / le fournisseur</b> affectés sont repris automatiquement sur les nouveaux relevés (modifiables au cas par cas) et alimentent l'analyse de concentration.</div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveA1Genset('${id||''}')">Enregistrer</button></div>`);
 }
 function saveA1Genset(id){
   const name=(val("g-name")||"").trim(); if(!name){ toast("Nom obligatoire."); return; }
   const obj={name, marque:val("g-marque"), modele:val("g-modele"), puissanceKva:parseFloat(val("g-kva"))||"", puissanceKw:parseFloat(val("g-kw"))||"",
     annee:parseInt(val("g-annee"))||"", carburant:val("g-fuel"), consoTheoLh:parseFloat(val("g-consotheo"))||"", reservoirL:parseFloat(val("g-reservoir"))||"",
-    heuresCompteur:parseFloat(val("g-compteur"))||"", usage:val("g-usage"), clientId:val("g-client")};
+    heuresCompteur:parseFloat(val("g-compteur"))||"", usage:val("g-usage"), clientId:val("g-client"),
+    operator:(val("g-operator")||"").trim(), site:(val("g-site")||"").trim(), station:(val("g-station")||"").trim()};
   if(id){ Object.assign(DB.a1gensets.find(x=>x.id===id),obj); } else { obj.id=uid(); DB.a1gensets.push(obj); }
   save(); closeModal(); renderA1Genset(); toast("Groupe enregistré.");
 }
@@ -6131,11 +6276,14 @@ function deleteA1Genset(id){ const g=DB.a1gensets.find(x=>x.id===id); if(!g) ret
   const n=DB.a1genlogs.filter(l=>l.gensetId===id).length;
   confirmModal("Supprimer ce groupe ?", esc(g.name)+(n?` et ses ${n} relevé(s)`:""), ()=>{ DB.a1gensets=DB.a1gensets.filter(x=>x.id!==id); DB.a1genlogs=DB.a1genlogs.filter(l=>l.gensetId!==id); save(); closeModal(); renderA1Genset(); toast("Supprimé."); }); }
 function openA1GenLog(id, gensetId){
-  const l=id?DB.a1genlogs.find(x=>x.id===id):{date:todayISO(),currency:DB.meta.defaultCurrency,gensetId:gensetId||""};
+  let l;
+  if(id){ l=DB.a1genlogs.find(x=>x.id===id); }
+  else { l={date:todayISO(),currency:DB.meta.defaultCurrency,gensetId:gensetId||(DB.a1gensets[0]&&DB.a1gensets[0].id)||""};
+    const g0=DB.a1gensets.find(x=>x.id===l.gensetId); if(g0){ l.operator=g0.operator||""; l.site=g0.site||""; l.station=g0.station||""; } } // hérite de l'affectation du groupe
   if(!DB.a1gensets.length){ toast("Ajoutez d'abord un groupe."); return; }
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>${id?"Modifier le relevé":"Nouveau relevé"}</h2>
     <div class="field row2"><label>Groupe & date</label>
-      <select id="gl-gen">${DB.a1gensets.map(g=>`<option value="${g.id}" ${l.gensetId===g.id?'selected':''}>${esc(g.name)}</option>`).join("")}</select>
+      <select id="gl-gen" onchange="a1GenLogFillFromGen()">${DB.a1gensets.map(g=>`<option value="${g.id}" ${l.gensetId===g.id?'selected':''}>${esc(g.name)}</option>`).join("")}</select>
       <input type="date" id="gl-date" value="${l.date||todayISO()}"></div>
     <div class="field row2"><label>Heures de fonctionnement & litres consommés</label>
       <input type="number" step="0.1" id="gl-hours" value="${l.hours!=null?l.hours:''}" placeholder="heures"><input type="number" step="0.1" id="gl-liters" value="${l.liters!=null?l.liters:''}" placeholder="litres"></div>
@@ -6157,6 +6305,9 @@ function saveA1GenLog(id){
   if(id){ Object.assign(DB.a1genlogs.find(x=>x.id===id),obj); } else { obj.id=uid(); DB.a1genlogs.push(obj); }
   save(); closeModal(); renderA1Genset(); toast("Relevé enregistré.");
 }
+function a1GenLogFillFromGen(){ const g=DB.a1gensets.find(x=>x.id===val("gl-gen")); if(!g) return;
+  const o=document.getElementById("gl-operator"), s=document.getElementById("gl-site"), st=document.getElementById("gl-station");
+  if(o&&!o.value.trim()) o.value=g.operator||""; if(s&&!s.value.trim()) s.value=g.site||""; if(st&&!st.value.trim()) st.value=g.station||""; }
 function openA1GenLogList(gid){
   const g=DB.a1gensets.find(x=>x.id===gid); const logs=DB.a1genlogs.filter(l=>l.gensetId===gid).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>Relevés — ${esc(g?g.name:'')}</h2>
@@ -7333,6 +7484,7 @@ function portalNeeded(){ return !currentUser; }
 function firstRun(){ return !(DB.users && DB.users.length); }
 /* Écran principal : connexion Cloud (Supabase) — authentification sécurisée + cloisonnement RLS. */
 function showPortal(){
+  if(_encLocked){ showVaultGate(); return; } // coffre chiffré verrouillé → toujours la porte du coffre d'abord
   const body=document.getElementById("portal-body");
   const sub=document.querySelector(".portal .sub");
   if(sub) sub.textContent="Connexion sécurisée — pilotage interne";
@@ -7743,14 +7895,13 @@ function purgeLog(){
 }
 
 /* ----------------------------- Démarrage ----------------------------- */
+// Ré-applique l'interface après un (re)chargement de DB — appelé au boot ET après déverrouillage du coffre.
+function bsmAfterLoad(){
+  const ci=document.getElementById("currency-indicator"); if(ci) ci.textContent = curIndicatorText();
+  applyBranding(); applyTheme(); restoreSession(); applyRoleUI(); renderDashboard(); updateAdviceBadge();
+}
 load();
-document.getElementById("currency-indicator").textContent = curIndicatorText();
-applyBranding();
-applyTheme();
-restoreSession();
-applyRoleUI();
-renderDashboard();
-updateAdviceBadge();
+bsmAfterLoad();
 window.addEventListener("message", onSimulatorMessage); // réception des devis du simulateur (iframe)
 // Journalisation des clics sur les éléments d'action (boutons, onglets, liens)
 document.addEventListener("click", function(e){
@@ -7762,12 +7913,16 @@ document.addEventListener("click", function(e){
   if(!label || label.length>60) label=label.slice(0,60);
   if(label) logEvent("click", label);
 }, true);
+// Ré-arme le verrouillage automatique du coffre sur activité (clavier / souris / tactile)
+["click","keydown","mousemove","touchstart"].forEach(ev=>document.addEventListener(ev, function(){ if(_encKey) bsmTouchActivity(); }, {passive:true}));
 serverSyncInit(); // détecte le serveur local BSM (si l'app est ouverte via http://…) et synchronise
-if(portalNeeded()) showPortal();
-// Authentification : priorité à la session cloud (Supabase). Si présente → entrée directe (online = profil+données,
-// offline = identité en cache + données locales). Sinon on garde la session locale / le portail affiché ci-dessus.
-if(typeof initCloudAuth==="function"){
-  initCloudAuth().then(function(ok){ if(!ok && portalNeeded()) showPortal(); }).catch(function(){ if(portalNeeded()) showPortal(); });
+if(_encLocked){ showVaultGate(); } // coffre chiffré → porte de déverrouillage AVANT tout
+else {
+  if(portalNeeded()) showPortal();
+  // Authentification : priorité à la session cloud (Supabase). Si présente → entrée directe. Sinon session locale / portail.
+  if(typeof initCloudAuth==="function"){
+    initCloudAuth().then(function(ok){ if(!ok && portalNeeded()) showPortal(); }).catch(function(){ if(portalNeeded()) showPortal(); });
+  }
 }
 </script>
 <script>if('serviceWorker' in navigator && location.protocol.startsWith('http')){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
