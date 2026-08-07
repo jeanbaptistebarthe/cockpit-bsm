@@ -6068,11 +6068,11 @@ function buildA1Context(){
 }
 async function a1Analyze(){
   if(!DB.a1logs.length){ toast("Ajoutez ou importez des données d'abord."); return; }
-  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Flotte & carburant</h2><div id="a1-ai">${aiSkeleton()}</div>`);
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Flotte & carburant</h2><div id="a1-ai">${aiSkeleton()}</div><div id="a1-ai-act" class="modal-actions" style="display:none;flex-wrap:wrap">${a1AnalysisActionsHtml("a1")}</div>`);
   try{
     const sys="Tu es un analyste flotte & énergie pour un cabinet de conseil à Madagascar. À partir des données, identifie : surconsommations et causes probables (conduite, entretien, vol de carburant), véhicules les plus coûteux, temps de ralenti excessif, et donne des recommandations concrètes, chiffrées et hiérarchisées. Termine par 3 actions prioritaires. Sois concret et bref.";
     const txt=await aiChat(sys, buildA1Context(), 900, "a1");
-    const el=document.getElementById("a1-ai"); if(el){ el.className=""; el.style.whiteSpace="pre-wrap"; el.style.fontSize="13px"; el.style.lineHeight="1.55"; el.textContent=txt; }
+    a1ShowAnalysis("a1","a1-ai",txt,{ title:"Analyse flotte & carburant"+(a1Client?" — "+clientName(a1Client):""), typeLabel:"Analyse flotte & carburant (A1)", clientId:a1Client||"", sector:"a1" });
   }catch(e){ const el=document.getElementById("a1-ai"); if(el) el.innerHTML=`<div class="imp-err">⚠ ${esc(e.message||"Erreur IA")}</div>`; }
 }
 function a1DiagReportSection(arr, kind){
@@ -6505,11 +6505,11 @@ function buildGensetContext(){
 }
 async function a1GenAnalyze(){
   if(!DB.a1genlogs.length){ toast("Ajoutez ou importez des relevés d'abord."); return; }
-  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Groupes électrogènes</h2><div id="gen-ai">${aiSkeleton()}</div>`);
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Groupes électrogènes</h2><div id="gen-ai">${aiSkeleton()}</div><div id="gen-ai-act" class="modal-actions" style="display:none;flex-wrap:wrap">${a1AnalysisActionsHtml("gen")}</div>`);
   try{
     const sys="Tu es un ingénieur énergie / analyste pour un cabinet de conseil à Madagascar (contexte de délestages JIRAMA fréquents). À partir des données de groupes électrogènes, identifie les surconsommations et leurs causes probables (entretien, injecteurs, charge inadaptée, détournement de carburant), les groupes surdimensionnés (sous-charge), le rendement (kWh/L), et l'arbitrage économique entre production autonome et réseau. Donne des recommandations concrètes, chiffrées et hiérarchisées, puis 3 actions prioritaires. Sois concret et bref.";
     const txt=await aiChat(sys, buildGensetContext(), 900, "a1gen");
-    const el=document.getElementById("gen-ai"); if(el){ el.className=""; el.style.whiteSpace="pre-wrap"; el.style.fontSize="13px"; el.style.lineHeight="1.55"; el.textContent=txt; }
+    a1ShowAnalysis("gen","gen-ai",txt,{ title:"Analyse groupes électrogènes"+(a1genClient?" — "+clientName(a1genClient):""), typeLabel:"Analyse groupes électrogènes (A1)", clientId:a1genClient||"", sector:"a1gen" });
   }catch(e){ const el=document.getElementById("gen-ai"); if(el) el.innerHTML=`<div class="imp-err">⚠ ${esc(e.message||"Erreur IA")}</div>`; }
 }
 function printA1GenReport(){
@@ -6525,6 +6525,43 @@ function printA1GenReport(){
     <p class="meta">Édité le ${frDate(todayISO())} — ${DB.meta.cabinetName||"BSM Advisory & Consulting"}.</p>
   </div>`;
   window.print();
+}
+
+/* ---- Rendu & export des analyses IA A1 (rendu markdown propre + copie / PDF / archivage dans les rapports) ---- */
+let a1LastAnalysis={};
+function a1AnalysisActionsHtml(key){
+  return `<button class="cta ghost" onclick="a1CopyAnalysis('${key}')">📋 Copier</button>
+    <button class="cta ghost" onclick="a1PrintAnalysis('${key}')">🖨 Imprimer / PDF</button>
+    <button class="cta" onclick="a1AnalysisToReport('${key}')">📄 Archiver comme rapport</button>`;
+}
+function a1ShowAnalysis(key, boxId, txt, opt){
+  opt=opt||{};
+  let model=""; try{ model=aiResolve(opt.sector).model||""; }catch(e){}
+  a1LastAnalysis[key]={ txt:String(txt||""), title:opt.title||"Analyse IA", typeLabel:opt.typeLabel||"Analyse IA", clientId:opt.clientId||"", model:model };
+  const el=document.getElementById(boxId);
+  if(el){ el.className="ai-md"; el.style.whiteSpace=""; el.style.fontSize="13px"; el.style.lineHeight="1.6"; el.innerHTML=mdToHtml(txt); }
+  const act=document.getElementById(boxId+"-act"); if(act) act.style.display="flex";
+}
+function a1AnalysisReport(key){
+  const a=a1LastAnalysis[key]; if(!a) return null;
+  const who=(currentUser&&currentUser.name)||"";
+  return { id:uid(), ts:new Date().toISOString(), type:"a1analyse", typeLabel:a.typeLabel, title:a.title,
+    clientId:a.clientId||"", missionId:"", content:"# "+a.title+"\n\n"+a.txt, sections:[], model:a.model||"",
+    author:who, classification:"confidentiel", status:"brouillon",
+    trail:[{act:"Généré par l'IA (analyse programme A1)", by:who, at:new Date().toISOString()}] };
+}
+function a1CopyAnalysis(key){
+  const a=a1LastAnalysis[key]; if(!a){ toast("Rien à copier."); return; }
+  const txt=(a.title?a.title+"\n\n":"")+a.txt;
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(function(){toast("Analyse copiée — colle-la dans ton rapport ✅");},function(){toast("Copie impossible.");}); }
+  else toast("Copie non supportée par ce navigateur.");
+}
+function a1PrintAnalysis(key){ const r=a1AnalysisReport(key); if(r) openPrintable(reportHtml(r)); }
+function a1AnalysisToReport(key){
+  const r=a1AnalysisReport(key); if(!r) return;
+  if(!Array.isArray(DB.reports)) DB.reports=[]; DB.reports.unshift(r); if(DB.reports.length>500) DB.reports=DB.reports.slice(0,500);
+  save(); if(typeof renderReports==="function") renderReports();
+  toast("Analyse archivée dans « Rapports » ✅"); openReport(r.id);
 }
 
 /* ----------------------------- Import R5 (CSV / Google Sheet publié) ----------------------------- */
@@ -7170,7 +7207,7 @@ async function generateReport(typeKey, clientId, missionId){
 function openReport(id){ const r=(DB.reports||[]).find(x=>x.id===id); if(!r) return;
   openModal(`<span class="close" onclick="closeModal()">✕</span>
    <h2 style="margin-bottom:2px">${esc(r.title)}</h2>
-   <div class="msub">${reportStatusBadge(r)} · <span class="badge b-blue">${esc(reportTypeLabel(r.type))}</span> · ${esc(fmtDateTime(r.ts))} · ${esc(r.author||"")} · modèle ${esc(r.model||"—")}${r.edited?' · <span style="color:var(--muted)">édité</span>':''}</div>
+   <div class="msub">${reportStatusBadge(r)} · <span class="badge b-blue">${esc(r.typeLabel||reportTypeLabel(r.type))}</span> · ${esc(fmtDateTime(r.ts))} · ${esc(r.author||"")} · modèle ${esc(r.model||"—")}${r.edited?' · <span style="color:var(--muted)">édité</span>':''}</div>
    <div class="rbody" style="max-height:48vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:16px;margin-top:10px;font-size:13.5px;line-height:1.6">${mdToHtml(r.content)}</div>
    ${reportTrailHtml(r)}
    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
@@ -7289,7 +7326,7 @@ function renderReports(){
   const filterChips=`<button class="cta sm ${!window.repFilter?'':'ghost'}" onclick="repSetFilter('')">Tous</button>`+REPORT_TYPES.map(t=>`<button class="cta sm ${window.repFilter===t.key?'':'ghost'}" onclick="repSetFilter('${t.key}')" title="${esc(t.label)}">${t.icon}</button>`).join("");
   const rows=list.map(r=>`<tr>
       <td style="white-space:nowrap">${esc(fmtDateTime(r.ts))}</td>
-      <td><span class="badge b-blue">${esc(reportTypeLabel(r.type))}</span></td>
+      <td><span class="badge b-blue">${esc(r.typeLabel||reportTypeLabel(r.type))}</span></td>
       <td><b>${esc(r.title)}</b></td>
       <td>${reportStatusBadge(r)}</td>
       <td>${typeof classifBadge==="function"?classifBadge(r.classification):esc(r.classification||"")}</td>
