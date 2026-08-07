@@ -5834,6 +5834,7 @@ function openA1Diag(kind, id){
   const recos=topCause?a1RecosFor(topCause, isGen?"gen":"fleet"):[];
   const trendTxt={progressive:"progressive (évoque une usure mécanique)",ponctuelle:"brutale / ponctuelle (évoque une anomalie ou un détournement)",stable:"stable"}[d.trend]||d.trend;
   const specs=a1MachineSpecs(kind, machine);
+  const specsIncomplete = isGen ? (!machine.consoTheoLh||!machine.annee||!machine.reservoirL||!machine.marque) : (!machine.consoTheo||!machine.annee||!machine.reservoir||!machine.marque);
   const logs=(p.logs||[]).slice().sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
   const histHtml = logs.length? `<div style="overflow-x:auto"><table style="font-size:11.5px"><thead><tr><th>Date</th><th style="text-align:right">${isGen?"Heures":"Km"}</th><th style="text-align:right">L fact.</th><th style="text-align:right">Jauge</th>${isGen?'<th style="text-align:right">kWh</th>':''}<th>${isGen?"Opérateur / fournisseur":"Chauffeur / station"}</th><th>Signaux</th></tr></thead><tbody>`+
     logs.map(l=>{ const sg=a1LogSignals(kind,machine,l); const who=[(l.driver||l.operator||""),(l.station||"")].filter(Boolean).map(esc).join(" · ");
@@ -5852,7 +5853,8 @@ function openA1Diag(kind, id){
     </div>
     ${recos.length?`<h2 style="font-size:14px;margin:12px 0 4px">Orientations recommandées — ${A1_CAUSES[topCause].label}</h2><ul style="margin:0 0 0 16px;line-height:1.6">${recos.map(r=>`<li>${esc(r)}</li>`).join("")}</ul>`:""}
     <h2 style="font-size:14px;margin:14px 0 4px">📋 Fiche technique</h2>
-    <div class="hint" style="margin:0 0 8px">${specs}</div>
+    <div class="hint" style="margin:0 0 6px">${specs}</div>
+    ${specsIncomplete?`<div class="card" style="border-left:3px solid var(--amber);background:#FFFBF0;margin:0 0 8px;padding:10px 12px;font-size:12.5px"><b>⚠️ Fiche incomplète.</b> Renseignez marque, année, <b>${isGen?"conso constructeur (L/h)":"conso constructeur (L/100)"}</b> et réservoir → le diagnostic (dérive, plausibilité) sera nettement plus fin. <div style="margin-top:8px"><button class="cta ghost sm" onclick="closeModal();${isGen?"openA1Genset":"openA1Vehicle"}('${id}')">✎ Compléter la fiche machine</button></div></div>`:""}
     <h2 style="font-size:14px;margin:12px 0 4px">📄 Historique des relevés <span style="font-weight:400;color:var(--muted);font-size:11px">— repérez précisément OÙ est l'anomalie</span></h2>
     ${histHtml}
     <div class="card" style="border-left:3px solid var(--gold);background:#FCFBF7;margin:12px 0 0">
@@ -6066,12 +6068,12 @@ function buildA1Context(){
 }
 async function a1Analyze(){
   if(!DB.a1logs.length){ toast("Ajoutez ou importez des données d'abord."); return; }
-  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Flotte & carburant</h2><div id="a1-ai" class="msub">Analyse en cours…</div>`);
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Flotte & carburant</h2><div id="a1-ai">${aiSkeleton()}</div>`);
   try{
     const sys="Tu es un analyste flotte & énergie pour un cabinet de conseil à Madagascar. À partir des données, identifie : surconsommations et causes probables (conduite, entretien, vol de carburant), véhicules les plus coûteux, temps de ralenti excessif, et donne des recommandations concrètes, chiffrées et hiérarchisées. Termine par 3 actions prioritaires. Sois concret et bref.";
     const txt=await aiChat(sys, buildA1Context(), 900, "a1");
     const el=document.getElementById("a1-ai"); if(el){ el.className=""; el.style.whiteSpace="pre-wrap"; el.style.fontSize="13px"; el.style.lineHeight="1.55"; el.textContent=txt; }
-  }catch(e){ const el=document.getElementById("a1-ai"); if(el) el.innerHTML=`<span style="color:var(--red)">${esc(e.message||"Erreur IA")}. Vérifiez la clé Mistral dans ⚙ Paramètres.</span>`; }
+  }catch(e){ const el=document.getElementById("a1-ai"); if(el) el.innerHTML=`<div class="imp-err">⚠ ${esc(e.message||"Erreur IA")}</div>`; }
 }
 function a1DiagReportSection(arr, kind){
   const flagged=arr.filter(p=>{ const m=kind==="gen"?p.g:p.v; const d=p.diag; return (d&&(d.top.key!=="ras"||d.flags.length||d.loss>0))||m.verdict; });
@@ -6503,12 +6505,12 @@ function buildGensetContext(){
 }
 async function a1GenAnalyze(){
   if(!DB.a1genlogs.length){ toast("Ajoutez ou importez des relevés d'abord."); return; }
-  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Groupes électrogènes</h2><div id="gen-ai" class="msub">Analyse en cours…</div>`);
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Groupes électrogènes</h2><div id="gen-ai">${aiSkeleton()}</div>`);
   try{
     const sys="Tu es un ingénieur énergie / analyste pour un cabinet de conseil à Madagascar (contexte de délestages JIRAMA fréquents). À partir des données de groupes électrogènes, identifie les surconsommations et leurs causes probables (entretien, injecteurs, charge inadaptée, détournement de carburant), les groupes surdimensionnés (sous-charge), le rendement (kWh/L), et l'arbitrage économique entre production autonome et réseau. Donne des recommandations concrètes, chiffrées et hiérarchisées, puis 3 actions prioritaires. Sois concret et bref.";
     const txt=await aiChat(sys, buildGensetContext(), 900, "a1gen");
     const el=document.getElementById("gen-ai"); if(el){ el.className=""; el.style.whiteSpace="pre-wrap"; el.style.fontSize="13px"; el.style.lineHeight="1.55"; el.textContent=txt; }
-  }catch(e){ const el=document.getElementById("gen-ai"); if(el) el.innerHTML=`<span style="color:var(--red)">${esc(e.message||"Erreur IA")}. Vérifiez la clé Mistral dans ⚙ Paramètres.</span>`; }
+  }catch(e){ const el=document.getElementById("gen-ai"); if(el) el.innerHTML=`<div class="imp-err">⚠ ${esc(e.message||"Erreur IA")}</div>`; }
 }
 function printA1GenReport(){
   const {arr, totals}=a1GenCompute(a1genClient);
@@ -6804,14 +6806,20 @@ async function aiComplete(messages, maxTokens, sector, modelOverride){
   for(let i=0;i<providers.length;i++){ const p=providers[i];
     const model=(p.name==="mammouth" && modelOverride) ? modelOverride : p.model; // routage par assistant : Mammouth uniquement (multi-modèles)
     try{
-      const resp=await fetch(p.url,{ method:"POST",
+      const ctrl=(typeof AbortController!=="undefined")?new AbortController():null;
+      const to=ctrl?setTimeout(()=>ctrl.abort(),45000):null; // timeout 45s → évite de rester bloqué, bascule ensuite
+      let resp;
+      try{ resp=await fetch(p.url,{ method:"POST", signal:ctrl?ctrl.signal:undefined,
         headers:{"Content-Type":"application/json","Authorization":"Bearer "+p.key},
-        body:JSON.stringify({model:model,max_tokens:maxTokens||900,messages:messages}) });
+        body:JSON.stringify({model:model,max_tokens:maxTokens||900,messages:messages}) }); }
+      finally{ if(to) clearTimeout(to); }
       if(!resp.ok){ let e={}; try{e=await resp.json();}catch(_){} throw new Error((e.error&&e.error.message)||e.message||(typeof e.detail==="string"?e.detail:"")||("Erreur "+p.name+" "+resp.status)); }
       const data=await resp.json();
+      const content=(data&&data.choices&&data.choices[0]&&data.choices[0].message)?data.choices[0].message.content:null;
+      if(content==null||String(content).trim()==="") throw new Error("Réponse vide de "+p.name+" (modèle/quota ?)");
       try{ recordAiUsage(p.name, data.model||model, data.usage, sector); }catch(_){}
-      return data.choices[0].message.content;
-    }catch(err){ lastErr=err; } // échec → on tente le fournisseur suivant (bascule automatique)
+      return content;
+    }catch(err){ lastErr=(err&&err.name==="AbortError")?new Error("Délai dépassé ("+p.name+")"):err; } // échec → fournisseur suivant
   }
   const names=providers.map(p=>p.name).join(" puis ");
   throw new Error("Échec IA ("+names+") : "+((lastErr&&lastErr.message)||"connexion impossible")+". Vérifie tes clés/quota dans ⚙ Paramètres.");
