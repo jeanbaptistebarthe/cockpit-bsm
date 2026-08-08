@@ -5907,6 +5907,20 @@ function a1ReasoningPoints(kind, p){
   out.push("Ne concluez « détournement » qu'avec des <b>preuves convergentes</b> (jauge + concentration + récurrence). Sinon, statut « à investiguer ».");
   return out;
 }
+/* KPI machine (tête de fiche 360°). */
+function a1FicheKpis(kind, p){
+  if(kind==="gen") return `<div class="kpis" style="margin:8px 0">${a1KpiTile("Taux de charge",p.chargePct>0?p.chargePct.toFixed(0)+"%":"—",p.lowLoad?"sous-charge":"")}${a1KpiTile("Conso",p.realLh?p.realLh.toFixed(1)+" L/h":"—")}${a1KpiTile("Rendement",p.rendement?p.rendement.toFixed(2)+" kWh/L":"—")}${a1KpiTile("Coût / kWh",p.costPerKwh?fmtD(p.costPerKwh):"—")}${a1KpiTile("Heures",Math.round(p.hours||0)+" h")}</div>`;
+  return `<div class="kpis" style="margin:8px 0">${a1KpiTile("Conso",p.consoL100?p.consoL100.toFixed(1)+" L/100":"—",p.anomaly?"surconso":"")}${a1KpiTile("vs constructeur",p.driftTheo!=null?((p.driftTheo>0?"+":"")+p.driftTheo.toFixed(0)+"%"):"n/c")}${a1KpiTile("Coût / km",p.costPerKm?fmtD(p.costPerKm):"—")}${a1KpiTile("Ralenti",p.idleRatio?p.idleRatio.toFixed(0)+"%":"—",p.idleFlag?"excessif":"")}${a1KpiTile("Distance",(p.km||0).toLocaleString('fr-FR')+" km")}</div>`;
+}
+/* Mini-courbe de tendance mensuelle pour UNE machine. */
+function a1FicheTrend(kind, p){
+  const by={}; const isGen=kind==="gen";
+  (p.logs||[]).forEach(l=>{ const m=String(l.date||"").slice(0,7); if(!m) return; if(!by[m]) by[m]={kwh:0,liters:0,km:0}; by[m].kwh+=(+l.kwh||0); by[m].liters+=(+l.liters||0); by[m].km+=(+l.km||0); });
+  const months=Object.keys(by).sort(); if(months.length<2) return "";
+  const data=months.map(m=> isGen ? (by[m].kwh>0?by[m].liters/by[m].kwh:null) : (by[m].km>0?by[m].liters/by[m].km*100:null));
+  const name=isGen?p.g.name:p.v.name;
+  return `<div class="card" style="margin:8px 0"><h3 style="margin:0 0 6px">Tendance — ${isGen?"conso spécifique (L/kWh)":"consommation (L/100 km)"}</h3>${a1MultiLineSvg([{name,data}],months,{dec:isGen?2:1})}<div class="hint">Un pic isolé = mois à investiguer (repère le relevé concerné dans l'historique ci-dessous).</div></div>`;
+}
 function openA1Diag(kind, id){
   const isGen=kind==="gen";
   const all=(isGen?a1GenCompute(""):a1Compute("")).arr;
@@ -5927,8 +5941,11 @@ function openA1Diag(kind, id){
       return `<tr><td>${frDate(l.date)}</td><td style="text-align:right">${isGen?Math.round(+l.hours||0):(+l.km||0).toLocaleString('fr-FR')}</td><td style="text-align:right">${Math.round(+l.liters||0)}</td><td style="text-align:right">${l.litersReal?Math.round(+l.litersReal):"—"}</td>${isGen?`<td style="text-align:right">${l.kwh?Math.round(+l.kwh):"—"}</td>`:''}<td>${who||"—"}</td><td>${sg.length?sg.map(s=>`<span style="color:${s.sev==='d'?'var(--red)':'var(--orange)'}">${s.sev==='d'?'🔴':'🟠'} ${esc(s.t)}</span>`).join("<br>"):'<span style="color:var(--green)">✓ RAS</span>'}</td></tr>`;
     }).join("")+`</tbody></table></div>` : `<div class="hint">Aucun relevé saisi pour cette machine.</div>`;
   const reasoning=a1ReasoningPoints(kind, p);
-  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔬 Fiche technique & diagnostic — ${esc(name)}</h2>
-    <div class="msub">Analyse déterministe (règles BSM), indépendante de l'IA. Poussez votre raisonnement ci-dessous, puis tranchez en bas (jugement d'expert).</div>
+  openModal(`<span class="close" onclick="closeModal()">✕</span>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap"><h2 style="margin:0">🔧 Fiche machine 360° — ${esc(name)}</h2><button class="cta ghost" onclick="closeModal();${isGen?"openA1Genset":"openA1Vehicle"}('${id}')">✎ Modifier la fiche</button></div>
+    <div class="msub">${esc(specs)}</div>
+    ${a1FicheKpis(kind,p)}
+    ${a1FicheTrend(kind,p)}
     <div class="grid2" style="gap:14px">
       <div><h2 style="font-size:14px;margin:4px 0">Causes probables</h2><div class="mini-list">${causesHtml}</div>
         <div class="hint" style="margin-top:6px">Tendance : <b>${trendTxt}</b>${d.drift?` · dérive ${d.drift>0?'+':''}${d.drift.toFixed(0)}%`:""}.</div></div>
@@ -5991,7 +6008,7 @@ function renderA1Fleet(){
   const maxCpk=Math.max(1,...withKm.map(p=>p.costPerKm));
   const rows=arr.sort((a,b)=>b.consoL100-a.consoL100).map(p=>`
     <tr>
-      <td><b>${esc(p.v.name)}</b><div style="font-size:11px;color:var(--muted)">${esc(p.v.type||"")}${p.v.plate?" · "+esc(p.v.plate):""}${a1VehClientName(p.v)?" · "+esc(a1VehClientName(p.v)):""}</div>${p.diag&&p.diag.top.key!=="ras"?`<div style="margin-top:3px">${a1CauseBadge(p.diag)}</div>`:""}${p.v.verdict&&p.v.verdict.cause?`<div style="margin-top:2px;font-size:10px;color:var(--muted)">✔ ${A1_CAUSES[p.v.verdict.cause]?A1_CAUSES[p.v.verdict.cause].label:''} (${esc(p.v.verdict.status||'')})</div>`:""}</td>
+      <td><b class="clink" style="cursor:pointer" title="Ouvrir la fiche machine 360°" onclick="openA1Diag('fleet','${p.v.id}')">${esc(p.v.name)}</b><div style="font-size:11px;color:var(--muted)">${esc(p.v.type||"")}${p.v.plate?" · "+esc(p.v.plate):""}${a1VehClientName(p.v)?" · "+esc(a1VehClientName(p.v)):""}</div>${p.diag&&p.diag.top.key!=="ras"?`<div style="margin-top:3px">${a1CauseBadge(p.diag)}</div>`:""}${p.v.verdict&&p.v.verdict.cause?`<div style="margin-top:2px;font-size:10px;color:var(--muted)">✔ ${A1_CAUSES[p.v.verdict.cause]?A1_CAUSES[p.v.verdict.cause].label:''} (${esc(p.v.verdict.status||'')})</div>`:""}</td>
       <td style="text-align:right">${p.km.toLocaleString('fr-FR')} km</td>
       <td style="text-align:right">${Math.round(p.liters).toLocaleString('fr-FR')} L</td>
       <td style="text-align:right;font-weight:600;${p.anomaly?'color:var(--red)':''}">${p.consoL100?p.consoL100.toFixed(1)+" L/100":"—"}${p.anomaly?' ⚠️':''}${p.driftTheo!=null?`<div style="font-size:10px;font-weight:400;color:${p.driftTheo>15?'var(--red)':p.driftTheo>0?'var(--amber)':'var(--green)'}">vs constr. ${p.driftTheo>0?'+':''}${p.driftTheo.toFixed(0)}%</div>`:""}</td>
@@ -6513,7 +6530,7 @@ function renderA1Genset(){
   const anomalies=arr.filter(p=>p.anomaly), lowLoads=arr.filter(p=>p.lowLoad);
   const rows=arr.sort((a,b)=>(b.driftLh||0)-(a.driftLh||0)).map(p=>`
     <tr>
-      <td><b>${esc(p.g.name)}</b><div style="font-size:11px;color:var(--muted)">${[p.g.puissanceKva?p.g.puissanceKva+" kVA":"",p.g.carburant,p.age!=null?p.age+" ans":""].filter(Boolean).join(" · ")}${a1GenClientName(p.g)?" · "+esc(a1GenClientName(p.g)):""}</div>${p.diag&&p.diag.top.key!=="ras"?`<div style="margin-top:3px">${a1CauseBadge(p.diag)}</div>`:""}${p.g.verdict&&p.g.verdict.cause?`<div style="margin-top:2px;font-size:10px;color:var(--muted)">✔ ${A1_CAUSES[p.g.verdict.cause]?A1_CAUSES[p.g.verdict.cause].label:''} (${esc(p.g.verdict.status||'')})</div>`:""}</td>
+      <td><b class="clink" style="cursor:pointer" title="Ouvrir la fiche machine 360°" onclick="openA1Diag('gen','${p.g.id}')">${esc(p.g.name)}</b><div style="font-size:11px;color:var(--muted)">${[p.g.puissanceKva?p.g.puissanceKva+" kVA":"",p.g.carburant,p.age!=null?p.age+" ans":""].filter(Boolean).join(" · ")}${a1GenClientName(p.g)?" · "+esc(a1GenClientName(p.g)):""}</div>${p.diag&&p.diag.top.key!=="ras"?`<div style="margin-top:3px">${a1CauseBadge(p.diag)}</div>`:""}${p.g.verdict&&p.g.verdict.cause?`<div style="margin-top:2px;font-size:10px;color:var(--muted)">✔ ${A1_CAUSES[p.g.verdict.cause]?A1_CAUSES[p.g.verdict.cause].label:''} (${esc(p.g.verdict.status||'')})</div>`:""}</td>
       <td style="text-align:right">${p.hours?Math.round(p.hours).toLocaleString('fr-FR')+" h":"—"}</td>
       <td style="text-align:right">${p.kwh?Math.round(p.kwh).toLocaleString('fr-FR'):"—"}</td>
       <td style="text-align:right;font-weight:600;${p.anomaly?'color:var(--red)':''}">${p.realLh?p.realLh.toFixed(1)+" L/h":"—"}${p.anomaly?' ⚠️':''}${p.benchReliable&&p.driftLh!=null?`<div style="font-size:10px;font-weight:400;color:${p.driftLh>20?'var(--red)':p.driftLh>0?'var(--amber)':'var(--green)'}">vs attendu ${p.driftLh>0?'+':''}${p.driftLh.toFixed(0)}%</div>`:(p.chargePct>0&&p.chargePct<30?`<div style="font-size:10px;font-weight:400;color:var(--muted)">charge ${p.chargePct.toFixed(0)}% · repère conso indicatif</div>`:"")}</td>
