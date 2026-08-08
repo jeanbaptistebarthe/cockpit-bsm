@@ -6807,7 +6807,25 @@ async function a1GenAnalyze(){
   const full=synth+"\n\n"+String(reco||"").trim();
   a1ShowAnalysis("gen","gen-ai",full,{ title:"Analyse groupes électrogènes"+(a1genClient?" — "+clientName(a1genClient):""), typeLabel:"Analyse groupes électrogènes (A1)", clientId:a1genClient||"", sector:"a1gen" });
 }
-/* ---- Tableau de bord KPI visuel (usage machines, rendements) + dépistage statistique de dérives ---- */
+/* ---- Tableau de bord KPI visuel (usage machines, rendements) + courbes de tendance + dépistage statistique ---- */
+/* Courbe multi-séries en SVG (sans dépendance) : axes/texte en currentColor (clair + sombre + impression), séries en couleurs fixes. */
+function a1MultiLineSvg(series, months, opt){
+  opt=opt||{}; const W=560,H=190,pl=46,pr=14,pt=14,pb=26, iw=W-pl-pr, ih=H-pt-pb;
+  const vals=[]; series.forEach(s=>s.data.forEach(v=>{ if(v!=null) vals.push(v); }));
+  let max=opt.max||(vals.length?Math.max.apply(null,vals):1); if(!(max>0)) max=1; if(!opt.max) max*=1.12;
+  const n=months.length, X=i=> n<=1? pl+iw/2 : pl+(i/(n-1))*iw, Y=v=> pt+ih-(v/max)*ih;
+  const cols=["#eb6834","#2a78d6","#1baf7a","#e34948","#8a5cd1"]; const dec=opt.dec!=null?opt.dec:1;
+  let g="";
+  [0,0.5,1].forEach(f=>{ const yy=pt+ih-f*ih; g+=`<line x1="${pl}" y1="${yy.toFixed(1)}" x2="${W-pr}" y2="${yy.toFixed(1)}" stroke="currentColor" stroke-opacity=".12"/><text x="${pl-6}" y="${(yy+3).toFixed(1)}" text-anchor="end" font-size="9" fill="currentColor" fill-opacity=".6">${(max*f).toFixed(dec)}</text>`; });
+  months.forEach((m,i)=>{ if(n>8 && i%2) return; g+=`<text x="${X(i).toFixed(1)}" y="${H-7}" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity=".6">${m.slice(5)}/${m.slice(2,4)}</text>`; });
+  series.forEach((s,si)=>{ const c=s.color||cols[si%cols.length]; let pts=""; s.data.forEach((v,i)=>{ if(v==null) return; pts+=(pts?" ":"")+X(i).toFixed(1)+","+Y(v).toFixed(1); });
+    if(pts) g+=`<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    s.data.forEach((v,i)=>{ if(v!=null) g+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.6" fill="${c}"/>`; }); });
+  const leg=series.map((s,si)=>`<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;margin-right:12px"><span style="width:12px;height:3px;background:${s.color||cols[si%cols.length]};display:inline-block"></span>${esc(s.name)}</span>`).join("");
+  return `<div>${leg?`<div style="margin:2px 0 4px">${leg}</div>`:""}<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px" role="img">${g}</svg></div>`;
+}
+function a1GenMonths(clientId){ const s=new Set(); DB.a1genlogs.forEach(l=>{ const g=DB.a1gensets.find(x=>x.id===l.gensetId); if(clientId && (!g||g.clientId!==clientId)) return; const m=String(l.date||"").slice(0,7); if(m) s.add(m); }); return Array.from(s).sort(); }
+function a1GenSeries(arr, months, fn){ return arr.map(p=>{ const by={}; (p.logs||[]).forEach(l=>{ by[String(l.date).slice(0,7)]=l; }); return {name:p.g.name, data:months.map(m=>{ const l=by[m]; return l?fn(l,p):null; })}; }); }
 function a1KpiTile(label, value, sub){ return `<div class="kpi"><div class="v">${value}</div><div class="l">${esc(label)}</div>${sub?`<div style="font-size:10px;color:var(--amber);font-weight:600">${esc(sub)}</div>`:""}</div>`; }
 function a1BarRow(label, pct, valTxt, color, note){ pct=Math.max(0,Math.min(100,pct||0));
   return `<div style="display:flex;align-items:center;gap:8px;margin:5px 0;font-size:12px">
@@ -6823,9 +6841,8 @@ function a1MonthlyOutliers(p){
   if(sd<=0.001) return [];
   return pts.filter(x=>x.r>m+2*sd).map(x=>({date:x.date, r:x.r, z:(x.r-m)/sd}));
 }
-function a1GenDashboard(){
-  const {arr, totals}=a1GenCompute(a1genClient);
-  if(!arr.length){ toast("Aucun groupe — importe des données d'abord."); return; }
+/* Contenu du tableau de bord (réutilisé par la modale ET par l'export PDF client). */
+function a1DashboardInner(arr, totals){
   const avgCharge=(function(){ const cc=arr.filter(p=>p.chargePct>0); return cc.length? cc.reduce((s,p)=>s+p.chargePct,0)/cc.length : 0; })();
   const chargeBars=arr.map(p=>a1BarRow(p.g.name, p.chargePct, p.chargePct>0?p.chargePct.toFixed(0)+"%":"specs ?", a1ChargeColor(p.chargePct), p.chargePct>0&&p.chargePct<30?"sous-charge":"")).join("");
   const maxRend=Math.max(3.5,...arr.map(p=>p.rendement||0));
@@ -6834,24 +6851,68 @@ function a1GenDashboard(){
   const costBars=arr.map(p=>a1BarRow(p.g.name,(p.costPerKwh/maxCost)*100,fmtD(p.costPerKwh)+"/kWh","#102A43")).join("");
   const maxHc=Math.max(1,...arr.map(p=>p.horsCoupureH||0));
   const hcBars=arr.some(p=>p.horsCoupureH>=1)?arr.map(p=>a1BarRow(p.g.name,((p.horsCoupureH||0)/maxHc)*100,Math.round(p.horsCoupureH||0)+" h","#D97706")).join(""):`<div class="hint">Aucune donnée de coupures JIRAMA importée.</div>`;
+  const months=a1GenMonths(a1genClient); let trends="";
+  if(months.length>=2){
+    const sLk=a1GenSeries(arr,months,(l)=>(+l.kwh>0&&+l.liters>0)?(+l.liters)/(+l.kwh):null);
+    const sCh=a1GenSeries(arr,months,(l,p)=>(p.kwNominal>0&&+l.hours>0&&+l.kwh>0)?((+l.kwh/+l.hours)/p.kwNominal*100):null);
+    trends=`<div class="card"><h3 style="margin:0 0 6px">Tendance — consommation spécifique (L/kWh)</h3>${a1MultiLineSvg(sLk,months,{dec:2})}<div class="hint">Un pic isolé sur un groupe = mois à investiguer (dérive, entretien, ou anomalie de saisie).</div></div>`;
+    if(sCh.some(s=>s.data.some(v=>v!=null))) trends+=`<div class="card"><h3 style="margin:0 0 6px">Tendance — taux de charge (%)</h3>${a1MultiLineSvg(sCh,months,{dec:0,max:100})}<div class="hint">Une charge durablement &lt;30 % confirme le surdimensionnement.</div></div>`;
+  }
   let screen=""; arr.forEach(p=>{ const out=a1MonthlyOutliers(p); const fr=p.diag&&p.diag.fraudScore>=35; const items=[];
     if(fr) items.push(`⚠ indice de détournement (preuve) : ${(p.diag.flags||[]).map(f=>f.txt).join(" ; ")||"contrôle réserve rompu"}`);
     out.forEach(o=>items.push(`mois atypique ${frDate(o.date)} : ${o.r.toFixed(2)} L/kWh (+${o.z.toFixed(1)}σ vs la moyenne du groupe)`));
     if(p.horsCoupureH>=2) items.push(`${Math.round(p.horsCoupureH)} h hors coupure à justifier`);
     if(p.chargePct>0&&p.chargePct<30) items.push(`sous-charge ${p.chargePct.toFixed(0)}% → surdimensionnement`);
     if(items.length) screen+=`<div style="margin:6px 0"><b>${esc(p.g.name)}</b><ul style="margin:3px 0 0 18px">${items.map(i=>`<li>${i}</li>`).join("")}</ul></div>`; });
-  if(!screen) screen=`<div style="color:var(--green)">✓ Aucun signal statistique atypique à ce niveau d'analyse.</div>`;
-  openModal(`<span class="close" onclick="closeModal()">✕</span>
-    <h2>📊 Tableau de bord — Groupes électrogènes${a1genClient?" · "+esc(clientName(a1genClient)):""}</h2>
-    <div class="kpis" style="margin-bottom:10px">
-      ${a1KpiTile("Groupes",arr.length)}${a1KpiTile("Heures totales",Math.round(totals.hours)+" h")}${a1KpiTile("Énergie",Math.round(totals.kwh).toLocaleString('fr-FR')+" kWh")}${a1KpiTile("Charge moyenne",avgCharge?avgCharge.toFixed(0)+"%":"—",avgCharge&&avgCharge<30?"sous-charge":"")}${a1KpiTile("Coût / kWh",totals.costPerKwh?fmtD(totals.costPerKwh):"—")}
-    </div>
+  if(!screen) screen=`<div style="color:#2F855A">✓ Aucun signal statistique atypique à ce niveau d'analyse.</div>`;
+  return `<div class="kpis" style="margin-bottom:10px">${a1KpiTile("Groupes",arr.length)}${a1KpiTile("Heures totales",Math.round(totals.hours)+" h")}${a1KpiTile("Énergie",Math.round(totals.kwh).toLocaleString('fr-FR')+" kWh")}${a1KpiTile("Charge moyenne",avgCharge?avgCharge.toFixed(0)+"%":"—",avgCharge&&avgCharge<30?"sous-charge":"")}${a1KpiTile("Coût / kWh",totals.costPerKwh?fmtD(totals.costPerKwh):"—")}</div>
     <div class="card"><h3 style="margin:0 0 6px">Taux de charge par groupe <span style="font-weight:400;color:var(--muted);font-size:11px">— optimal 50–85 %, alerte &lt;30 %</span></h3>${chargeBars}</div>
     <div class="card"><h3 style="margin:0 0 6px">Rendement (kWh/L) <span style="font-weight:400;color:var(--muted);font-size:11px">— cible 3–3,5</span></h3>${rendBars}</div>
     <div class="card"><h3 style="margin:0 0 6px">Coût du kWh produit</h3>${costBars}</div>
     <div class="card"><h3 style="margin:0 0 6px">Heures hors coupure JIRAMA</h3>${hcBars}</div>
-    <div class="card" style="border-left:3px solid var(--amber)"><h3 style="margin:0 0 6px">🔎 Dépistage statistique (dérives / fraude)</h3>${screen}<div class="hint" style="margin-top:6px">Écarts par rapport au comportement habituel de chaque groupe — <b>signaux à investiguer, pas des preuves</b>.</div></div>`);
+    ${trends}
+    <div class="card" style="border-left:3px solid var(--amber)"><h3 style="margin:0 0 6px">🔎 Dépistage statistique (dérives / fraude)</h3>${screen}<div class="hint" style="margin-top:6px">Écarts par rapport au comportement habituel de chaque groupe — <b>signaux à investiguer, pas des preuves</b>.</div></div>`;
 }
+function a1GenDashboard(){
+  const {arr, totals}=a1GenCompute(a1genClient);
+  if(!arr.length){ toast("Aucun groupe — importe des données d'abord."); return; }
+  openModal(`<span class="close" onclick="closeModal()">✕</span>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px"><h2 style="margin:0">📊 Tableau de bord — Groupes électrogènes${a1genClient?" · "+esc(clientName(a1genClient)):""}</h2><button class="cta ghost" onclick="a1GenDashboardExport()">🖨 Exporter (PDF client)</button></div>
+    ${a1DashboardInner(arr, totals)}`);
+}
+/* Export PDF client : même contenu, chartes premium (en-tête cabinet + variables CSS définies pour le doc autonome). */
+function a1GenDashboardHtml(){
+  const {arr, totals}=a1GenCompute(a1genClient); const s=docIdentity(); const cabinet=DB.meta.cabinetName||"BSM Advisory & Consulting";
+  const logo=DB.meta.logo?`<img src="${DB.meta.logo}" style="width:100%;height:100%;object-fit:contain">`:"BSM";
+  const coord=[s.adr,s.email,s.tel].filter(Boolean).map(esc).join(" · ");
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Tableau de bord — groupes électrogènes</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Raleway:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1F2937;--muted:#6B7280;--line:#E4E0D6;--amber:#B5923A;--green:#2F855A;--navy:#102A43}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Raleway,Arial,sans-serif;color:var(--ink);background:#fff;font-size:12.5px;line-height:1.55;max-width:880px;margin:0 auto;padding:24px 28px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rh{display:flex;align-items:flex-start;gap:14px;border-bottom:3px solid #C7A25A;padding-bottom:12px}
+.rlogo{width:52px;height:52px;flex-shrink:0;border-radius:10px;background:#102A43;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;overflow:hidden;font-family:'Cormorant Garamond',serif}
+.rcab{font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:600;color:#111827;line-height:1.1}
+.rtag{font-size:9.5px;color:#6B7280;letter-spacing:.06em;margin-top:3px;text-transform:uppercase}
+.rcoord{font-size:10px;color:#6B7280;margin-top:4px}
+.rbadges{display:flex;flex-direction:column;gap:4px;text-align:right}.rbadges span{font-size:8.5px;color:#6B7280;background:#F9FAFB;border:1px solid #E5E7EB;padding:2px 8px;border-radius:3px;white-space:nowrap}
+.rtitle{margin:14px 0 2px;font-family:'Cormorant Garamond',serif;font-size:24px;font-weight:600;color:#102A43}
+.rmeta{font-size:10px;color:#6B7280;margin-bottom:8px}
+.kpis{display:flex;gap:10px;flex-wrap:wrap}.kpi{flex:1;min-width:118px;background:#F6F1E8;border-radius:8px;padding:10px 12px}.kpi .v{font-size:20px;font-weight:700;color:#102A43;font-family:'Cormorant Garamond',serif}.kpi .l{font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:.03em}
+.card{border:1px solid #E4E0D6;border-radius:10px;padding:12px 14px;margin-top:12px;page-break-inside:avoid}.card h3{font-size:13px;color:#102A43;margin:0 0 6px;font-weight:700}
+.hint{font-size:10.5px;color:#6B7280;margin-top:4px}ul{margin:3px 0 0 18px}li{margin:3px 0}
+.rfoot{margin-top:22px;padding-top:10px;border-top:2px solid #C7A25A;text-align:center;font-size:9px;color:#6B7280}
+@page{margin:12mm}
+</style></head><body>
+<div class="rh"><div class="rlogo">${logo}</div><div style="flex:1"><div class="rcab">${esc(cabinet)}</div><div class="rtag">Risk Governance · Operational Resilience · Crisis Management</div>${coord?`<div class="rcoord">${coord}</div>`:""}</div>${(s.nif||s.stat)?`<div class="rbadges"><span>NIF ${esc(s.nif||"—")}</span><span>STAT ${esc(s.stat||"—")}</span></div>`:""}</div>
+<div class="rtitle">Tableau de bord — Groupes électrogènes${a1genClient?" — "+esc(clientName(a1genClient)):""}</div>
+<div class="rmeta">Programme A1 · Édité le ${esc((typeof frLong==="function")?frLong(todayISO()):todayISO())} · ${arr.length} groupe(s)</div>
+${a1DashboardInner(arr, totals)}
+<div class="rfoot">${esc(cabinet)}${s.adr?" — "+esc(s.adr):""}${s.email?" · "+esc(s.email):""}${s.tel?" · "+esc(s.tel):""}${(s.nif||s.stat)?" · NIF "+esc(s.nif||"—")+" · STAT "+esc(s.stat||"—"):""}</div>
+</body></html>`;
+}
+function a1GenDashboardExport(){ openPrintable(a1GenDashboardHtml()); }
 function printA1GenReport(){
   const {arr, totals}=a1GenCompute(a1genClient);
   const body=arr.sort((a,b)=>(b.driftLh||0)-(a.driftLh||0)).map(p=>`<tr><td>${esc(p.g.name)}${p.g.puissanceKva?" ("+p.g.puissanceKva+" kVA)":""}</td><td style="text-align:right">${Math.round(p.hours)}</td><td style="text-align:right">${Math.round(p.kwh)}</td><td style="text-align:right">${p.realLh?p.realLh.toFixed(1):"—"}</td><td style="text-align:right">${p.rendement?p.rendement.toFixed(2):"—"}</td><td style="text-align:right">${fmtD(p.costPerKwh)}</td></tr>`).join("");
