@@ -5800,11 +5800,11 @@ function a1DiagFleet(p, fleetConso){
   if(p.idleRatio>T.idle) causes.conduite+=40;
   if(drift>T.driftFleet && trend!=="ponctuelle" && !hardFraud) causes.conduite+=20;
   if(norm(p.v.usage||"").indexOf("urbain")>=0) causes.conduite+=10;
+  // DÉTOURNEMENT : uniquement sur PREUVE physique (jauge/compteur, contrôle réserve) — jamais sur la seule dérive de consommation.
   if(hardFraud) causes.vol+=55;
-  if(diverted>0) causes.vol+=15; // écart jauge répété = signal fort de complicité
-  if(trend==="ponctuelle" && drift>15) causes.vol+=25;
-  if(flags.some(f=>/Coût\/L/.test(f.txt))) causes.vol+=20;
-  if(drift>40) causes.vol+=10;
+  if(diverted>0) causes.vol+=15; // litres facturés > constatés à la jauge (preuve)
+  if((p.reserveGapL||0)>0) causes.vol+=40; // contrôle stock réserve rompu (si feuille de suivi importée)
+  if(flags.some(f=>/Coût\/L/.test(f.txt))) causes.perte+=15; // surcoût d'achat → perte, pas nécessairement vol
   if(p.idleRatio>50) causes.perte+=25;
   if(hardFraud) causes.mecanique=Math.max(0,causes.mecanique-15);
   const res=a1DiagFinalize(causes, flags, trend, loss, excess, drift); res.diverted=diverted; return res;
@@ -6008,6 +6008,7 @@ function renderA1Fleet(){
         <button class="cta ghost" onclick="openA1Import()">⇊ Importer CSV</button>
         <button class="cta ghost" onclick="openA1Vehicle()">+ Véhicule</button>
         <button class="cta ghost" onclick="openA1Log()">+ Relevé</button>
+        <button class="cta ghost" onclick="a1FleetDashboard()">📊 Tableau de bord</button>
         <button class="cta gold" onclick="a1Analyze()">🤖 Analyse IA</button>
         <button class="cta ghost" onclick="printA1Report()">🖨 Rapport</button></div></div>
     <div class="filters">${a1ClientPicker()}<span style="font-size:12px;color:var(--muted)">${a1Client?"Données de "+esc(clientName(a1Client)):"Vue toutes flottes confondues"}</span></div>
@@ -6154,13 +6155,126 @@ function buildA1Context(){
 }
 async function a1Analyze(){
   if(!DB.a1logs.length){ toast("Ajoutez ou importez des données d'abord."); return; }
-  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Flotte & carburant</h2><div id="a1-ai">${aiSkeleton()}</div><div id="a1-ai-act" class="modal-actions" style="display:none;flex-wrap:wrap">${a1AnalysisActionsHtml("a1")}</div>`);
+  const synth=buildFleetSynthesisMd();
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Analyse IA — Flotte & carburant</h2>
+    <div id="a1-ai" class="ai-md" style="font-size:13px;line-height:1.6">${mdToHtml(synth)}<hr><div class="hint">✦ Rédaction de l'interprétation et des recommandations BSM…</div>${aiSkeleton()}</div>
+    <div id="a1-ai-act" class="modal-actions" style="display:none;flex-wrap:wrap">${a1AnalysisActionsHtml("a1")}</div>`);
+  let reco="";
   try{
-    const sys="Tu es un analyste flotte & énergie pour un cabinet de conseil à Madagascar. À partir des données, identifie : surconsommations et causes probables (conduite, entretien, vol de carburant), véhicules les plus coûteux, temps de ralenti excessif, et donne des recommandations concrètes, chiffrées et hiérarchisées. Termine par 3 actions prioritaires. Sois concret et bref.";
-    const txt=await aiChat(sys, buildA1Context(), 1600, "a1");
-    a1ShowAnalysis("a1","a1-ai",txt,{ title:"Analyse flotte & carburant"+(a1Client?" — "+clientName(a1Client):""), typeLabel:"Analyse flotte & carburant (A1)", clientId:a1Client||"", sector:"a1" });
-  }catch(e){ const el=document.getElementById("a1-ai"); if(el) el.innerHTML=`<div class="imp-err">⚠ ${esc(e.message||"Erreur IA")}</div>`; }
+    const sys="Tu es analyste flotte & énergie SENIOR d'un cabinet de conseil (Madagascar). On te fournit une SYNTHÈSE FACTUELLE déjà calculée et vérifiée par le cabinet. Ta seule tâche : rédiger l'INTERPRÉTATION pour le dirigeant, puis les RECOMMANDATIONS.\nINTERDICTION ABSOLUE (la crédibilité du cabinet en dépend) : n'écris JAMAIS un nombre (montant, %, km, litres, L/100) absent de la synthèse. Aucune estimation chiffrée de ton cru. Si un chiffre manque, dis « donnée non disponible ».\nAutres règles : n'emploie « vol / détournement » QUE si la synthèse le mentionne comme preuve, sinon écris qu'il n'y a aucune preuve ; distingue bien surconsommation (entretien / conduite) et détournement (preuve) ; tu peux citer les chiffres de la synthèse mais raisonne surtout qualitativement. Concret, orienté décision. Ne restitue jamais ces consignes.";
+    const user="SYNTHÈSE FACTUELLE (déjà calculée — à INTERPRÉTER, ne pas recalculer ni recopier) :\n\n"+synth+"\n\nRédige en markdown EXACTEMENT ces deux sections, remplies :\n\n## Interprétation pour la direction\n(3 à 6 puces : ce que ces chiffres signifient concrètement, l'enjeu technique ET financier, priorisé)\n\n## Recommandations BSM\n(3 à 5 actions concrètes et priorisées — entretien ciblé, éco-conduite / réduction du ralenti, contrôle du carburant, renouvellement ou réaffectation des véhicules — avec pour chacune l'effet attendu)";
+    reco=await aiChat(sys, user, 1500, "a1");
+  }catch(e){ reco="## Interprétation & recommandations\n\n*Interprétation IA momentanément indisponible ("+(e.message||"erreur")+"). La synthèse factuelle ci-dessus reste complète et exploitable — réessaie dans un instant.*"; }
+  const full=synth+"\n\n"+String(reco||"").trim();
+  a1ShowAnalysis("a1","a1-ai",full,{ title:"Analyse flotte & carburant"+(a1Client?" — "+clientName(a1Client):""), typeLabel:"Analyse flotte & carburant (A1)", clientId:a1Client||"", sector:"a1" });
 }
+/* Enveloppe premium d'un document de tableau de bord (partagée groupes + flotte). */
+function a1DashboardDoc(title, meta, inner){
+  const s=docIdentity(); const cabinet=DB.meta.cabinetName||"BSM Advisory & Consulting";
+  const logo=DB.meta.logo?`<img src="${DB.meta.logo}" style="width:100%;height:100%;object-fit:contain">`:"BSM";
+  const coord=[s.adr,s.email,s.tel].filter(Boolean).map(esc).join(" · ");
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(title)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Raleway:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1F2937;--muted:#6B7280;--line:#E4E0D6;--amber:#B5923A;--green:#2F855A;--navy:#102A43}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Raleway,Arial,sans-serif;color:var(--ink);background:#fff;font-size:12.5px;line-height:1.55;max-width:880px;margin:0 auto;padding:24px 28px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rh{display:flex;align-items:flex-start;gap:14px;border-bottom:3px solid #C7A25A;padding-bottom:12px}
+.rlogo{width:52px;height:52px;flex-shrink:0;border-radius:10px;background:#102A43;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;overflow:hidden;font-family:'Cormorant Garamond',serif}
+.rcab{font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:600;color:#111827;line-height:1.1}
+.rtag{font-size:9.5px;color:#6B7280;letter-spacing:.06em;margin-top:3px;text-transform:uppercase}
+.rcoord{font-size:10px;color:#6B7280;margin-top:4px}
+.rbadges{display:flex;flex-direction:column;gap:4px;text-align:right}.rbadges span{font-size:8.5px;color:#6B7280;background:#F9FAFB;border:1px solid #E5E7EB;padding:2px 8px;border-radius:3px;white-space:nowrap}
+.rtitle{margin:14px 0 2px;font-family:'Cormorant Garamond',serif;font-size:24px;font-weight:600;color:#102A43}
+.rmeta{font-size:10px;color:#6B7280;margin-bottom:8px}
+.kpis{display:flex;gap:10px;flex-wrap:wrap}.kpi{flex:1;min-width:118px;background:#F6F1E8;border-radius:8px;padding:10px 12px}.kpi .v{font-size:20px;font-weight:700;color:#102A43;font-family:'Cormorant Garamond',serif}.kpi .l{font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:.03em}
+.card{border:1px solid #E4E0D6;border-radius:10px;padding:12px 14px;margin-top:12px;page-break-inside:avoid}.card h3{font-size:13px;color:#102A43;margin:0 0 6px;font-weight:700}
+.hint{font-size:10.5px;color:#6B7280;margin-top:4px}ul{margin:3px 0 0 18px}li{margin:3px 0}
+.rfoot{margin-top:22px;padding-top:10px;border-top:2px solid #C7A25A;text-align:center;font-size:9px;color:#6B7280}
+@page{margin:12mm}
+</style></head><body>
+<div class="rh"><div class="rlogo">${logo}</div><div style="flex:1"><div class="rcab">${esc(cabinet)}</div><div class="rtag">Risk Governance · Operational Resilience · Crisis Management</div>${coord?`<div class="rcoord">${coord}</div>`:""}</div>${(s.nif||s.stat)?`<div class="rbadges"><span>NIF ${esc(s.nif||"—")}</span><span>STAT ${esc(s.stat||"—")}</span></div>`:""}</div>
+<div class="rtitle">${esc(title)}</div>
+<div class="rmeta">${esc(meta)}</div>
+${inner}
+<div class="rfoot">${esc(cabinet)}${s.adr?" — "+esc(s.adr):""}${s.email?" · "+esc(s.email):""}${s.tel?" · "+esc(s.tel):""}${(s.nif||s.stat)?" · NIF "+esc(s.nif||"—")+" · STAT "+esc(s.stat||"—"):""}</div>
+</body></html>`;
+}
+/* ===================== FLOTTE VHL — même système que les groupes (synthèse déterministe + dashboard + courbes + IA verrouillée) ===================== */
+function a1FleetState(p){
+  if(p.diag && p.diag.fraudScore>=35) return "⚠ Détournement (preuve)";
+  if(p.idleFlag) return "Ralenti excessif";
+  if(p.anomaly) return "Surconsommation";
+  if(p.km>0) return "Normal";
+  return "Sans données";
+}
+function a1FleetMonths(clientId){ const s=new Set(); DB.a1logs.forEach(l=>{ const v=DB.a1vehicles.find(x=>x.id===l.vehicleId); if(clientId && (!v||v.clientId!==clientId)) return; const m=String(l.date||"").slice(0,7); if(m) s.add(m); }); return Array.from(s).sort(); }
+function a1FleetSeries(arr, months, fn){ return arr.map(p=>{ const by={}; (p.logs||[]).forEach(l=>{ const m=String(l.date).slice(0,7); if(!by[m]) by[m]={km:0,liters:0}; by[m].km+=(+l.km||0); by[m].liters+=(+l.liters||0); }); return {name:p.v.name, data:months.map(m=>{ const x=by[m]; return x?fn(x,p):null; })}; }); }
+function a1FleetOutliers(p){
+  const by={}; (p.logs||[]).forEach(l=>{ const m=String(l.date).slice(0,7); if(!by[m]) by[m]={km:0,liters:0}; by[m].km+=(+l.km||0); by[m].liters+=(+l.liters||0); });
+  const pts=Object.keys(by).filter(m=>by[m].km>0).map(m=>({date:m+"-01", r:by[m].liters/by[m].km*100}));
+  if(pts.length<3) return []; const mean=pts.reduce((s,x)=>s+x.r,0)/pts.length; const sd=Math.sqrt(pts.reduce((s,x)=>s+(x.r-mean)*(x.r-mean),0)/pts.length)||0;
+  if(sd<=0.1) return []; return pts.filter(x=>x.r>mean+2*sd).map(x=>({date:x.date, r:x.r, z:(x.r-mean)/sd}));
+}
+function buildFleetSynthesisMd(){
+  const {arr, fleetConso, totals}=a1Compute(a1Client);
+  const price=(DB.meta.fuelPrices&&+DB.meta.fuelPrices.gasoil)|| (totals.liters>0?totals.cost/totals.liters:0);
+  const client=a1Client?clientName(a1Client):"";
+  let md=`# Analyse flotte & carburant${client?" — "+client:""}\n\n`;
+  md+=`**Contexte** : suivi carburant de la flotte (méthode BSM). **Période analysée** : ${totals.km.toLocaleString('fr-FR')} km · ${Math.round(totals.liters).toLocaleString('fr-FR')} L · coût carburant ${fmtD(totals.cost)}. Conso moyenne flotte **${fleetConso.toFixed(1)} L/100 km**, coût **${fmtD(totals.costPerKm)}/km**.\n\n`;
+  md+=`## Synthèse par véhicule\n\n| Véhicule | Type | km | Conso | vs constructeur | Coût/km | Ralenti | État |\n|---|---|---|---|---|---|---|---|\n`;
+  arr.slice().sort((a,b)=>b.consoL100-a.consoL100).forEach(p=>{ const vs=(p.driftTheo!=null)?((p.driftTheo>0?"+":"")+p.driftTheo.toFixed(0)+"%"):(p.consoTheo>0?"—":"n/c");
+    md+=`| **${p.v.name}** | ${esc(p.v.type||"—")} | ${p.km.toLocaleString('fr-FR')} | ${p.consoL100?p.consoL100.toFixed(1)+" L/100":"—"} | ${vs} | ${p.costPerKm?fmtD(p.costPerKm):"—"} | ${p.idleRatio?p.idleRatio.toFixed(0)+"%":"—"} | ${a1FleetState(p)} |\n`; });
+  md+=`\n## Constats\n\n`;
+  const ano=arr.filter(p=>p.anomaly);
+  if(ano.length) md+=`- **Surconsommation : ${ano.map(p=>p.v.name+" ("+p.consoL100.toFixed(1)+" L/100"+(p.driftTheo!=null?", +"+p.driftTheo.toFixed(0)+"% vs constructeur":"")+")").join(", ")}.** À vérifier : entretien (filtres, pneus, injection), conduite, ou détournement (cf. dépistage). ${arr.some(p=>p.consoTheo>0)?"":"⚠ Conso constructeur manquante pour certains véhicules → comparaison vs moyenne flotte (moins précise) ; renseigne les fiches pour affiner."}\n`;
+  else md+=`- **Consommation** : aucune surconsommation nette au-dessus des seuils (vs constructeur / moyenne flotte).\n`;
+  const idle=arr.filter(p=>p.idleFlag);
+  if(idle.length) md+=`- **Ralenti excessif : ${idle.map(p=>p.v.name+" ("+p.idleRatio.toFixed(0)+"%)").join(", ")}** — moteur tournant à l'arrêt = gasoil brûlé sans kilomètre + usure. Action : sensibiliser les conducteurs (coupure à l'arrêt), suivi.\n`;
+  const fraud=arr.filter(p=>p.diag&&p.diag.fraudScore>=35);
+  if(fraud.length) md+=`- **Détournement — indices sur ${fraud.map(p=>p.v.name).join(", ")}** : ${fraud.map(p=>(p.diag.flags||[]).map(f=>f.txt).join(" ; ")).filter(Boolean).join(" | ")}. À investiguer en priorité.\n`;
+  else md+=`- **Détournement de carburant : aucune preuve.** Aucun écart jauge/compteur ni contrôle de stock ne signale d'anomalie ; une mention de vol serait infondée en l'état.\n`;
+  md+=`\n## Sources & méthode\n\n`;
+  md+=`- **Conso** = litres ÷ km × 100 (L/100 km). **vs constructeur** = conso réelle ÷ conso constructeur − 1.\n`;
+  md+=`- **Ralenti %** = heures moteur à l'arrêt ÷ heures moteur totales (alerte > 35 %).\n`;
+  md+=`- **Coûts** = relevés carburant × prix${price>0?" ("+fmtD(price)+"/L)":" (non renseigné)"}. **Détournement** affirmé uniquement sur PREUVE (écart jauge/compteur, contrôle de stock) — jamais sur la seule consommation.\n`;
+  return md;
+}
+function a1FleetDashboardInner(arr, fleetConso, totals){
+  const withKm=arr.filter(p=>p.km>0);
+  const maxConso=Math.max(1,...withKm.map(p=>p.consoL100||0));
+  const consoBars=withKm.length?withKm.map(p=>a1BarRow(p.v.name,(p.consoL100/maxConso)*100,(p.consoL100?p.consoL100.toFixed(1):"—")+" L/100",p.anomaly?"#C0392B":"#2F855A",p.anomaly?"surconso":"")).join(""):`<div class="hint">Aucun véhicule avec des km.</div>`;
+  const maxCpk=Math.max(1,...withKm.map(p=>p.costPerKm||0));
+  const costBars=withKm.map(p=>a1BarRow(p.v.name,(p.costPerKm/maxCpk)*100,fmtD(p.costPerKm)+"/km","#102A43")).join("");
+  const idleArr=arr.filter(p=>p.idleRatio>0);
+  const idleBars=idleArr.length?idleArr.map(p=>a1BarRow(p.v.name,Math.min(100,p.idleRatio),p.idleRatio.toFixed(0)+"%",p.idleFlag?"#C0392B":"#D97706",p.idleFlag?"excessif":"")).join(""):`<div class="hint">Heures moteur / ralenti non renseignées.</div>`;
+  const months=a1FleetMonths(a1Client); let trends="";
+  if(months.length>=2){ const sC=a1FleetSeries(arr,months,(x)=>x.km>0?x.liters/x.km*100:null);
+    trends=`<div class="card"><h3 style="margin:0 0 6px">Tendance — consommation (L/100 km)</h3>${a1MultiLineSvg(sC,months,{dec:1})}<div class="hint">Un pic isolé sur un véhicule = mois à investiguer.</div></div>`; }
+  let screen=""; arr.forEach(p=>{ const out=a1FleetOutliers(p); const fr=p.diag&&p.diag.fraudScore>=35; const items=[];
+    if(fr) items.push(`⚠ indice de détournement (preuve) : ${(p.diag.flags||[]).map(f=>f.txt).join(" ; ")||"écart jauge"}`);
+    out.forEach(o=>items.push(`mois atypique ${frDate(o.date)} : ${o.r.toFixed(1)} L/100 (+${o.z.toFixed(1)}σ vs la moyenne du véhicule)`));
+    if(p.idleFlag) items.push(`ralenti ${p.idleRatio.toFixed(0)}% (excessif)`);
+    if(p.anomaly && !fr) items.push(`surconsommation ${p.consoL100.toFixed(1)} L/100${p.driftTheo!=null?" (+"+p.driftTheo.toFixed(0)+"% vs constructeur)":""}`);
+    if(items.length) screen+=`<div style="margin:6px 0"><b>${esc(p.v.name)}</b><ul style="margin:3px 0 0 18px">${items.map(i=>`<li>${i}</li>`).join("")}</ul></div>`; });
+  if(!screen) screen=`<div style="color:#2F855A">✓ Aucun signal statistique atypique à ce niveau d'analyse.</div>`;
+  return `<div class="kpis" style="margin-bottom:10px">${a1KpiTile("Véhicules",arr.length)}${a1KpiTile("Distance",totals.km.toLocaleString('fr-FR')+" km")}${a1KpiTile("Conso moyenne",fleetConso?fleetConso.toFixed(1)+" L/100":"—")}${a1KpiTile("Coût / km",totals.costPerKm?fmtD(totals.costPerKm):"—")}${a1KpiTile("Surconso",arr.filter(p=>p.anomaly).length)}</div>
+    <div class="card"><h3 style="margin:0 0 6px">Consommation (L/100 km) par véhicule</h3>${consoBars}</div>
+    <div class="card"><h3 style="margin:0 0 6px">Coût au km</h3>${costBars}</div>
+    <div class="card"><h3 style="margin:0 0 6px">Taux de ralenti <span style="font-weight:400;color:var(--muted);font-size:11px">— alerte &gt;35 %</span></h3>${idleBars}</div>
+    ${trends}
+    <div class="card" style="border-left:3px solid var(--amber)"><h3 style="margin:0 0 6px">🔎 Dépistage statistique (dérives / fraude)</h3>${screen}<div class="hint" style="margin-top:6px">Écarts par rapport au comportement habituel de chaque véhicule — <b>signaux à investiguer, pas des preuves</b>.</div></div>`;
+}
+function a1FleetDashboard(){
+  const {arr, fleetConso, totals}=a1Compute(a1Client);
+  if(!arr.length){ toast("Aucun véhicule — importe des données d'abord."); return; }
+  openModal(`<span class="close" onclick="closeModal()">✕</span>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px"><h2 style="margin:0">📊 Tableau de bord — Flotte${a1Client?" · "+esc(clientName(a1Client)):""}</h2><button class="cta ghost" onclick="a1FleetDashboardExport()">🖨 Exporter (PDF client)</button></div>
+    ${a1FleetDashboardInner(arr, fleetConso, totals)}`);
+}
+function a1FleetDashboardHtml(){ const {arr, fleetConso, totals}=a1Compute(a1Client);
+  return a1DashboardDoc("Tableau de bord — Flotte"+(a1Client?" — "+clientName(a1Client):""), "Programme A1 · Édité le "+((typeof frLong==="function")?frLong(todayISO()):todayISO())+" · "+arr.length+" véhicule(s)", a1FleetDashboardInner(arr, fleetConso, totals)); }
+function a1FleetDashboardExport(){ openPrintable(a1FleetDashboardHtml()); }
 function a1DiagReportSection(arr, kind){
   const flagged=arr.filter(p=>{ const m=kind==="gen"?p.g:p.v; const d=p.diag; return (d&&(d.top.key!=="ras"||d.flags.length||d.loss>0))||m.verdict; });
   if(!flagged.length) return "";
