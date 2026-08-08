@@ -6183,7 +6183,8 @@ async function a1Analyze(){
     reco=await aiChat(sys, user, 1500, "a1");
   }catch(e){ reco="## Interprétation & recommandations\n\n*Interprétation IA momentanément indisponible ("+(e.message||"erreur")+"). La synthèse factuelle ci-dessus reste complète et exploitable — réessaie dans un instant.*"; }
   const full=synth+"\n\n"+String(reco||"").trim();
-  a1ShowAnalysis("a1","a1-ai",full,{ title:"Analyse flotte & carburant"+(a1Client?" — "+clientName(a1Client):""), typeLabel:"Analyse flotte & carburant (A1)", clientId:a1Client||"", sector:"a1" });
+  const fc=a1Compute(a1Client);
+  a1ShowAnalysis("a1","a1-ai",full,{ title:"Analyse flotte & carburant"+(a1Client?" — "+clientName(a1Client):""), typeLabel:"Analyse flotte & carburant (A1)", clientId:a1Client||"", sector:"a1", dashHtml:a1FleetDashboardInner(fc.arr, fc.fleetConso, fc.totals) });
 }
 /* Enveloppe premium d'un document de tableau de bord (partagée groupes + flotte). */
 function a1DashboardDoc(title, meta, inner){
@@ -6936,7 +6937,8 @@ async function a1GenAnalyze(){
     reco=await aiChat(sys, user, 1500, "a1gen");
   }catch(e){ reco="## Interprétation & recommandations\n\n*Interprétation IA momentanément indisponible ("+(e.message||"erreur")+"). La synthèse factuelle ci-dessus reste complète et exploitable — réessaie l'analyse dans un instant.*"; }
   const full=synth+"\n\n"+String(reco||"").trim();
-  a1ShowAnalysis("gen","gen-ai",full,{ title:"Analyse groupes électrogènes"+(a1genClient?" — "+clientName(a1genClient):""), typeLabel:"Analyse groupes électrogènes (A1)", clientId:a1genClient||"", sector:"a1gen" });
+  const gc=a1GenCompute(a1genClient);
+  a1ShowAnalysis("gen","gen-ai",full,{ title:"Analyse groupes électrogènes"+(a1genClient?" — "+clientName(a1genClient):""), typeLabel:"Analyse groupes électrogènes (A1)", clientId:a1genClient||"", sector:"a1gen", dashHtml:a1DashboardInner(gc.arr, gc.totals) });
 }
 /* ---- Tableau de bord KPI visuel (usage machines, rendements) + courbes de tendance + dépistage statistique ---- */
 /* Courbe multi-séries en SVG (sans dépendance) : axes/texte en currentColor (clair + sombre + impression), séries en couleurs fixes. */
@@ -7064,12 +7066,12 @@ let a1LastAnalysis={};
 function a1AnalysisActionsHtml(key){
   return `<button class="cta ghost" onclick="a1CopyAnalysis('${key}')">📋 Copier</button>
     <button class="cta ghost" onclick="a1PrintAnalysis('${key}')">🖨 Imprimer / PDF</button>
-    <button class="cta" onclick="a1AnalysisToReport('${key}')">📄 Archiver comme rapport</button>`;
+    <button class="cta" onclick="a1AnalysisToReport('${key}')">📄 Rapport client complet (synthèse + dashboard + IA)</button>`;
 }
 function a1ShowAnalysis(key, boxId, txt, opt){
   opt=opt||{};
   let model=""; try{ model=aiResolve(opt.sector).model||""; }catch(e){}
-  a1LastAnalysis[key]={ txt:String(txt||""), title:opt.title||"Analyse IA", typeLabel:opt.typeLabel||"Analyse IA", clientId:opt.clientId||"", model:model };
+  a1LastAnalysis[key]={ txt:String(txt||""), title:opt.title||"Analyse IA", typeLabel:opt.typeLabel||"Analyse IA", clientId:opt.clientId||"", model:model, dashHtml:opt.dashHtml||"" };
   const el=document.getElementById(boxId);
   if(el){ el.className="ai-md"; el.style.whiteSpace=""; el.style.fontSize="13px"; el.style.lineHeight="1.6"; el.innerHTML=mdToHtml(txt); }
   const act=document.getElementById(boxId+"-act"); if(act) act.style.display="flex";
@@ -7078,7 +7080,7 @@ function a1AnalysisReport(key){
   const a=a1LastAnalysis[key]; if(!a) return null;
   const who=(currentUser&&currentUser.name)||"";
   return { id:uid(), ts:new Date().toISOString(), type:"a1analyse", typeLabel:a.typeLabel, title:a.title,
-    clientId:a.clientId||"", missionId:"", content:"# "+a.title+"\n\n"+a.txt, sections:[], model:a.model||"",
+    clientId:a.clientId||"", missionId:"", content:"# "+a.title+"\n\n"+a.txt, sections:[], model:a.model||"", attachHtml:a.dashHtml||"",
     author:who, classification:"confidentiel", status:"brouillon",
     trail:[{act:"Généré par l'IA (analyse programme A1)", by:who, at:new Date().toISOString()}] };
 }
@@ -7743,7 +7745,8 @@ function openReport(id){ const r=(DB.reports||[]).find(x=>x.id===id); if(!r) ret
   openModal(`<span class="close" onclick="closeModal()">✕</span>
    <h2 style="margin-bottom:2px">${esc(r.title)}</h2>
    <div class="msub">${reportStatusBadge(r)} · <span class="badge b-blue">${esc(r.typeLabel||reportTypeLabel(r.type))}</span> · ${esc(fmtDateTime(r.ts))} · ${esc(r.author||"")} · modèle ${esc(r.model||"—")}${r.edited?' · <span style="color:var(--muted)">édité</span>':''}</div>
-   <div class="rbody" style="max-height:48vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:16px;margin-top:10px;font-size:13.5px;line-height:1.6">${mdToHtml(r.content)}</div>
+   <div class="rbody" style="max-height:48vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:16px;margin-top:10px;font-size:13.5px;line-height:1.6">${mdToHtml(r.content)}${r.attachHtml?`<h3 style="margin:16px 0 6px;color:var(--navy)">Tableau de bord</h3><div class="attach">${r.attachHtml}</div>`:""}</div>
+   ${r.attachHtml?'<div class="hint" style="margin-top:4px">Le <b>tableau de bord</b> (KPI + courbes) est joint au rapport et apparaîtra dans le PDF / l\'e-mail. Le texte ci-dessus (synthèse + interprétation) reste éditable via ✎ Éditer.</div>':""}
    ${reportTrailHtml(r)}
    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
      ${reportActionsHtml(r)}
@@ -7874,6 +7877,9 @@ body{font-family:Raleway,Arial,Helvetica,sans-serif;color:#1F2937;background:#ff
 .rbody th,.rbody td{border:1px solid #E4E0D6;padding:6px 9px;text-align:left;vertical-align:top}
 .rbody th{background:#F6F1E8;color:#102A43;font-weight:700;font-size:9.5px;letter-spacing:.03em;text-transform:uppercase}
 .rbody tbody tr:nth-child(even){background:#FCFBF7}
+:root{--line:#E4E0D6;--muted:#6B7280;--amber:#B5923A;--navy:#102A43;--ink:#1F2937}
+.attach{margin-top:14px}.attach .kpis{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}.attach .kpi{flex:1;min-width:108px;background:#F6F1E8;border-radius:8px;padding:9px 11px}.attach .kpi .v{font-size:18px;font-weight:700;color:#102A43;font-family:'Cormorant Garamond',Georgia,serif}.attach .kpi .l{font-size:9.5px;color:#6B7280;text-transform:uppercase;letter-spacing:.03em}
+.attach .card{border:1px solid #E4E0D6;border-radius:10px;padding:10px 12px;margin-top:10px;page-break-inside:avoid}.attach .card h3{font-size:12px;color:#102A43;margin:0 0 6px;font-weight:700}.attach .hint{font-size:10px;color:#6B7280;margin-top:4px}.attach ul{margin:3px 0 0 18px}.attach li{margin:3px 0}
 .rfoot{margin-top:28px;padding-top:12px;border-top:2px solid #C7A25A;text-align:center;font-size:9px;color:#6B7280;line-height:1.5}
 @page{margin:14mm}
 </style></head><body>
@@ -7889,6 +7895,7 @@ body{font-family:Raleway,Arial,Helvetica,sans-serif;color:#1F2937;background:#ff
 <div class="rtitle">${esc(r.title)}</div>
 <div class="rmeta"><span class="rpill">${esc(typeLbl)}</span>Édité le ${esc(dstr)} · Confidentialité : ${esc(classif)}${r.author?" · "+esc(r.author):""}</div>
 <div class="rbody">${mdToHtml(stripLeadingH1(r.content))}</div>
+${r.attachHtml?`<div class="attach"><h2 style="font-family:'Cormorant Garamond',Georgia,serif;font-size:16.5px;font-weight:600;color:#102A43;border-bottom:1px solid #E4E0D6;padding-bottom:5px;margin:22px 0 9px">Tableau de bord</h2>${r.attachHtml}</div>`:""}
 <div class="rfoot">${foot}</div>
 </body></html>`;
 }
