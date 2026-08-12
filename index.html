@@ -820,6 +820,7 @@ const SB_URL = "https://fxaeeplylyeitukctlph.supabase.co";
 const SB_KEY = "sb_publishable_SrXvreUFVJgLLBi6PLvA-g_ARBg2SST";
 const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","reports","knowledge"];
 let _sb=null, cloudOrgId=null, cloudPrimary=false, _cloudTimer=null;
+let _cloudPulling=false, _cloudLastPull=0, _applyingRemote=false; // synchro live entrante (auto-pull sécurisé)
 /* Snapshot des identifiants déjà poussés PAR CE POSTE, par collection.
    Sert à propager les suppressions SANS jamais effacer ce qu'un AUTRE poste aurait ajouté
    (on ne supprime dans le cloud que ce que ce poste avait lui-même poussé et n'a plus). */
@@ -841,11 +842,23 @@ function setCloudSyncStatus(state){
 /* Auto-sync : quand on est connecté via le cloud, chaque enregistrement local est repoussé (débounce). */
 function cloudPush(){
   if(!cloudPrimary || !cloudOrgId) return;
+  if(_applyingRemote) return; // ne pas repousser ce qu'on vient de tirer du cloud (évite l'écho)
   if(_cloudTimer) clearTimeout(_cloudTimer);
   _cloudTimer=setTimeout(()=>{ _cloudTimer=null;
     setCloudSyncStatus("syncing");
     cloudImportLocal().then(()=>setCloudSyncStatus("ok")).catch(()=>setCloudSyncStatus("error"));
   }, 2500);
+}
+/* Synchro LIVE entrante : tire les modifications faites sur un autre appareil (téléphone…).
+   Sûr : ne tourne que connecté au cloud, sans push en attente, sans modale ouverte (pas de saisie en cours), et throttlé. */
+async function cloudAutoPull(){
+  if(!cloudPrimary || !cloudOrgId || _cloudTimer || _cloudPulling) return;
+  const ov=document.getElementById("overlay"); if(ov && ov.classList.contains("show")) return;
+  if(Date.now()-_cloudLastPull < 8000) return;
+  _cloudPulling=true; _applyingRemote=true;
+  try{ await cloudPullAll(); _cloudLastPull=Date.now(); if(typeof refreshAll==="function") refreshAll(); }
+  catch(e){ /* silencieux : le prochain tick réessaiera */ }
+  finally{ _applyingRemote=false; _cloudPulling=false; }
 }
 async function sbClient(){
   if(_sb) return _sb;
@@ -1294,12 +1307,29 @@ async function pushR5ToSheet(){
   catch(e){ if(el) el.textContent="❌ "+e.message; toast("Échec : "+e.message); }
 }
 /* --- Agenda Cockpit → Google Agenda --- */
-async function sendEventToCalendar(id){
+async function sendEventToCalendar(id, silent){
   const e=DB.events.find(x=>x.id===id); if(!e) return;
   try{ const start=e.date+(e.time?("T"+e.time+":00"):"T09:00:00");
-    await googleCall("calendar",{title:e.title,start,description:(e.notes||"")+(e.clientId?(" — "+clientName(e.clientId)):""),location:e.location||"",remindMinutes:60});
-    e.gcalSent=todayISO(); save(); toast("Ajouté à Google Agenda ✅ (rappel 1h avant sur votre téléphone)"); renderAgenda(); }
-  catch(err){ toast("Échec : "+err.message); }
+    const r=await googleCall("calendar",{title:e.title,start,description:(e.notes||"")+(e.clientId?(" — "+clientName(e.clientId)):""),location:e.location||"",remindMinutes:60});
+    e.gcalSent=todayISO(); if(r&&r.eventId) e.gcalId=r.eventId; save();
+    if(!silent){ toast("Ajouté à Google Agenda ✅ (rappel 1h avant sur votre téléphone)"); renderAgenda(); } }
+  catch(err){ if(!silent) toast("Échec : "+err.message); }
+}
+/* Google Agenda → Cockpit : importe les événements à venir (sens retour). Dédoublonne par gcalId. */
+async function importFromCalendar(){
+  if(!serverEnabled){ toast("Pont Google requis : ouvre le Cockpit en local (serveur) pour importer l'agenda."); return; }
+  toast("Import de l'agenda Google…");
+  try{
+    const r=await googleCall("readCalendar",{daysAhead:90});
+    const evs=(r&&r.events)||[]; const known=new Set(DB.events.map(e=>e.gcalId).filter(Boolean));
+    const pad=n=>String(n).padStart(2,"0"); let n=0;
+    evs.forEach(ev=>{ if(!ev.id || known.has(ev.id)) return; const d=new Date(ev.start); if(isNaN(d)) return;
+      const date=d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); const time=ev.allDay?"":pad(d.getHours())+":"+pad(d.getMinutes());
+      DB.events.push({ id:uid(), gcalId:ev.id, title:ev.title||"(sans titre)", type:"rdv", clientId:"", date, time, location:ev.location||"", notes:ev.description||"", status:"", source:"google" });
+      known.add(ev.id); n++; });
+    if(n) save();
+    renderAgenda(); toast(n?(n+" événement(s) importé(s) depuis Google Agenda."):"Agenda à jour — aucun nouvel événement.");
+  }catch(e){ toast("Échec import : "+(e.message||e)); }
 }
 /* --- Point CA mensuel par e-mail --- */
 async function sendCAByEmail(){
@@ -3403,8 +3433,8 @@ function renderAgenda(){
   const upcoming=list.filter(e=>e.date>=todayISO());
   const past=list.filter(e=>e.date<todayISO()).reverse();
   document.getElementById("scr-agenda").innerHTML=`
-    <div class="pagetitle"><div><h1>Agenda</h1><div class="sub">Audits, prospections, rendez-vous — datation & suivi</div></div>
-      <button class="cta" onclick="openEventForm()">+ Nouvel événement</button></div>
+    <div class="pagetitle"><div><h1>Agenda</h1><div class="sub">Audits, prospections, rendez-vous — datation & suivi${serverEnabled?` · <span title="Les nouveaux RDV partent automatiquement vers Google Agenda (notif téléphone)">🔄 synchro Google active</span>`:""}</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="cta ghost" onclick="importFromCalendar()" title="Récupérer dans le Cockpit les événements créés sur ton téléphone / Google Agenda">⇊ Importer Google Agenda</button><button class="cta" onclick="openEventForm()">+ Nouvel événement</button></div></div>
     ${focusBanner()}
     <div class="filters">
       ${clientPickerHtml()}
@@ -3487,6 +3517,7 @@ function saveEvent(id){
   else { obj.id=uid(); DB.events.push(obj);
     notify("rdv","Rendez-vous planifié", (EVENT_TYPES[obj.type]||"Événement")+" — "+obj.title+" · "+frDate(obj.date)+(obj.time?" à "+obj.time:"")+(obj.clientId?" · "+clientName(obj.clientId):""), {clientId:obj.clientId}); }
   save(); closeModal(); refreshAll(); toast("Événement enregistré.");
+  if(!id && serverEnabled && DB.meta.autoCalendar!==false){ sendEventToCalendar(obj.id, true); } // envoi auto (silencieux) vers Google Agenda → notif téléphone
 }
 function deleteEvent(id){
   const e=DB.events.find(x=>x.id===id);
@@ -9306,6 +9337,10 @@ document.addEventListener("click", function(e){
 // Ré-arme le verrouillage automatique du coffre sur activité (clavier / souris / tactile)
 ["click","keydown","mousemove","touchstart"].forEach(ev=>document.addEventListener(ev, function(){ if(_encKey) bsmTouchActivity(); }, {passive:true}));
 serverSyncInit(); // détecte le serveur local BSM (si l'app est ouverte via http://…) et synchronise
+// Synchro LIVE entrante : tire les modifs d'un autre appareil au retour sur l'onglet + toutes les 60 s
+document.addEventListener("visibilitychange", function(){ if(!document.hidden) cloudAutoPull(); });
+window.addEventListener("focus", function(){ cloudAutoPull(); });
+setInterval(function(){ cloudAutoPull(); }, 60000);
 if(typeof renderEnvBar==="function") renderEnvBar(); // badge d'environnement LOCAL / EN LIGNE dès le démarrage
 if(_encLocked){ showVaultGate(); } // coffre chiffré → porte de déverrouillage AVANT tout
 else {
