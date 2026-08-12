@@ -543,7 +543,7 @@ function defaultDB(){
     missions:[], risks:[], recommendations:[],
     employees:[], recruitments:[], leaves:[], activities:[], documents:[], playbooks:[], aiMemory:[], aiChat:[],
     users:[], activityLog:[], notifications:[], moneyRequests:[], investments:[], decisions:[],
-    a1vehicles:[], a1logs:[], a1gensets:[], a1genlogs:[], a1offers:[], a1gpslogs:[], a1invoices:[],
+    a1vehicles:[], a1logs:[], a1gensets:[], a1genlogs:[], a1offers:[], a1gpslogs:[], a1invoices:[], a1specs:[],
     advice:{ dismissed:[], edits:{}, custom:[], readIds:[] }
   };
 }
@@ -579,7 +579,8 @@ function load(){
   DB.recurring=DB.recurring||[]; DB.jobs=DB.jobs||[]; DB.primes=DB.primes||[]; DB.devis=DB.devis||[];
   DB.users=DB.users||[]; DB.activityLog=DB.activityLog||[]; DB.notifications=DB.notifications||[]; DB.moneyRequests=DB.moneyRequests||[]; DB.investments=DB.investments||[]; DB.decisions=DB.decisions||[];
   DB.a1vehicles=DB.a1vehicles||[]; DB.a1logs=DB.a1logs||[]; DB.a1gensets=DB.a1gensets||[]; DB.a1genlogs=DB.a1genlogs||[]; DB.a1offers=DB.a1offers||[]; DB.a1outages=DB.a1outages||[];
-  DB.a1gpslogs=DB.a1gpslogs||[]; DB.a1invoices=DB.a1invoices||[];
+  DB.a1gpslogs=DB.a1gpslogs||[]; DB.a1invoices=DB.a1invoices||[]; DB.a1specs=DB.a1specs||[];
+  if(!DB.meta.a1SpecsSeeded){ if(!DB.a1specs.length){ DB.a1specs=defaultA1Specs(); } DB.meta.a1SpecsSeeded=true; }
   if(!DB.meta.fuelPriceHistory) DB.meta.fuelPriceHistory={}; // { "YYYY-MM": {gasoil:Ar/L, essence:Ar/L} } — prix mensuels (factures pompiste) ; fallback = DB.meta.fuelPrices
   if(!DB.meta.jiramaHistory) DB.meta.jiramaHistory={};        // { "YYYY-MM": Ar/kWh } — tarif réseau mensuel (factures JIRAMA) ; fallback = DB.meta.jiramaKwhPrice
   DB.a1offers.forEach(o=>{ if(!o.product) o.product="flotte"; }); // migration : offres existantes = programme flotte
@@ -810,7 +811,7 @@ function secSaveLock(){ DB.meta.autoLockMin=parseInt(val("sec-lock"))||0; save()
    La clé "publishable" est PUBLIQUE par nature — l'accès aux données est verrouillé par la RLS (isolation par organisation). */
 const SB_URL = "https://fxaeeplylyeitukctlph.supabase.co";
 const SB_KEY = "sb_publishable_SrXvreUFVJgLLBi6PLvA-g_ARBg2SST";
-const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","docTemplates","clientDocs","aiUsage","assistants","aiSettings","reports","knowledge"];
+const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","reports","knowledge"];
 let _sb=null, cloudOrgId=null, cloudPrimary=false, _cloudTimer=null;
 /* Snapshot des identifiants déjà poussés PAR CE POSTE, par collection.
    Sert à propager les suppressions SANS jamais effacer ce qu'un AUTRE poste aurait ajouté
@@ -6030,12 +6031,14 @@ function renderA1Fleet(){
         <button class="cta ghost" onclick="openA1Import()">⇊ Importer CSV</button>
         <button class="cta ghost" onclick="openA1GpsImport()">📍 Importer GPS</button>
         <button class="cta ghost" onclick="openA1InvoiceImport('fuel')">🧾 Facture pompiste</button>
+        <button class="cta ghost" onclick="openA1SpecLibrary('fleet')">📚 Fiches techniques</button>
         <button class="cta ghost" onclick="openA1Roster('fleet')">📋 Parc complet (${DB.a1vehicles.length})</button>
         <button class="cta ghost" onclick="openA1Vehicle()">+ Véhicule</button>
         <button class="cta ghost" onclick="openA1Log()">+ Relevé</button>
         <button class="cta ghost" onclick="a1FleetDashboard()">📊 Tableau de bord</button>
         <button class="cta gold" onclick="a1Analyze()">🤖 Analyse IA</button>
-        <button class="cta ghost" onclick="printA1Report()">🖨 Rapport</button></div></div>
+        <button class="cta ghost" onclick="printA1Report()">🖨 Rapport</button>
+        <button class="cta ghost" onclick="openA1DataSafety()">💾 Sauvegarde</button></div></div>
     <div class="filters">${a1ClientPicker()}<span style="font-size:12px;color:var(--muted)">${a1Client?"Données de "+esc(clientName(a1Client)):"Vue toutes flottes confondues"}</span></div>
     ${a1Client?a1OfferCard(a1Client,"flotte"):`<div class="infobox">Sélectionne un <b>client</b> ci-dessus pour gérer ses données séparément et lui associer une <b>offre programme</b> (forfait + tarif, période offerte).</div>`}
     ${a1CrossLinkBanner("fleet")}
@@ -6063,6 +6066,7 @@ function openA1Vehicle(id){
   const v=id?DB.a1vehicles.find(x=>x.id===id):{type:"Voiture / VHL",clientId:a1Client};
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>${id?"Modifier le véhicule":"Nouveau véhicule"}</h2>
     <div class="field"><label>Nom / identifiant *</label><input id="v-name" value="${esc(v.name||'')}" placeholder="Ex : Camion Hino 1"></div>
+    ${a1SpecPickerHtml('fleet')}
     <div class="field row2"><label>Type & immatriculation</label>
       <select id="v-type">${A1_VEH_TYPES.map(t=>`<option ${v.type===t?'selected':''}>${t}</option>`).join("")}</select>
       <input id="v-plate" value="${esc(v.plate||'')}" placeholder="Immat."></div>
@@ -6479,6 +6483,238 @@ function a1CrossLinkBanner(kind){ const isFleet=kind==="fleet"; const cid=isFlee
       <div style="font-size:13px">🔗 <b>${esc(clientName(cid))}</b> a aussi un suivi <b>${isFleet?"énergie (groupes électrogènes)":"flotte (véhicules)"}</b> — ${other} ${isFleet?"groupe(s)":"véhicule(s)"}. <span style="color:var(--muted)">Coût énergie consolidé : carburant flotte <b>${fmtD(fuelFleet)}</b> + groupes <b>${fmtD(fuelGen)}</b>${jir?` + JIRAMA <b>${fmtD(jir)}</b>`:""} = <b>${fmtD(fuelFleet+fuelGen+jir)}</b>.</span></div>
       <button class="cta ghost sm" onclick="${isFleet?`a1GoEnergy('${cid}')`:`a1GoFleet('${cid}')`}">${isFleet?"🔌 Voir les groupes":"🚗 Voir la flotte"} →</button>
     </div></div>`; }
+/* ================== FICHES TECHNIQUES CONSTRUCTEUR (bibliothèque + import + application) ================== */
+function defaultA1Specs(){
+  const G=(brand,model,kva,reservoir,cos)=>{ cos=cos||0.8; const kw=Math.round(kva*cos); return {id:"spec-"+uid(), kind:"gen", brand, model, kva, kw, cosPhi:cos, consoTheoLh:Math.round(0.27*kw*10)/10, reservoirL:reservoir, builtin:true, provisional:true, source:"Référence standard (~0,27 L/kWh à 100 %) — à confirmer sur la fiche constructeur", createdAt:todayISO()}; };
+  const V=(brand,model,motor,conso,reservoir,ch)=>({id:"spec-"+uid(), kind:"fleet", brand, model, motorisation:motor, consoTheo:conso, reservoir, puissance:ch, builtin:true, provisional:true, source:"Valeur indicative (usage mixte) — à confirmer sur la fiche constructeur / conditions réelles", createdAt:todayISO()});
+  return [
+    // ===== GROUPES ÉLECTROGÈNES =====
+    G("Caterpillar","DE13.5E3",13.5,80), G("Caterpillar","DE22E3",22,100), G("Caterpillar","DE33E3",33,120), G("Caterpillar","DE50E3",50,150),
+    G("Caterpillar","DE65E3",65,200), G("Caterpillar","DE88E3",88,220), G("Caterpillar","DE110E3",110,300), G("Caterpillar","DE165E3",165,400),
+    G("Caterpillar","DE220E3",220,500), G("Caterpillar","DE275E3",275,600), G("Caterpillar","DE330E3",330,600), G("Caterpillar","DE450E3",450,800),
+    G("SDMO / Kohler","D110",110,300), G("SDMO / Kohler","D220",220,500), G("SDMO / Kohler","D300K (D300)",300,600), G("SDMO / Kohler","D440",440,800), G("SDMO / Kohler","D550",550,990),
+    G("Himoinsa","HFW-100 T5",100,235), G("Himoinsa","HFW-150 T5",150,400), G("Himoinsa","HFW-200 T5",200,400), G("Himoinsa","HFW-300 T5",300,600), G("Himoinsa","HFW-400 T5",400,700), G("Himoinsa","HBW-300",300,600),
+    G("Cummins","C90 D5",90,210), G("Cummins","C150 D5",150,300), G("Cummins","C220 D5",220,450), G("Cummins","C275 D5",275,600), G("Cummins","C330 D5",330,600),
+    G("Perkins / FG Wilson","P110-3",110,300), G("Perkins / FG Wilson","P165-3",165,400), G("Perkins / FG Wilson","P220-3",220,500), G("Perkins / FG Wilson","P330-3",330,600), G("Perkins / FG Wilson","P450-3",450,800),
+    G("Pramac","GSW110",110,290), G("Pramac","GSW220",220,530), G("Aksa","APD165",165,400), G("Aksa","APD275",275,600),
+    // ===== VÉHICULES =====
+    V("Toyota","Hilux 2.4 D-4D","Diesel",8.0,80,150), V("Toyota","Hilux 2.8 D-4D","Diesel",8.5,80,204), V("Toyota","Hilux 2.5 D-4D (ancien)","Diesel",9.5,76,144),
+    V("Toyota","Land Cruiser 4.5 V8 D","Diesel",11.0,138,272), V("Toyota","Land Cruiser Prado 2.8 D","Diesel",9.5,87,204), V("Toyota","Fortuner 2.4 D","Diesel",9.0,80,150),
+    V("Toyota","Hiace 2.8 D","Diesel",9.5,70,177), V("Toyota","Hino 300 / Dutro 4.0 D","Diesel",16.0,100,150), V("Toyota","Hino 500 6.4 D","Diesel",22.0,200,260), V("Toyota","Dyna 4.0 D","Diesel",13.0,100,136), V("Toyota","Coaster 4.0 D","Diesel",15.0,100,150),
+    V("Mitsubishi","L200 / Triton 2.4 DI-D","Diesel",8.0,75,181), V("Mitsubishi","Pajero 3.2 DI-D","Diesel",9.5,88,190), V("Mitsubishi","Canter 3.0 D","Diesel",15.0,100,150), V("Mitsubishi","Fuso Fighter 7.5t","Diesel",24.0,200,240),
+    V("Nissan","Navara 2.3 dCi","Diesel",8.5,80,190), V("Nissan","Patrol 3.0 Di","Diesel",12.0,95,160), V("Nissan","NP300 2.5 dCi","Diesel",9.0,80,163),
+    V("Ford","Ranger 2.2 TDCi","Diesel",8.0,80,160), V("Ford","Ranger 3.2 TDCi","Diesel",8.7,80,200),
+    V("Isuzu","D-Max 1.9 Dd","Diesel",7.8,76,164), V("Isuzu","D-Max 3.0 Dd","Diesel",8.5,76,177), V("Isuzu","N-Series NPR 5.2 D","Diesel",16.0,100,150), V("Isuzu","F-Series FVR","Diesel",26.0,200,240),
+    V("Mercedes-Benz","Sprinter 2.1 CDI","Diesel",9.5,75,143), V("Mercedes-Benz","Actros 12.8 D","Diesel",30.0,400,450),
+    V("Renault","Master 2.3 dCi","Diesel",9.0,80,145), V("Mahindra","Scorpio Pik-Up 2.2 D","Diesel",8.5,80,140), V("Tata","Xenon 2.2 D","Diesel",9.0,70,150),
+    V("Yamaha","Moto 125 (essence)","Essence",2.5,12,11), V("Honda","Moto 125 (essence)","Essence",2.3,12,11), V("Bajaj","3-roues (essence)","Essence",3.0,8,10)
+  ];
+}
+let a1SpecKind="gen";
+function a1SpecLabel(s){ return [s.brand,s.model].filter(Boolean).join(" "); }
+function a1SpecSpecsText(s){ if(s.kind==="gen") return [s.kva?s.kva+" kVA":"", s.kw?s.kw+" kW":"", s.consoTheoLh?s.consoTheoLh+" L/h":"", s.reservoirL?"rés. "+s.reservoirL+" L":""].filter(Boolean).join(" · ");
+  return [s.motorisation||"", s.consoTheo?s.consoTheo+" L/100":"", s.puissance?s.puissance+" ch":"", s.reservoir?"rés. "+s.reservoir+" L":""].filter(Boolean).join(" · "); }
+function openA1SpecLibrary(kind){ a1SpecKind=kind||"gen"; const isGen=a1SpecKind==="gen";
+  const n=(DB.a1specs||[]).filter(s=>s.kind===a1SpecKind).length;
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📚 Fiches techniques — ${isGen?"groupes électrogènes":"véhicules"}</h2>
+    <div class="msub">Bibliothèque constructeur (${n} fiche(s)). Applique une fiche à une machine pour renforcer l'analyse (dérive, charge, recoupement). Ajoute les tiennes à la main ou importe un <b>PDF / Excel</b>.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <input id="sp-q" oninput="a1SpecSearch()" placeholder="🔎 Marque, modèle…" style="flex:1;min-width:180px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font-size:13px">
+      <button class="cta ghost sm" onclick="openA1SpecImport('${a1SpecKind}')">⇪ Importer PDF/Excel</button>
+      <button class="cta ghost sm" onclick="openA1SpecForm('','${a1SpecKind}')">+ Fiche manuelle</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:6px">
+      <button class="cta ${isGen?'':'ghost'} sm" onclick="openA1SpecLibrary('gen')">🔌 Groupes</button>
+      <button class="cta ${isGen?'ghost':''} sm" onclick="openA1SpecLibrary('fleet')">🚗 Véhicules</button></div>
+    <div style="overflow:auto;max-height:52vh;border:1px solid var(--line);border-radius:8px"><table style="font-size:12px"><thead><tr><th>Marque</th><th>Modèle</th><th>Spécifications</th><th>Source</th><th></th></tr></thead><tbody id="sp-body">${a1SpecRowsHtml(a1SpecKind,"")}</tbody></table></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`);
+}
+function a1SpecRowsHtml(kind,q){ const nq=norm(q||""); const list=(DB.a1specs||[]).filter(s=>s.kind===kind && (!nq||norm(a1SpecLabel(s)).indexOf(nq)>=0)).sort((a,b)=>a1SpecLabel(a).localeCompare(a1SpecLabel(b)));
+  if(!list.length) return `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:16px">Aucune fiche — ajoute-en une ou importe un PDF/Excel.</td></tr>`;
+  return list.map(s=>`<tr>
+    <td><b>${esc(s.brand||"—")}</b></td><td>${esc(s.model||"—")}</td>
+    <td>${esc(a1SpecSpecsText(s))}${s.provisional?' <span class="badge" style="background:var(--amber);color:#fff" title="'+esc(s.source||"")+'">indicatif</span>':""}</td>
+    <td style="font-size:10.5px;color:var(--muted)">${esc((s.source||"").slice(0,42))}</td>
+    <td><div class="rowact"><button class="cta ghost sm" onclick="a1ApplySpecPrompt('${s.id}')">Appliquer</button><button class="iconbtn" onclick="openA1SpecForm('${s.id}','${kind}')">✎</button><button class="iconbtn del" onclick="deleteA1Spec('${s.id}')">🗑</button></div></td></tr>`).join("");
+}
+function a1SpecSearch(){ const q=(document.getElementById("sp-q")||{}).value||""; const b=document.getElementById("sp-body"); if(b) b.innerHTML=a1SpecRowsHtml(a1SpecKind,q); }
+function openA1SpecForm(id,kind){ kind=kind||a1SpecKind; const s=id?(DB.a1specs||[]).find(x=>x.id===id):{kind}; const isGen=kind==="gen";
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>${id?"Modifier la fiche technique":"Nouvelle fiche technique"} — ${isGen?"groupe":"véhicule"}</h2>
+    <div class="field row2"><label>Marque & modèle</label>
+      <input id="sp-brand" value="${esc(s.brand||'')}" placeholder="Ex : ${isGen?'Caterpillar':'Toyota'}"><input id="sp-model" value="${esc(s.model||'')}" placeholder="Ex : ${isGen?'DE220E3':'Hilux 2.4 D-4D'}"></div>
+    ${isGen?`<div class="field row2"><label>Puissance (kVA) & (kW)</label>
+      <input type="number" step="0.1" id="sp-kva" value="${s.kva!=null?s.kva:''}" placeholder="kVA" oninput="a1SpecAutoKw()"><input type="number" step="0.1" id="sp-kw" value="${s.kw!=null?s.kw:''}" placeholder="kW (auto = kVA×0,8)"></div>
+    <div class="field row2"><label>Conso constructeur (L/h à 100 %) & réservoir (L)</label>
+      <input type="number" step="0.1" id="sp-conso" value="${s.consoTheoLh!=null?s.consoTheoLh:''}" placeholder="L/h"><input type="number" id="sp-res" value="${s.reservoirL!=null?s.reservoirL:''}" placeholder="litres"></div>
+    <div class="field row2"><label>cos φ & année (option)</label>
+      <input type="number" step="0.01" id="sp-cos" value="${s.cosPhi!=null?s.cosPhi:'0.8'}" placeholder="0.8"><input type="number" id="sp-annee" value="${s.annee!=null?s.annee:''}" placeholder="année"></div>`
+    :`<div class="field row2"><label>Motorisation & conso constructeur (L/100)</label>
+      <select id="sp-motor"><option>Diesel</option><option>Essence</option><option>Hybride</option><option>Électrique</option></select><input type="number" step="0.1" id="sp-conso" value="${s.consoTheo!=null?s.consoTheo:''}" placeholder="L/100"></div>
+    <div class="field row2"><label>Réservoir (L) & puissance (ch)</label>
+      <input type="number" id="sp-res" value="${s.reservoir!=null?s.reservoir:''}" placeholder="litres"><input type="number" id="sp-ch" value="${s.puissance!=null?s.puissance:''}" placeholder="ch"></div>`}
+    <div class="field"><label>Source / note</label><input id="sp-source" value="${esc(s.source||'')}" placeholder="Ex : Fiche constructeur PDF, datasheet…"></div>
+    <div class="hint">Ces valeurs deviennent la <b>référence</b> pour calculer la dérive et la charge. Renseigne-les au plus juste (fiche constructeur) — c'est ce qui rend l'analyse défendable.</div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveA1Spec('${id||''}','${kind}')">Enregistrer</button></div>`);
+  if(!isGen && s.motorisation){ const m=document.getElementById("sp-motor"); if(m) m.value=s.motorisation; }
+}
+function a1SpecAutoKw(){ const kva=parseFloat(val("sp-kva"))||0; const kw=document.getElementById("sp-kw"); if(kw && kva>0 && !kw.value) kw.value=Math.round(kva*0.8); }
+function saveA1Spec(id,kind){ kind=kind||a1SpecKind; const brand=(val("sp-brand")||"").trim(), model=(val("sp-model")||"").trim();
+  if(!brand && !model){ toast("Renseigne au moins la marque ou le modèle."); return; }
+  const base={ kind, brand, model, source:(val("sp-source")||"").trim(), provisional:false };
+  if(kind==="gen"){ base.kva=parseFloat(val("sp-kva"))||""; base.kw=parseFloat(val("sp-kw"))||(base.kva?Math.round(base.kva*0.8):""); base.consoTheoLh=parseFloat(val("sp-conso"))||""; base.reservoirL=parseFloat(val("sp-res"))||""; base.cosPhi=parseFloat(val("sp-cos"))||0.8; base.annee=parseInt(val("sp-annee"))||""; }
+  else { base.motorisation=val("sp-motor")||"Diesel"; base.consoTheo=parseFloat(val("sp-conso"))||""; base.reservoir=parseFloat(val("sp-res"))||""; base.puissance=parseFloat(val("sp-ch"))||""; }
+  if(id){ const s=(DB.a1specs||[]).find(x=>x.id===id); Object.assign(s,base); } else { base.id="spec-"+uid(); base.builtin=false; base.createdAt=todayISO(); DB.a1specs.push(base); }
+  save(); openA1SpecLibrary(kind); toast("Fiche technique enregistrée.");
+}
+function deleteA1Spec(id){ const s=(DB.a1specs||[]).find(x=>x.id===id); if(!s) return;
+  confirmModal("Supprimer cette fiche technique ?", a1SpecLabel(s), ()=>{ DB.a1specs=DB.a1specs.filter(x=>x.id!==id); save(); openA1SpecLibrary(s.kind); toast("Fiche supprimée."); }); }
+/* Appliquer une fiche à une machine (choix de la machine si plusieurs) */
+function a1ApplySpecPrompt(specId){ const s=(DB.a1specs||[]).find(x=>x.id===specId); if(!s) return; const isGen=s.kind==="gen";
+  const machines=(isGen?DB.a1gensets:DB.a1vehicles);
+  if(!machines.length){ toast("Ajoute d'abord un "+(isGen?"groupe":"véhicule")+"."); return; }
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>Appliquer « ${esc(a1SpecLabel(s))} »</h2>
+    <div class="msub">Choisis la machine : ses caractéristiques constructeur (${esc(a1SpecSpecsText(s))}) seront renseignées.</div>
+    <div class="field"><label>${isGen?"Groupe":"Véhicule"}</label><select id="ap-machine">${machines.map(m=>`<option value="${m.id}">${esc(m.name)}${(isGen?a1GenClientName(m):a1VehClientName(m))?" — "+esc(isGen?a1GenClientName(m):a1VehClientName(m)):""}</option>`).join("")}</select></div>
+    <div class="field"><label style="display:flex;align-items:center;gap:8px;font-size:12.5px"><input type="checkbox" id="ap-brand" checked> Renseigner aussi marque/modèle</label></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="a1ApplySpec('${specId}')">Appliquer</button></div>`);
+}
+function a1ApplySpec(specId){ const s=(DB.a1specs||[]).find(x=>x.id===specId); if(!s) return; const isGen=s.kind==="gen";
+  const mid=val("ap-machine"); const withBrand=(document.getElementById("ap-brand")||{}).checked;
+  const m=(isGen?DB.a1gensets:DB.a1vehicles).find(x=>x.id===mid); if(!m){ toast("Machine introuvable."); return; }
+  if(withBrand){ if(s.brand) m.marque=s.brand; if(s.model) m.modele=s.model; }
+  if(isGen){ if(s.kva) m.puissanceKva=s.kva; if(s.kw) m.puissanceKw=s.kw; if(s.consoTheoLh) m.consoTheoLh=s.consoTheoLh; if(s.reservoirL) m.reservoirL=s.reservoirL; if(s.cosPhi) m.cosPhi=s.cosPhi; if(s.annee&&!m.annee) m.annee=s.annee; }
+  else { if(s.motorisation) m.motorisation=s.motorisation; if(s.consoTheo) m.consoTheo=s.consoTheo; if(s.reservoir) m.reservoir=s.reservoir; if(s.puissance) m.puissance=s.puissance; }
+  m.specsSource="Fiche technique : "+a1SpecLabel(s);
+  save(); closeModal(); a1RefreshCurrent(); toast("Fiche appliquée à "+m.name+" — analyse recalculée.");
+}
+/* Pré-remplir le formulaire machine ouvert depuis une fiche (picker dans openA1Vehicle/openA1Genset) */
+function a1FillFromSpec(kind, specId){ if(!specId) return; const s=(DB.a1specs||[]).find(x=>x.id===specId); if(!s) return;
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el && v!=null && v!=="") el.value=v; };
+  if(kind==="gen"){ set("g-marque",s.brand); set("g-modele",s.model); set("g-kva",s.kva); set("g-kw",s.kw); set("g-consotheo",s.consoTheoLh); set("g-reservoir",s.reservoirL); if(s.annee) set("g-annee",s.annee); }
+  else { set("v-marque",s.brand); set("v-modele",s.model); set("v-consotheo",s.consoTheo); set("v-reservoir",s.reservoir); set("v-puissance",s.puissance); const mt=document.getElementById("v-motor"); if(mt&&s.motorisation) mt.value=s.motorisation; }
+  toast("Champs pré-remplis depuis « "+a1SpecLabel(s)+" » — ajuste si besoin.");
+}
+function a1SpecPickerHtml(kind){ const list=(DB.a1specs||[]).filter(s=>s.kind===kind).sort((a,b)=>a1SpecLabel(a).localeCompare(a1SpecLabel(b)));
+  if(!list.length) return "";
+  return `<div class="field"><label>📚 Pré-remplir depuis une fiche technique (option)</label>
+    <select onchange="a1FillFromSpec('${kind}',this.value);this.selectedIndex=0"><option value="">— Choisir une fiche constructeur —</option>${list.map(s=>`<option value="${s.id}">${esc(a1SpecLabel(s))} — ${esc(a1SpecSpecsText(s))}</option>`).join("")}</select></div>`;
+}
+/* Import d'une fiche technique (PDF texte ou Excel) → pré-remplit le formulaire, validation humaine */
+let _a1SpecFile=null;
+function openA1SpecImport(kind){ kind=kind||a1SpecKind; _a1SpecFile=null;
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>⇪ Importer une fiche technique — ${kind==="gen"?"groupe":"véhicule"}</h2>
+    <div class="msub">Charge la fiche constructeur (PDF ou Excel). Le Cockpit tente d'en extraire les spécifications ; tu <b>valides/complètes</b> ensuite (les PDF scannés = saisie manuelle).</div>
+    <div class="field"><label>Fichier fiche technique (PDF / Excel)</label><input type="file" id="sp-file" accept=".pdf,.xlsx,.csv,application/pdf" onchange="a1SpecFilePicked()"><div id="sp-fstatus" class="hint" style="color:var(--navy)"></div></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="a1SpecExtract('${kind}')">Extraire & continuer</button></div>`);
+}
+function a1SpecFilePicked(){ const f=(document.getElementById("sp-file").files||[])[0]; _a1SpecFile=f||null; const st=document.getElementById("sp-fstatus"); if(st) st.textContent=f?("📎 "+f.name):""; }
+async function a1SpecExtract(kind){ const f=_a1SpecFile; const st=document.getElementById("sp-fstatus"); const pre={kind};
+  if(f){ const nm=f.name.replace(/\.[^.]+$/,""); pre.model=nm; pre.source="Fiche importée : "+f.name;
+    try{
+      if(/\.xlsx$/i.test(f.name)){ if(st) st.textContent="⏳ Lecture Excel…"; const sheets=await a1ReadXlsx(await f.arrayBuffer()); const flat=[]; Object.keys(sheets).forEach(n=>sheets[n].forEach(r=>flat.push(r.join(" ")))); a1SpecParseText(flat.join("\n"),pre); }
+      else if(/\.pdf$/i.test(f.name)){ if(st) st.textContent="⏳ Extraction PDF…"; const txt=(await extractPdfText(f)||"").trim(); if(txt) a1SpecParseText(txt,pre); else toast("PDF scanné : saisis les spécifications à la main."); }
+    }catch(e){ toast("Extraction partielle ("+(e.message||"erreur")+") — complète à la main."); }
+  }
+  closeModal(); openA1SpecFormPrefilled(pre);
+}
+function a1SpecParseText(txt,pre){ const t=txt.replace(/\s+/g," "); const num=(re)=>{ const m=t.match(re); return m?parseFloat(m[1].replace(/\s/g,"").replace(",",".")):null; };
+  const brands=["Caterpillar","CAT","SDMO","Kohler","Himoinsa","Cummins","Perkins","FG Wilson","Pramac","Aksa","Toyota","Mitsubishi","Nissan","Ford","Isuzu","Mercedes","Renault","Mahindra","Tata","Yamaha","Honda","Bajaj","Hino"];
+  const b=brands.find(x=>new RegExp(x,"i").test(t)); if(b) pre.brand=b;
+  if(pre.kind==="gen"){ pre.kva=num(/([\d .,]{1,7})\s*kva/i); pre.kw=num(/([\d .,]{1,7})\s*kw(?:e|é)?/i); pre.consoTheoLh=num(/([\d .,]{1,6})\s*(?:l\/h|l\.h|litres?\/h)/i)||num(/100\s*%[^0-9]{0,10}([\d .,]{1,6})/i); pre.reservoirL=num(/([\d .,]{2,7})\s*(?:l\b|litres?)[^%]{0,20}(?:reservoir|réservoir|tank)/i)||num(/(?:reservoir|réservoir|tank)[^0-9]{0,12}([\d .,]{2,7})/i); }
+  else { pre.consoTheo=num(/([\d .,]{1,4})\s*l\/100/i)||num(/([\d .,]{1,4})\s*(?:l\/100\s*km|l aux 100)/i); pre.reservoir=num(/(?:reservoir|réservoir|tank)[^0-9]{0,12}([\d .,]{2,4})/i); pre.puissance=num(/([\d .,]{2,4})\s*(?:ch|hp|cv)\b/i); if(/essence|petrol|gasoline/i.test(t)) pre.motorisation="Essence"; else pre.motorisation="Diesel"; }
+}
+function openA1SpecFormPrefilled(pre){ openA1SpecForm("",pre.kind);
+  setTimeout(()=>{ const set=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null&&v!=="") el.value=v; };
+    set("sp-brand",pre.brand); set("sp-model",pre.model); set("sp-source",pre.source);
+    if(pre.kind==="gen"){ set("sp-kva",pre.kva); set("sp-kw",pre.kw); set("sp-conso",pre.consoTheoLh); set("sp-res",pre.reservoirL); }
+    else { const mt=document.getElementById("sp-motor"); if(mt&&pre.motorisation) mt.value=pre.motorisation; set("sp-conso",pre.consoTheo); set("sp-res",pre.reservoir); set("sp-ch",pre.puissance); }
+    toast("Vérifie/complète les spécifications extraites avant d'enregistrer."); }, 60);
+}
+/* ================== ÉCRITURE .XLSX NATIVE (ZIP store + CRC32, sans dépendance) ================== */
+let _a1crcTable=null;
+function a1crc32(u8){ if(!_a1crcTable){ _a1crcTable=[]; for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1); _a1crcTable[n]=c>>>0; } }
+  let crc=0xFFFFFFFF; for(let i=0;i<u8.length;i++) crc=(_a1crcTable[(crc^u8[i])&0xFF]^(crc>>>8))>>>0; return (crc^0xFFFFFFFF)>>>0; }
+function a1zipStore(files){ const enc=new TextEncoder(); const u16=n=>[n&0xFF,(n>>8)&0xFF]; const u32=n=>[n&0xFF,(n>>8)&0xFF,(n>>16)&0xFF,(n>>24)&0xFF];
+  const parts=[]; const central=[]; let offset=0;
+  files.forEach(f=>{ const nameB=enc.encode(f.name); const data=f.data; const crc=a1crc32(data); const sz=data.length;
+    const lh=[].concat([0x50,0x4b,0x03,0x04],u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(sz),u32(sz),u16(nameB.length),u16(0));
+    const lhU=new Uint8Array(lh); parts.push(lhU,nameB,data);
+    const cd=[].concat([0x50,0x4b,0x01,0x02],u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(sz),u32(sz),u16(nameB.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offset));
+    central.push(new Uint8Array(cd),nameB); offset+=lhU.length+nameB.length+data.length; });
+  let cdSize=0; central.forEach(c=>cdSize+=c.length);
+  const eocd=new Uint8Array([].concat([0x50,0x4b,0x05,0x06],u16(0),u16(0),u16(files.length),u16(files.length),u32(cdSize),u32(offset),u16(0)));
+  const all=parts.concat(central,[eocd]); let total=0; all.forEach(a=>total+=a.length);
+  const out=new Uint8Array(total); let p=0; all.forEach(a=>{ out.set(a,p); p+=a.length; }); return out; }
+function a1XmlEsc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;"); }
+function a1ColLetter(n){ let s=""; n++; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=Math.floor((n-1)/26); } return s; }
+function a1SheetXml(rows){ let x='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+  (rows||[]).forEach((row,ri)=>{ x+=`<row r="${ri+1}">`; (row||[]).forEach((cell,ci)=>{ if(cell==null||cell==="") return; const ref=a1ColLetter(ci)+(ri+1);
+    const isNum=(typeof cell==="number")||(typeof cell==="string"&&cell.trim()!==""&&/^-?\d+(?:[.,]\d+)?$/.test(cell.trim()));
+    if(ri>0 && isNum) x+=`<c r="${ref}"><v>${String(cell).replace(",",".")}</v></c>`;
+    else x+=`<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${a1XmlEsc(cell)}</t></is></c>`; }); x+='</row>'; });
+  return x+'</sheetData></worksheet>'; }
+function a1MakeXlsxBytes(sheets){ const enc=new TextEncoder(); const used={};
+  const names=sheets.map((s,i)=>{ let n=(s.name||("Feuille"+(i+1))).replace(/[\[\]:*?/\\]/g,' ').slice(0,31).trim()||("Feuille"+(i+1)); const base=n; let k=2; while(used[n.toLowerCase()]){ n=(base.slice(0,28)+"_"+k).slice(0,31); k++; } used[n.toLowerCase()]=1; return n; });
+  const files=[];
+  files.push({name:'[Content_Types].xml', data:enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+sheets.map((s,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')+'</Types>')});
+  files.push({name:'_rels/.rels', data:enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')});
+  files.push({name:'xl/workbook.xml', data:enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+names.map((n,i)=>`<sheet name="${a1XmlEsc(n)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')+'</sheets></workbook>')});
+  files.push({name:'xl/_rels/workbook.xml.rels', data:enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+names.map((n,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join('')+'</Relationships>')});
+  sheets.forEach((s,i)=>files.push({name:'xl/worksheets/sheet'+(i+1)+'.xml', data:enc.encode(a1SheetXml(s.rows))}));
+  return a1zipStore(files); }
+function a1BuildWorkbookSheets(){ const cn=id=>{ const c=DB.clients.find(x=>x.id===id); return c?c.company:""; }; const sheets=[]; let r;
+  sheets.push({name:"Lisez-moi", rows:[["BSM Cockpit — Export complet Programme A1"],["Date export",frDate(todayISO())],["Contenu","Véhicules · Relevés · GPS · Groupes · Relevés groupes · Factures · Fiches techniques"],["Sécurité","Ré-importable via « ⬆ Importer un classeur A1 » pour restaurer après une fausse manipulation. Ne modifie pas les colonnes « id »."]]});
+  r=[["id","nom","type","immatriculation","marque","modele","annee","motorisation","conso_constructeur_L100","reservoir_L","puissance_ch","boitier_gps","prestataire_gps","chauffeur","site","station","client"]];
+  DB.a1vehicles.forEach(v=>r.push([v.id,v.name,v.type,v.plate,v.marque,v.modele,v.annee,v.motorisation,v.consoTheo,v.reservoir,v.puissance,v.gpsId,v.gpsProvider,v.driver,v.site,v.station,cn(v.clientId)])); sheets.push({name:"Véhicules",rows:r});
+  r=[["id","vehicule_id","vehicule","date","km","litres","litres_jauge","prix_L","cout","devise","heures","ralenti","chauffeur","site","station","source"]];
+  DB.a1logs.forEach(l=>{ const v=DB.a1vehicles.find(x=>x.id===l.vehicleId); r.push([l.id,l.vehicleId,v?v.name:"",l.date,l.km,l.liters,l.litersReal,l.unitPrice,l.cost,l.currency,l.hours,l.idle,l.driver,l.site,l.station,l.source||""]); }); sheets.push({name:"Relevés véhicules",rows:r});
+  r=[["id","vehicule_id","vehicule","date","km_gps","ralenti_h","conduite_h","moteur_h","vitesse_max","arrets","source"]];
+  (DB.a1gpslogs||[]).forEach(l=>{ const v=DB.a1vehicles.find(x=>x.id===l.vehicleId); r.push([l.id,l.vehicleId,v?v.name:"",l.date,l.gpsKm,l.idleH,l.moveH,l.engineH,l.maxSpeed,l.stops,l.source||""]); }); sheets.push({name:"GPS",rows:r});
+  r=[["id","nom","marque","modele","kva","kw","annee","carburant","conso_constructeur_Lh","reservoir_L","cosphi","compteur_h","usage","operateur","site","station","client"]];
+  DB.a1gensets.forEach(g=>r.push([g.id,g.name,g.marque,g.modele,g.puissanceKva,g.puissanceKw,g.annee,g.carburant,g.consoTheoLh,g.reservoirL,g.cosPhi,g.heuresCompteur,g.usage,g.operator,g.site,g.station,cn(g.clientId)])); sheets.push({name:"Groupes",rows:r});
+  r=[["id","groupe_id","groupe","date","heures","litres","litres_jauge","kwh","charge_pct","cout","devise","operateur","site","station","source"]];
+  DB.a1genlogs.forEach(l=>{ const g=DB.a1gensets.find(x=>x.id===l.gensetId); r.push([l.id,l.gensetId,g?g.name:"",l.date,l.hours,l.liters,l.litersReal,l.kwh,l.chargePct,l.cost,l.currency,l.operator,l.site,l.station,l.source||""]); }); sheets.push({name:"Relevés groupes",rows:r});
+  r=[["id","type","client","periode","date","numero","fournisseur","litres","kwh","prix_unitaire","montant","devise","affecte_type","affecte_id","piece_jointe"]];
+  (DB.a1invoices||[]).forEach(i=>r.push([i.id,i.kind,cn(i.clientId),i.period,i.date,i.ref,i.supplier,i.liters,i.kwh,i.unit,i.amount,i.currency,i.targetKind,i.targetId,i.hasFile?"oui":""])); sheets.push({name:"Factures",rows:r});
+  r=[["id","type","marque","modele","kva","kw","conso_gen_Lh","reservoir_gen_L","cosphi","motorisation","conso_veh_L100","reservoir_veh_L","puissance_ch","source"]];
+  (DB.a1specs||[]).forEach(s=>r.push([s.id,s.kind,s.brand,s.model,s.kva,s.kw,s.consoTheoLh,s.reservoirL,s.cosPhi,s.motorisation,s.consoTheo,s.reservoir,s.puissance,s.source])); sheets.push({name:"Fiches techniques",rows:r});
+  return sheets; }
+function exportA1Workbook(){ try{ const bytes=a1MakeXlsxBytes(a1BuildWorkbookSheets()); const blob=new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="BSM_A1_export_complet_"+todayISO()+".xlsx"; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+  toast("Classeur Excel complet exporté (sauvegarde ré-importable)."); }catch(e){ toast("Export impossible : "+(e.message||e)); } }
+/* Restauration depuis le classeur exporté (upsert par id) */
+async function a1ImportWorkbookFile(f){ let sheets; try{ sheets=await a1ReadXlsx(await f.arrayBuffer()); }catch(e){ toast("Lecture impossible : "+(e.message||e)); return; }
+  const sheet=kw=>{ const k=Object.keys(sheets).find(n=>norm(n).indexOf(kw)>=0); return k?sheets[k]:null; };
+  const cid=nm=>{ const c=DB.clients.find(x=>norm(x.company)===norm(nm)); return c?c.id:""; };
+  const N=s=>{ if(s==null||s==="") return ""; const v=parseFloat(String(s).replace(/\s/g,"").replace(",",".")); return isNaN(v)?"":v; };
+  const objs=rows=>{ if(!rows||rows.length<2) return []; const h=rows[0].map(x=>norm(x)); return rows.slice(1).filter(r=>r.some(c=>String(c==null?"":c).trim()!=="")).map(r=>{ const o={}; h.forEach((k,i)=>o[k]=r[i]); return o; }); };
+  const upsert=(arr,id,make)=>{ let x=id?arr.find(e=>e.id===id):null; if(x){ Object.assign(x,make(x)); } else { const n=make({}); n.id=id||uid(); arr.push(n); } };
+  const st={v:0,l:0,gps:0,g:0,gl:0,inv:0,sp:0};
+  const vehKey=Object.keys(sheets).find(n=>{ const x=norm(n); return x.indexOf("vehicul")>=0 && x.indexOf("relev")<0; });
+  objs(vehKey?sheets[vehKey]:null).forEach(o=>{ if(o.vehicule_id!==undefined) return; upsert(DB.a1vehicles,o.id,()=>({name:o.nom||"",type:o.type||"",plate:o.immatriculation||"",marque:o.marque||"",modele:o.modele||"",annee:N(o.annee),motorisation:o.motorisation||"",consoTheo:N(o.conso_constructeur_l100),reservoir:N(o.reservoir_l),puissance:N(o.puissance_ch),gpsId:o.boitier_gps||"",gpsProvider:o.prestataire_gps||"",driver:o.chauffeur||"",site:o.site||"",station:o.station||"",clientId:cid(o.client)})); st.v++; });
+  objs(sheet("releves veh")||sheet("relev")).forEach(o=>{ if(o.vehicule_id===undefined) return; upsert(DB.a1logs,o.id,()=>({vehicleId:o.vehicule_id,date:o.date||todayISO(),km:N(o.km),liters:N(o.litres),litersReal:N(o.litres_jauge),unitPrice:N(o.prix_l),cost:N(o.cout),currency:o.devise||DB.meta.defaultCurrency,hours:N(o.heures),idle:N(o.ralenti),driver:o.chauffeur||"",site:o.site||"",station:o.station||"",source:o.source||""})); st.l++; });
+  objs(sheet("gps")).forEach(o=>{ upsert(DB.a1gpslogs,o.id,()=>({vehicleId:o.vehicule_id,date:o.date||todayISO(),gpsKm:N(o.km_gps),idleH:N(o.ralenti_h),moveH:N(o.conduite_h),engineH:N(o.moteur_h),maxSpeed:N(o.vitesse_max),stops:N(o.arrets),source:o.source||"import"})); st.gps++; });
+  // Feuille "Groupes" (parc) = la feuille contenant "groupe" SANS "relev" ni "id" de relevé (colonne groupe_id absente)
+  const grpKey=Object.keys(sheets).find(n=>{ const x=norm(n); return x.indexOf("groupe")>=0 && x.indexOf("relev")<0; });
+  objs(grpKey?sheets[grpKey]:null).forEach(o=>{ if(o.groupe_id!==undefined) return; upsert(DB.a1gensets,o.id,()=>({name:o.nom||"",marque:o.marque||"",modele:o.modele||"",puissanceKva:N(o.kva),puissanceKw:N(o.kw),annee:N(o.annee),carburant:o.carburant||"Diesel",consoTheoLh:N(o.conso_constructeur_lh),reservoirL:N(o.reservoir_l),cosPhi:N(o.cosphi),heuresCompteur:N(o.compteur_h),usage:o.usage||"",operator:o.operateur||"",site:o.site||"",station:o.station||"",clientId:cid(o.client)})); st.g++; });
+  objs(sheet("releves grou")||sheet("relevés grou")).forEach(o=>{ if(o.groupe_id===undefined) return; upsert(DB.a1genlogs,o.id,()=>({gensetId:o.groupe_id,date:o.date||todayISO(),hours:N(o.heures),liters:N(o.litres),litersReal:N(o.litres_jauge),kwh:N(o.kwh),chargePct:N(o.charge_pct),cost:N(o.cout),currency:o.devise||DB.meta.defaultCurrency,operator:o.operateur||"",site:o.site||"",station:o.station||"",source:o.source||""})); st.gl++; });
+  objs(sheet("facture")).forEach(o=>{ upsert(DB.a1invoices,o.id,()=>({kind:norm(o.type).indexOf("jira")>=0?"jirama":"fuel",clientId:cid(o.client),period:o.periode||"",date:o.date||"",ref:o.numero||"",supplier:o.fournisseur||"",liters:N(o.litres),kwh:N(o.kwh),unit:N(o.prix_unitaire),amount:N(o.montant),currency:o.devise||DB.meta.defaultCurrency,targetKind:o.affecte_type||"",targetId:o.affecte_id||""})); st.inv++; });
+  objs(sheet("fiche")).forEach(o=>{ upsert(DB.a1specs,o.id,()=>({kind:norm(o.type).indexOf("gen")>=0?"gen":"fleet",brand:o.marque||"",model:o.modele||"",kva:N(o.kva),kw:N(o.kw),consoTheoLh:N(o.conso_gen_lh),reservoirL:N(o.reservoir_gen_l),cosPhi:N(o.cosphi),motorisation:o.motorisation||"",consoTheo:N(o.conso_veh_l100),reservoir:N(o.reservoir_veh_l),puissance:N(o.puissance_ch),source:o.source||"",builtin:false})); st.sp++; });
+  save(); closeModal(); a1RefreshCurrent();
+  toast(`Restauration : ${st.v} véh · ${st.l} relevés · ${st.gps} GPS · ${st.g} groupes · ${st.gl} relevés · ${st.inv} factures · ${st.sp} fiches.`);
+}
+function openA1DataSafety(){
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>💾 Données & sauvegarde — Programme A1</h2>
+    <div class="msub">Assure le programme à 100 % : garde une copie complète de toutes les données A1, hors du Cockpit. En cas de fausse manipulation, tu restaures tout.</div>
+    <div class="card"><h3 style="margin:0 0 6px">⬇ Export complet (Excel)</h3>
+      <div style="font-size:13px;margin-bottom:8px">Un classeur <b>.xlsx</b> avec toutes les feuilles : véhicules, relevés, GPS, groupes, factures, fiches techniques. Lisible, vérifiable, et <b>ré-importable</b>.</div>
+      <button class="cta" onclick="exportA1Workbook()">⬇ Exporter le classeur Excel complet</button></div>
+    <div class="card"><h3 style="margin:0 0 6px">⬆ Restaurer depuis un classeur</h3>
+      <div style="font-size:13px;margin-bottom:8px">Ré-importe un classeur exporté (mise à jour par <b>id</b> — ne touche pas aux autres données). Idéal après une fausse manipulation.</div>
+      <input type="file" id="a1wb-file" accept=".xlsx" onchange="if(this.files[0]) a1ImportWorkbookFile(this.files[0])"></div>
+    <div class="hint">💡 Pour une <b>sauvegarde fidèle de TOUT le Cockpit</b> (au-delà de l'A1), utilise aussi « ⬇ Sauvegarde » (JSON) dans la barre du haut — c'est la restauration la plus complète.</div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`);
+}
 function buildA1Context(){
   const {arr, fleetConso, totals}=a1Compute();
   let t=`Analyse de flotte (méthode BSM). Devise ${DB.meta.defaultCurrency}. Conso moyenne flotte ${fleetConso.toFixed(1)} L/100 km. Total ${totals.km.toLocaleString('fr-FR')} km, ${Math.round(totals.liters)} L, coût carburant ${fmtD(totals.cost)}, coût moyen ${fmtD(totals.costPerKm)}/km.\nVéhicules :\n`;
@@ -6868,12 +7104,14 @@ function renderA1Genset(){
         <button class="cta ghost" onclick="openA1Thresholds()">⚙ Seuils</button>
         <button class="cta ghost" onclick="openA1GenImport()">⇊ Importer CSV</button>
         <button class="cta ghost" onclick="openA1InvoiceImport('jirama')">🧾 Facture JIRAMA</button>
+        <button class="cta ghost" onclick="openA1SpecLibrary('gen')">📚 Fiches techniques</button>
         <button class="cta ghost" onclick="openA1Roster('gen')">📋 Parc complet (${DB.a1gensets.length})</button>
         <button class="cta ghost" onclick="openA1Genset()">+ Groupe</button>
         <button class="cta ghost" onclick="openA1GenLog()">+ Relevé</button>
         <button class="cta ghost" onclick="a1GenDashboard()">📊 Tableau de bord</button>
         <button class="cta gold" onclick="a1GenAnalyze()">🤖 Analyse IA</button>
-        <button class="cta ghost" onclick="printA1GenReport()">🖨 Rapport</button></div></div>
+        <button class="cta ghost" onclick="printA1GenReport()">🖨 Rapport</button>
+        <button class="cta ghost" onclick="openA1DataSafety()">💾 Sauvegarde</button></div></div>
     <div class="filters">${a1GenClientPicker()}<span style="font-size:12px;color:var(--muted)">${a1genClient?"Données de "+esc(clientName(a1genClient)):"Vue tous groupes confondus"}</span></div>
     ${a1genClient?a1OfferCard(a1genClient,"genset"):`<div class="infobox">Sélectionne un <b>client</b> pour gérer ses groupes séparément et lui associer une <b>offre programme</b> énergie (forfait + tarif, éditable, PDF, mail).</div>`}
     ${a1CrossLinkBanner("gen")}
@@ -6897,6 +7135,7 @@ function openA1Genset(id){
   const g=id?DB.a1gensets.find(x=>x.id===id):{carburant:"Diesel",clientId:a1genClient};
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>${id?"Modifier le groupe":"Nouveau groupe électrogène"}</h2>
     <div class="field"><label>Nom / identifiant *</label><input id="g-name" value="${esc(g.name||'')}" placeholder="Ex : Groupe siège 100 kVA"></div>
+    ${a1SpecPickerHtml('gen')}
     <div class="field row2"><label>Marque & modèle</label>
       <input id="g-marque" value="${esc(g.marque||'')}" placeholder="Ex : Cummins"><input id="g-modele" value="${esc(g.modele||'')}" placeholder="Ex : C100 D5"></div>
     <div class="field row2"><label>Puissance (kVA) & (kW)</label>
