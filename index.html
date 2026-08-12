@@ -2144,6 +2144,29 @@ function openClientFiche(id){
   document.getElementById("scr-clientfiche").classList.add("active");
   renderClientFiche();
 }
+/* Carte A1 (énergie & flotte) dans la fiche client 360° — cohérence flotte/groupes ↔ client. */
+function clientA1Card(cid){
+  const nv=DB.a1vehicles.filter(v=>v.clientId===cid).length, ng=DB.a1gensets.filter(g=>g.clientId===cid).length;
+  if(!nv && !ng) return "";
+  const fc=a1Compute(cid), gc=a1GenCompute(cid);
+  const fuelFleet=fc.totals.cost||0, fuelGen=gc.totals.cost||0;
+  const jir=(DB.a1invoices||[]).filter(i=>i.kind==="jirama"&&i.clientId===cid).reduce((s,i)=>s+(+i.amount||0),0);
+  const fraud=fc.arr.filter(p=>p.diag&&p.diag.fraudScore>=35).length + gc.arr.filter(p=>p.diag&&p.diag.fraudScore>=35).length;
+  return `<div class="card" style="border-left:3px solid var(--gold)">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0">⚡ Programme A1 — énergie & flotte</h2>
+      <div style="display:flex;gap:6px">${nv?`<button class="cta ghost sm" onclick="a1GoFleet('${cid}')">🚗 ${nv} véhicule${nv>1?"s":""}</button>`:""}${ng?`<button class="cta ghost sm" onclick="a1GoEnergy('${cid}')">🔌 ${ng} groupe${ng>1?"s":""}</button>`:""}</div>
+    </div>
+    <div class="kpis" style="margin-top:8px">
+      ${nv?`<div class="kpi"><div class="v">${fmtD(fuelFleet)}</div><div class="l">Carburant flotte</div></div>`:""}
+      ${ng?`<div class="kpi"><div class="v">${fmtD(fuelGen)}</div><div class="l">Carburant groupes</div></div>`:""}
+      ${jir?`<div class="kpi"><div class="v">${fmtD(jir)}</div><div class="l">Factures JIRAMA</div></div>`:""}
+      <div class="kpi"><div class="v">${fmtD(fuelFleet+fuelGen+jir)}</div><div class="l">Coût énergie total</div></div>
+      ${fraud?`<div class="kpi"><div class="v danger">${fraud}</div><div class="l">Alerte(s) détournement</div></div>`:""}
+    </div>
+    <div class="hint" style="margin-top:4px">Suivi carburant/énergie, recoupement GPS et rapports de ce client — cloisonné : seules ses données apparaissent.</div>
+  </div>`;
+}
 function renderClientFiche(){
   const el=document.getElementById("scr-clientfiche");
   const c=DB.clients.find(x=>x.id===currentClientId);
@@ -2181,8 +2204,11 @@ function renderClientFiche(){
         ${can("carto")?`<button class="cta ghost sm" onclick="focusGo('${c.id}','carto')">🗺️ Cartographie</button>`:""}
         ${can("recos")?`<button class="cta ghost sm" onclick="focusGo('${c.id}','recos')">✅ Recommandations</button>`:""}
         ${can("agenda")?`<button class="cta ghost sm" onclick="focusGo('${c.id}','agenda')">📅 Agenda</button>`:""}
+        ${DB.a1vehicles.some(v=>v.clientId===c.id)?`<button class="cta ghost sm" onclick="a1GoFleet('${c.id}')">🚗 Flotte & GPS</button>`:""}
+        ${DB.a1gensets.some(g=>g.clientId===c.id)?`<button class="cta ghost sm" onclick="a1GoEnergy('${c.id}')">🔌 Groupes / JIRAMA</button>`:""}
       </div>
     </div>
+    ${clientA1Card(c.id)}
     ${clientProgressCard(c.id)}
     ${clientDocCard(c.id)}
     <div class="card">
@@ -6016,6 +6042,7 @@ function a1Compute(clientId){
   return {arr, fleetConso, totals};
 }
 function renderA1Fleet(){
+  if(typeof focusClient!=="undefined" && focusClient && !a1Client) a1Client=focusClient; // cohérence : adopte le client en focus de l'app
   const {arr, fleetConso, totals}=a1Compute(a1Client);
   const anomalies=arr.filter(p=>p.anomaly);
   const withKm=arr.filter(p=>p.km>0).sort((a,b)=>b.costPerKm-a.costPerKm);
@@ -6480,8 +6507,8 @@ function a1InvoiceCard(kind){ const isJ=kind==="jirama"; const client=isJ?a1genC
     <div style="font-size:13px"><b>🧾 Factures ${isJ?"JIRAMA":"carburant (pompiste)"} :</b> ${n?`${n} enregistrée(s) · ${fmtD(total)} · ${list.filter(i=>i.hasFile).length} avec preuve PDF`:`aucune pour l'instant`}.</div>
     <div style="display:flex;gap:6px"><button class="cta ghost sm" onclick="openA1InvoiceImport('${kind}')">+ Facture</button><button class="cta ghost sm" onclick="openA1InvoiceRegister('${kind}')">📚 Registre</button></div></div></div>`; }
 /* ================== LIEN flotte ↔ groupes par client (énergie consolidée) ================== */
-function a1GoEnergy(cid){ a1genClient=cid||""; setScreen("a1genset"); }
-function a1GoFleet(cid){ a1Client=cid||""; setScreen("a1fleet"); }
+function a1GoEnergy(cid){ a1genClient=cid||""; if(typeof focusClient!=="undefined") focusClient=cid||""; setScreen("a1genset"); }
+function a1GoFleet(cid){ a1Client=cid||""; if(typeof focusClient!=="undefined") focusClient=cid||""; setScreen("a1fleet"); }
 function a1CrossLinkBanner(kind){ const isFleet=kind==="fleet"; const cid=isFleet?a1Client:a1genClient; if(!cid) return "";
   const nv=DB.a1vehicles.filter(v=>v.clientId===cid).length, ng=DB.a1gensets.filter(g=>g.clientId===cid).length;
   const other=isFleet?ng:nv; if(!other) return "";
@@ -7062,22 +7089,6 @@ function mailA1Offer(offerId){
     }catch(e){ toast("Échec envoi : "+(e.message||e)+" — nécessite le serveur local + pont Google configuré."); }
   });
 }
-function syncA1OfferRecurring(o){
-  let rc=DB.recurring.find(r=>r.a1OfferId===o.id);
-  if(o.monthlyFee>0){
-    const start=a1OfferBillingStart(o);
-    const data={ sens:"entrant", label:(o.label||"Programme A1")+" — "+clientName(o.clientId), amount:o.monthlyFee, currency:o.currency,
-      category:"Abonnement annuel", frequency:"mensuel", day:1, startDate:start, clientId:o.clientId, entity:o.entity, active:true, a1OfferId:o.id };
-    if(rc){ Object.assign(rc,data); DB.transactions=DB.transactions.filter(t=>!(t.recurringId===rc.id&&t.status==="prevu")); }
-    else { data.id=uid(); data.created=todayISO(); DB.recurring.push(data); }
-  } else if(rc){ rc.active=false; }
-  generateRecurring();
-  if(o.setupFee>0 && !o.setupTxId){
-    const tx={ id:uid(), sens:"entrant", label:"Mise en place — "+(o.label||"Programme A1")+" · "+clientName(o.clientId), amount:o.setupFee, currency:o.currency,
-      category:"Honoraires mission", clientId:o.clientId, entity:o.entity, nature:"client", status:"prevu", date:o.offertStart||todayISO(), dueDate:o.offertStart||todayISO(), method:"" };
-    DB.transactions.push(tx); o.setupTxId=tx.id;
-  }
-}
 
 /* ===================== PROGRAMME A1 — Groupes électrogènes / JIRAMA ===================== */
 const A1_GEN_FUELS=["Diesel","Essence","Gaz","Autre"];
@@ -7152,6 +7163,7 @@ function a1GenCompute(clientId){
   return {arr, totals};
 }
 function renderA1Genset(){
+  if(typeof focusClient!=="undefined" && focusClient && !a1genClient) a1genClient=focusClient; // cohérence : adopte le client en focus de l'app
   const {arr, totals}=a1GenCompute(a1genClient);
   const anomalies=arr.filter(p=>p.anomaly), lowLoads=arr.filter(p=>p.lowLoad);
   const rows=arr.sort((a,b)=>(b.driftLh||0)-(a.driftLh||0)).map(p=>`
@@ -8802,6 +8814,8 @@ function isAdmin(){ return !!(currentUser && currentUser.role==="admin"); }
 function isDirection(){ return !!(currentUser && (currentUser.role==="admin" || currentUser.role==="direction")); }
 function userByLogin(login){ login=String(login||"").trim().toLowerCase(); return (DB.users||[]).find(u=>String(u.login||"").toLowerCase()===login); }
 function roleLabel(r){ return (ROLE_TEMPLATES[r]&&ROLE_TEMPLATES[r].label)||r||"—"; }
+/* Nom d'affichage simplifié : si le nom est un e-mail (pas de nom complet dans le profil), on retire le domaine et on met en forme « prénom.nom » → « Prénom Nom ». */
+function displayUserName(u){ if(!u) return ""; let n=(u.name||u.login||"").trim(); if(/@/.test(n)){ n=n.split("@")[0].replace(/[._-]+/g," ").trim().replace(/\b\w/g,c=>c.toUpperCase()); } return n.length>28?n.slice(0,27)+"…":n; }
 
 /* --- Session --- */
 function setSession(user, remember){
@@ -8954,10 +8968,10 @@ function applyRoleUI(){
     while(n && !n.classList.contains("navgroup")){ if(n.classList.contains("navitem") && n.style.display!=="none"){ vis=true; break; } n=n.nextElementSibling; }
     h.style.display=vis?"":"none";
   });
-  // 4) identité de l'utilisateur connecté
+  // 4) identité de l'utilisateur connecté (nom simplifié, sans domaine e-mail)
   const who=document.querySelector(".sidebar .who");
-  if(who) who.textContent=currentUser ? (currentUser.name||currentUser.login)+" · "+roleLabel(currentUser.role) : "";
-  const lockBtn=document.getElementById("logout-btn"); if(lockBtn) lockBtn.title=currentUser?("Se déconnecter ("+(currentUser.name||currentUser.login)+")"):"Se déconnecter";
+  if(who){ who.textContent=currentUser ? displayUserName(currentUser)+" · "+roleLabel(currentUser.role) : ""; if(currentUser) who.title=currentUser.login||""; }
+  const lockBtn=document.getElementById("logout-btn"); if(lockBtn) lockBtn.title=currentUser?("Se déconnecter ("+displayUserName(currentUser)+")"):"Se déconnecter";
   updateNotifBell();
   if(typeof initNavGroups==="function") initNavGroups();
   // 5) si l'utilisateur est sur un écran non autorisé, on le renvoie vers un écran permis
