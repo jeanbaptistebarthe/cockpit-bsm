@@ -3520,8 +3520,12 @@ function saveEvent(id){
   if(!id && serverEnabled && DB.meta.autoCalendar!==false){ sendEventToCalendar(obj.id, true); } // envoi auto (silencieux) vers Google Agenda → notif téléphone
 }
 function deleteEvent(id){
-  const e=DB.events.find(x=>x.id===id);
-  confirmModal("Supprimer cet événement ?", esc(e.title), ()=>{ DB.events=DB.events.filter(x=>x.id!==id); save(); refreshAll(); toast("Événement supprimé."); });
+  const e=DB.events.find(x=>x.id===id); if(!e) return;
+  const gid=e.gcalId;
+  confirmModal("Supprimer cet événement ?", esc(e.title)+(gid?" — retiré aussi de Google Agenda (téléphone)":""), ()=>{
+    DB.events=DB.events.filter(x=>x.id!==id); save(); refreshAll(); toast("Événement supprimé.");
+    if(gid && serverEnabled){ googleCall("deleteCalendar",{eventId:gid}).then(()=>toast("Retiré de Google Agenda ✅")).catch(()=>toast("Supprimé du Cockpit ; échec côté Google (à ouvrir en local).")); }
+  });
 }
 
 /* ----------------------------- Budget ----------------------------- */
