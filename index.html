@@ -6540,7 +6540,7 @@ function a1InvoiceCard(kind){ const isJ=kind==="jirama"; const client=isJ?a1genC
   const list=(DB.a1invoices||[]).filter(i=>i.kind===kind&&(!client||i.clientId===client)); const n=list.length; const total=list.reduce((s,i)=>s+(+i.amount||0),0);
   return `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
     <div style="font-size:13px"><b>🧾 Factures ${isJ?"JIRAMA":"carburant (pompiste)"} :</b> ${n?`${n} enregistrée(s) · ${fmtD(total)} · ${list.filter(i=>i.hasFile).length} avec preuve PDF`:`aucune pour l'instant`}.</div>
-    <div style="display:flex;gap:6px"><button class="cta ghost sm" onclick="openA1InvoiceImport('${kind}')">+ Facture</button><button class="cta ghost sm" onclick="openA1InvoiceRegister('${kind}')">📚 Registre</button></div></div></div>`; }
+    <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="cta ghost sm" onclick="openA1InvoiceImport('${kind}')">+ Facture</button><button class="cta ghost sm" onclick="openA1InvoiceRegister('${kind}')">📚 Registre</button><button class="cta ghost sm" onclick="openA1Control('${kind}')">🔎 Contrôle &amp; écarts</button></div></div></div>`; }
 /* ================== LIEN flotte ↔ groupes par client (énergie consolidée) ================== */
 function a1GoEnergy(cid){ a1genClient=cid||""; if(typeof focusClient!=="undefined") focusClient=cid||""; setScreen("a1genset"); }
 function a1GoFleet(cid){ a1Client=cid||""; if(typeof focusClient!=="undefined") focusClient=cid||""; setScreen("a1fleet"); }
@@ -6844,6 +6844,115 @@ function openA1DataSafety(){
       <input type="file" id="a1wb-file" accept=".xlsx" onchange="if(this.files[0]) a1ImportWorkbookFile(this.files[0])"></div>
     <div class="hint">💡 Pour une <b>sauvegarde fidèle de TOUT le Cockpit</b> (au-delà de l'A1), utilise aussi « ⬇ Sauvegarde » (JSON) dans la barre du haut — c'est la restauration la plus complète.</div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`);
+}
+/* ================== CONTRÔLE & ÉCARTS : rapprochement documents (factures / devis / suivi) ================== */
+function a1DocNum(s){ if(s==null) return 0; const v=parseFloat(String(s).replace(/\s/g,"").replace(/[^\d.,-]/g,"").replace(",",".")); return isNaN(v)?0:v; }
+function a1ParseDocsRows(rows){
+  if(!rows||rows.length<2) return [];
+  const head=rows[0].map(x=>norm(x));
+  const idx=names=>{ for(const n of names){ const i=head.findIndex(h=>h.indexOf(n)>=0); if(i>=0) return i; } return -1; };
+  const iPer=idx(["periode","mois","date"]), iRef=idx(["n°","numero","ref","facture","devis","piece"]), iSup=idx(["fournisseur","supplier","pompiste","station","emetteur"]),
+        iQty=idx(["litre","kwh","quantite","qte","volume","conso"]), iUnit=idx(["prix unitaire","prix/l","prix/kwh","pu","tarif","prix"]), iAmt=idx(["montant","total","ttc","ht"]);
+  const out=[];
+  for(let r=1;r<rows.length;r++){ const c=rows[r]; if(!c||!c.length) continue; if(c.every(x=>String(x==null?"":x).trim()==="")) continue;
+    const period=iPer>=0?a1Period(c[iPer]):""; const ref=(iRef>=0?String(c[iRef]||""):"").trim();
+    const qty=iQty>=0?a1DocNum(c[iQty]):0; let unit=iUnit>=0?a1DocNum(c[iUnit]):0; const amount=iAmt>=0?a1DocNum(c[iAmt]):0;
+    if(!period && !ref && !qty && !amount) continue; if(!unit && qty>0 && amount>0) unit=amount/qty;
+    out.push({ period, ref, supplier:(iSup>=0?String(c[iSup]||""):"").trim(), qty, unit, amount, key:period||ref }); }
+  return out;
+}
+function a1ParseDocsText(text){ const lines=String(text||"").trim().split(/\r?\n/).filter(l=>l.trim()); if(lines.length<2) return [];
+  const sep=(lines[0].split(";").length>lines[0].split(",").length)?";":(lines[0].indexOf("\t")>=0?"\t":","); return a1ParseDocsRows(lines.map(l=>l.split(sep))); }
+function a1DocsFromInvoices(kind, clientId){ return (DB.a1invoices||[]).filter(i=>(!kind||i.kind===kind)&&(!clientId||i.clientId===clientId)).map(i=>({
+  period:i.period||a1Period(i.date), ref:i.ref||"", supplier:i.supplier||"", qty:(i.kind==="jirama"?+i.kwh:+i.liters)||0, unit:+i.unit||0, amount:+i.amount||0, key:i.period||i.ref })); }
+function a1DocsFromCockpit(kind, clientId){ const map={};
+  if(kind==="jirama"){ const h=DB.meta.jiramaHistory||{}; Object.keys(h).forEach(p=>{ (map[p]=map[p]||{period:p,qty:0,amount:0}); map[p].unit=+h[p]||0; }); }
+  else { const logs=DB.a1logs.filter(l=>{ const v=DB.a1vehicles.find(x=>x.id===l.vehicleId); return v && (!clientId||v.clientId===clientId); });
+    logs.forEach(l=>{ const p=a1Period(l.date); if(!p) return; (map[p]=map[p]||{period:p,qty:0,amount:0}); map[p].qty+=(+l.liters||0); });
+    const h=DB.meta.fuelPriceHistory||{}; Object.keys(map).forEach(p=>{ const hp=h[p]; map[p].unit=(hp&&+hp.gasoil)||(+((DB.meta.fuelPrices||{}).gasoil))||0; map[p].amount=map[p].qty*map[p].unit; }); }
+  return Object.keys(map).map(p=>{ const m=map[p]; if(!m.amount&&m.qty&&m.unit) m.amount=m.qty*m.unit; m.ref=""; m.supplier=""; m.key=p; return m; }); }
+function a1GroupDocs(list, keyBy){ const g={}; (list||[]).forEach(d=>{ const k=(keyBy==="ref"?(d.ref||d.period):(d.period||d.ref))||"—"; (g[k]=g[k]||{key:k,qty:0,amount:0,count:0,items:[]}); g[k].qty+=+d.qty||0; g[k].amount+=+d.amount||0; g[k].count++; g[k].items.push(d); }); Object.values(g).forEach(x=>{ x.unit=x.qty>0?x.amount/x.qty:(x.items[0]?x.items[0].unit:0); }); return g; }
+function a1Reconcile(A, B, opts){ opts=opts||{}; const keyBy=opts.keyBy||"period"; const tolPct=opts.tolPct!=null?opts.tolPct:1; const tolAbs=opts.tolAbs!=null?opts.tolAbs:1;
+  const gA=a1GroupDocs(A,keyBy), gB=B?a1GroupDocs(B,keyBy):{}; const keys=Array.from(new Set(Object.keys(gA).concat(Object.keys(gB)))).sort();
+  const rows=[]; let impact=0;
+  keys.forEach(k=>{ const a=gA[k], b=gB[k];
+    if(a&&b){ const dQty=a.qty-b.qty, dUnit=a.unit-b.unit, dAmt=a.amount-b.amount; const flags=[]; const S=Math.abs;
+      if(b.qty>0 && S(dQty)/Math.max(1,b.qty)*100>tolPct && S(dQty)>tolAbs) flags.push({t:"quantité "+(dQty>0?"+":"")+Math.round(dQty), sev:"w"});
+      if(b.unit>0 && S(dUnit)/Math.max(1,b.unit)*100>tolPct) flags.push({t:"prix/u "+(dUnit>0?"+":"")+dUnit.toFixed(2), sev:"w"});
+      if(b.amount>0 && S(dAmt)/Math.max(1,b.amount)*100>tolPct && S(dAmt)>tolAbs) flags.push({t:"montant "+(dAmt>0?"+":"")+Math.round(dAmt), sev:dAmt>0?"d":"w"});
+      if(dAmt>0) impact+=dAmt;
+      rows.push({key:k, status:"compare", a, b, dQty, dUnit, dAmt, flags, sev:flags.some(f=>f.sev==="d")?"d":(flags.length?"w":"ok")}); }
+    else if(a && !b){ rows.push({key:k, status:"entrop", a, b:null, dAmt:a.amount, flags:[{t:"facture sans référence", sev:"w"}], sev:"w"}); }
+    else { rows.push({key:k, status:"manquant", a:null, b, dAmt:-(b.amount||0), flags:[{t:"référence sans facture (manquant)", sev:"w"}], sev:"w"}); } });
+  return { rows, impact, keys:keys.length };
+}
+function a1IntrinsicChecks(A, marketUnit){ const out=[]; const byRef={}, byKey={};
+  (A||[]).forEach(d=>{ if(d.qty>0 && d.unit>0 && d.amount>0){ const calc=d.qty*d.unit; if(Math.abs(calc-d.amount)/Math.max(1,d.amount)*100>1) out.push({sev:"d", t:`Erreur de calcul ${d.period||d.ref||"?"} : ${Math.round(d.amount).toLocaleString('fr-FR')} facturé vs ${Math.round(calc).toLocaleString('fr-FR')} attendu (${Math.round(d.qty)} × ${d.unit.toFixed(2)})`}); }
+    if(marketUnit>0 && d.unit>marketUnit*1.2) out.push({sev:"w", t:`Prix élevé ${d.period||d.ref||"?"} : ${d.unit.toFixed(0)}/u vs marché ${marketUnit.toFixed(0)}`});
+    if(d.ref){ byRef[d.ref]=(byRef[d.ref]||0)+1; } const kk=(d.period||"")+"|"+(d.supplier||""); if(d.period){ byKey[kk]=(byKey[kk]||0)+1; } });
+  Object.keys(byRef).forEach(r=>{ if(byRef[r]>1) out.push({sev:"d", t:`Doublon n° ${r} (${byRef[r]}×)`}); });
+  Object.keys(byKey).forEach(k=>{ if(byKey[k]>1) out.push({sev:"w", t:`${byKey[k]} documents même période/fournisseur (${k.replace("|"," · ")})`}); });
+  return out;
+}
+let _a1CtlRefRows=null, _a1CtlLast=null;
+function openA1Control(kind){ kind=kind||"fuel"; const client=(kind==="jirama"?a1genClient:a1Client); _a1CtlRefRows=null;
+  const nInv=(DB.a1invoices||[]).filter(i=>i.kind===kind&&(!client||i.clientId===client)).length;
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔎 Contrôle & écarts — ${kind==="jirama"?"factures JIRAMA":"factures carburant"}</h2>
+    <div class="msub">Rapproche les documents et liste les <b>écarts</b> (quantité, prix, montant), <b>doublons</b>, <b>erreurs de calcul</b> (montant ≠ quantité × prix) et périodes <b>manquantes</b>. Base : <b>${nInv}</b> facture(s) du registre${client?" · "+esc(clientName(client)):""}.</div>
+    <div class="field"><label>Référence (le « juste » attendu)</label>
+      <select id="ctl-ref" onchange="a1CtlRefUI()">
+        <option value="cockpit">Données du Cockpit (relevés + prix enregistrés)</option>
+        <option value="file">Un fichier Excel/CSV que je fournis (suivi / devis)</option>
+        <option value="none">Aucune — contrôles internes seuls (calcul, doublons)</option></select></div>
+    <div id="ctl-file-wrap" style="display:none">
+      <div class="field"><label>Colle le tableau (période, quantité, prix, montant…) ou charge un fichier</label>
+        <textarea id="ctl-csv" rows="4" placeholder="periode;quantite;prix;montant" style="width:100%;font-family:monospace;font-size:12px;padding:8px;border:1px solid var(--line);border-radius:8px"></textarea></div>
+      <div class="field"><input type="file" id="ctl-file" accept=".csv,.xlsx,text/csv" onchange="a1CtlFile()"><div id="ctl-fstatus" class="hint" style="color:var(--navy)"></div></div></div>
+    <div class="field row2"><label>Rapprocher par & tolérance (%)</label>
+      <select id="ctl-key"><option value="period">Période (mois)</option><option value="ref">N° de document</option></select>
+      <input type="number" step="0.1" id="ctl-tol" value="1"></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="runA1Control('${kind}')">Lancer le contrôle</button></div>
+    <div id="ctl-res" style="margin-top:10px"></div>`);
+}
+function a1CtlRefUI(){ const w=document.getElementById("ctl-file-wrap"); if(w) w.style.display=(val("ctl-ref")==="file")?"":"none"; }
+async function a1CtlFile(){ const f=document.getElementById("ctl-file").files[0]; if(!f) return; const st=document.getElementById("ctl-fstatus");
+  if(/\.xlsx$/i.test(f.name)){ try{ const sheets=await a1ReadXlsx(await f.arrayBuffer()); const nm=Object.keys(sheets)[0]; _a1CtlRefRows=sheets[nm]; if(st) st.textContent="✓ Feuille « "+nm+" » chargée ("+(_a1CtlRefRows.length-1)+" lignes)."; }catch(e){ if(st) st.textContent="⚠️ "+(e.message||"lecture .xlsx impossible"); } return; }
+  const r=new FileReader(); r.onload=e=>{ document.getElementById("ctl-csv").value=e.target.result; _a1CtlRefRows=null; }; r.readAsText(f); }
+function runA1Control(kind){ const client=(kind==="jirama"?a1genClient:a1Client); const refType=val("ctl-ref"); const keyBy=val("ctl-key")||"period"; const tol=parseFloat(val("ctl-tol"))||1;
+  const A=a1DocsFromInvoices(kind, client);
+  if(!A.length){ document.getElementById("ctl-res").innerHTML=`<div class="empty">Aucune facture dans le registre pour ce périmètre — ajoute des factures (🧾) d'abord.</div>`; return; }
+  let B=null;
+  if(refType==="cockpit") B=a1DocsFromCockpit(kind, client);
+  else if(refType==="file"){ B=_a1CtlRefRows?a1ParseDocsRows(_a1CtlRefRows):a1ParseDocsText(val("ctl-csv")); if(!B||!B.length){ document.getElementById("ctl-res").innerHTML=`<div class="empty">Référence vide : colle un tableau ou charge un fichier (avec une ligne d'en-têtes reconnaissable : période, quantité, prix, montant).</div>`; return; } }
+  const market=(kind==="jirama")?(+DB.meta.jiramaKwhPrice||0):(+((DB.meta.fuelPrices||{}).gasoil)||0);
+  const rec=B?a1Reconcile(A,B,{keyBy,tolPct:tol}):{rows:[],impact:0,keys:0};
+  const intr=a1IntrinsicChecks(A, market); _a1CtlLast={kind, rec, intr, refType};
+  a1RenderControl(kind, rec, intr, refType);
+}
+function a1RenderControl(kind, rec, intr, refType){ const el=document.getElementById("ctl-res"); if(!el) return;
+  const anomD=rec.rows.filter(r=>r.sev==="d").length, anomW=rec.rows.filter(r=>r.sev==="w").length; const intrD=intr.filter(x=>x.sev==="d").length;
+  let html=`<div class="card" style="border-left:3px solid ${(anomD||intrD)?'var(--red)':(anomW||intr.length)?'var(--amber)':'var(--green)'}">
+    <b>Résultat :</b> ${refType!=="none"?`${rec.keys} période(s) rapprochée(s), ${anomD+anomW} écart(s)${rec.impact?`, impact ~<b style="color:var(--red)">${fmtD(rec.impact)}</b> (sur-facturation potentielle)`:""}. `:""}${intr.length?`<b style="color:${intrD?'var(--red)':'var(--amber)'}">${intr.length} anomalie(s) interne(s)</b> (calcul / doublon).`:"Aucune anomalie interne détectée."}</div>`;
+  if(intr.length) html+=`<div class="card"><h3 style="margin:0 0 6px">⚙ Contrôles internes (sur les factures)</h3>`+intr.map(x=>`<div style="font-size:12.5px;margin:2px 0">${x.sev==="d"?"🚨":"⚠️"} ${esc(x.t)}</div>`).join("")+`</div>`;
+  if(refType!=="none") html+=`<div class="card"><h3 style="margin:0 0 6px">🔁 Rapprochement (facture ↔ référence)</h3><div style="overflow:auto"><table style="font-size:12px"><thead><tr><th>Clé</th><th style="text-align:right">Qté fact.</th><th style="text-align:right">Qté réf.</th><th style="text-align:right">Prix fact.</th><th style="text-align:right">Prix réf.</th><th style="text-align:right">Montant fact.</th><th style="text-align:right">Écart</th><th>Constat</th></tr></thead><tbody>`+
+    rec.rows.map(r=>{ const a=r.a||{}, b=r.b||{}; const col=r.sev==="d"?"var(--red)":r.sev==="w"?"var(--amber)":"var(--muted)";
+      return `<tr><td><b>${esc(a1MonthFr(r.key))}</b></td>
+        <td style="text-align:right">${a.qty?Math.round(a.qty).toLocaleString('fr-FR'):(r.status==="manquant"?"—":"0")}</td>
+        <td style="text-align:right">${b.qty?Math.round(b.qty).toLocaleString('fr-FR'):"—"}</td>
+        <td style="text-align:right">${a.unit?a.unit.toFixed(0):"—"}</td><td style="text-align:right">${b.unit?b.unit.toFixed(0):"—"}</td>
+        <td style="text-align:right">${a.amount?fmtD(a.amount):"—"}</td>
+        <td style="text-align:right;color:${col}">${r.dAmt?((r.dAmt>0?"+":"")+fmtD(r.dAmt)):"0"}</td>
+        <td style="font-size:11px;color:${col}">${(r.flags||[]).map(f=>esc(f.t)).join(" · ")||"✅ conforme"}</td></tr>`; }).join("")+`</tbody></table></div>
+    <div class="hint" style="margin-top:6px">Écart montant positif = <b>facturé au-dessus</b> de la référence (à contester). Un « manquant » = période attendue sans facture.</div></div>`;
+  html+=`<div class="modal-actions"><button class="cta ghost sm" onclick="a1ControlPrint('${kind}')">🖨 Imprimer / PDF le point d'écarts</button></div>`;
+  el.innerHTML=html;
+}
+function a1ControlPrint(kind){ if(!_a1CtlLast){ toast("Lance d'abord un contrôle."); return; } const {rec,intr,refType}=_a1CtlLast; const client=(kind==="jirama"?a1genClient:a1Client);
+  const rowsHtml=(refType!=="none")?`<h2 class="docsec">Rapprochement facture ↔ référence</h2><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#F6F1E8"><th style="text-align:left;padding:5px">Période</th><th style="text-align:right;padding:5px">Qté fact.</th><th style="text-align:right;padding:5px">Qté réf.</th><th style="text-align:right;padding:5px">Prix fact.</th><th style="text-align:right;padding:5px">Prix réf.</th><th style="text-align:right;padding:5px">Écart montant</th><th style="text-align:left;padding:5px">Constat</th></tr></thead><tbody>`+
+    rec.rows.map(r=>{ const a=r.a||{}, b=r.b||{}; return `<tr><td style="padding:5px;border-top:1px solid #eee">${esc(a1MonthFr(r.key))}</td><td style="text-align:right;padding:5px;border-top:1px solid #eee">${a.qty?Math.round(a.qty).toLocaleString('fr-FR'):"—"}</td><td style="text-align:right;padding:5px;border-top:1px solid #eee">${b.qty?Math.round(b.qty).toLocaleString('fr-FR'):"—"}</td><td style="text-align:right;padding:5px;border-top:1px solid #eee">${a.unit?a.unit.toFixed(0):"—"}</td><td style="text-align:right;padding:5px;border-top:1px solid #eee">${b.unit?b.unit.toFixed(0):"—"}</td><td style="text-align:right;padding:5px;border-top:1px solid #eee">${r.dAmt?((r.dAmt>0?"+":"")+fmtD(r.dAmt)):"0"}</td><td style="padding:5px;border-top:1px solid #eee">${(r.flags||[]).map(f=>esc(f.t)).join(" · ")||"conforme"}</td></tr>`; }).join("")+`</tbody></table>`:"";
+  const intrHtml=intr.length?`<h2 class="docsec">Contrôles internes</h2><ul>`+intr.map(x=>`<li>${x.sev==="d"?"🚨 ":"⚠️ "}${esc(x.t)}</li>`).join("")+`</ul>`:"<p>Aucune anomalie interne détectée.</p>";
+  const body=`<p><b>Impact financier potentiel (sur-facturation) :</b> ${fmtD(rec.impact||0)}.</p>${intrHtml}${rowsHtml}<h2 class="docsec">À vérifier / recommandations</h2><p style="color:#4B5563">Rapprocher les écarts ci-dessus avec les bons de livraison et le contrat fournisseur ; demander un avoir sur les montants facturés au-delà de la référence ; corriger les erreurs de calcul ; supprimer les doublons.</p>`;
+  openPrintable(docChrome(body, { title:"Contrôle & écarts — "+(kind==="jirama"?"JIRAMA":"carburant"), typeLabel:"Contrôle documentaire", date:frLong(todayISO()), clientName: client?clientName(client):"Tous clients", objet:"Contrôle des factures & écarts" }));
 }
 function buildA1Context(){
   const {arr, fleetConso, totals}=a1Compute();
