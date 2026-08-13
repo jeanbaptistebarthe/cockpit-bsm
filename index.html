@@ -5727,6 +5727,12 @@ function renderAudit(){
         <button class="cta" onclick="setScreen('a1genset')">🔌 Groupes électrogènes / JIRAMA →</button>
       </div>
     </div>
+    <div class="card" style="border-left:3px solid var(--gold);margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div><h2 style="margin:0">🎬 Démonstration grandeur nature</h2><div class="msub" style="margin:2px 0 0">Charge un <b>client de test complet</b> (véhicules, motos, GPS, groupes, factures + anomalies volontaires) pour présenter le programme. Retire-le en un clic après.</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="cta gold" onclick="seedA1Demo()">🎬 Charger le client de démo</button><button class="cta ghost" onclick="removeA1Demo()">🧹 Retirer la démo</button></div>
+      </div>
+    </div>
     ${url? `<div class="card">
       <iframe class="formframe" src="${embed}" title="Audit R5">Chargement…</iframe>
       <div class="hint" style="margin-top:8px">Si le formulaire ne s'affiche pas ici (selon le navigateur), utilise le bouton « Ouvrir ↗ ».</div>
@@ -6094,6 +6100,7 @@ function renderA1Fleet(){
     </tr>`).join("");
   document.getElementById("scr-a1fleet").innerHTML=`
     <button class="backlink" onclick="setScreen('audit')">← Retour aux audits</button>
+    ${a1ModuleTabs('fleet')}
     <div class="pagetitle"><div><h1>🚗 A1 — Flotte & carburant + GPS</h1><div class="sub">Programme d'analyse — conso, coût au km, GPS, détection d'anomalies (prestation client)</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="cta ghost" onclick="openFuelPrices()">⛽ Prix carburant</button>
@@ -6811,6 +6818,11 @@ function a1BackupReminderCard(){
     </div></div>`;
 }
 function a1SnoozeBackup(){ const d=new Date(Date.now()+86400000); DB.meta.backupSnoozeUntil=d.toISOString().slice(0,10); save(); a1RefreshCurrent(); toast("Rappel reporté à demain."); }
+/* Sélecteur de module A1 — un seul programme, deux modules (véhicules / groupes). */
+function a1ModuleTabs(cur){ return `<div style="display:flex;gap:8px;margin:0 0 10px;flex-wrap:wrap;align-items:center">
+  <span style="font-size:11px;color:var(--muted);letter-spacing:.05em;font-weight:600">PROGRAMME A1</span>
+  <button class="cta ${cur==='fleet'?'':'ghost'} sm" onclick="setScreen('a1fleet')">🚗 Véhicules & GPS</button>
+  <button class="cta ${cur==='gen'?'':'ghost'} sm" onclick="setScreen('a1genset')">🔌 Groupes & JIRAMA</button></div>`; }
 /* Restauration depuis le classeur exporté (upsert par id) */
 async function a1ImportWorkbookFile(f){ let sheets; try{ sheets=await a1ReadXlsx(await f.arrayBuffer()); }catch(e){ toast("Lecture impossible : "+(e.message||e)); return; }
   const sheet=kw=>{ const k=Object.keys(sheets).find(n=>norm(n).indexOf(kw)>=0); return k?sheets[k]:null; };
@@ -6953,6 +6965,68 @@ function a1ControlPrint(kind){ if(!_a1CtlLast){ toast("Lance d'abord un contrôl
   const intrHtml=intr.length?`<h2 class="docsec">Contrôles internes</h2><ul>`+intr.map(x=>`<li>${x.sev==="d"?"🚨 ":"⚠️ "}${esc(x.t)}</li>`).join("")+`</ul>`:"<p>Aucune anomalie interne détectée.</p>";
   const body=`<p><b>Impact financier potentiel (sur-facturation) :</b> ${fmtD(rec.impact||0)}.</p>${intrHtml}${rowsHtml}<h2 class="docsec">À vérifier / recommandations</h2><p style="color:#4B5563">Rapprocher les écarts ci-dessus avec les bons de livraison et le contrat fournisseur ; demander un avoir sur les montants facturés au-delà de la référence ; corriger les erreurs de calcul ; supprimer les doublons.</p>`;
   openPrintable(docChrome(body, { title:"Contrôle & écarts — "+(kind==="jirama"?"JIRAMA":"carburant"), typeLabel:"Contrôle documentaire", date:frLong(todayISO()), clientName: client?clientName(client):"Tous clients", objet:"Contrôle des factures & écarts" }));
+}
+/* ================== CLIENT DE DÉMONSTRATION (test grandeur nature, retirable) ================== */
+function seedA1Demo(){
+  removeA1Demo(true); // repart propre
+  const TAG="a1demo"; const tag=o=>{ o._demo=TAG; return o; }; const rid=()=>"demo-"+Math.random().toString(36).slice(2,10);
+  const email="jeanbaptiste.barthe@bsmconseils.com"; const cid="demo-client";
+  DB.clients.push(tag({ id:cid, company:"DÉMO — Transport & Énergie SA", sector:"Transport / Logistique", status:"actif",
+    contactName:"Jean-Baptiste Barthe", contactEmail:email, contactPhone:"+261 34 00 000 00", signatureDate:"2026-01-15", createdAt:todayISO(),
+    notes:"Client de démonstration (test grandeur nature) — supprimable via « Retirer la démo »." }));
+  const months=["2026-01","2026-02","2026-03","2026-04","2026-05","2026-06"];
+  const price={ "2026-01":4670,"2026-02":4800,"2026-03":4660,"2026-04":4660,"2026-05":4745,"2026-06":4860 };
+  DB.meta.fuelPriceHistory=DB.meta.fuelPriceHistory||{}; months.forEach(m=>{ DB.meta.fuelPriceHistory[m]={gasoil:price[m],essence:5500}; });
+  DB.meta.fuelPrices={gasoil:4860,essence:5500};
+  DB.meta.jiramaHistory=DB.meta.jiramaHistory||{}; DB.meta.jiramaKwhPrice=612;
+  const jt={ "2026-03":600,"2026-04":606,"2026-05":612,"2026-06":612 }; Object.keys(jt).forEach(m=>DB.meta.jiramaHistory[m]=jt[m]);
+  const rnd=(a,b)=>a+Math.round((b-a)*Math.random());
+  const vehs=[
+    {id:"dv1",name:"Hilux 1",type:"Voiture / VHL",plate:"1234 TAA",marque:"Toyota",modele:"Hilux 2.4 D-4D",annee:2020,motor:"Diesel",consoTheo:8.0,reservoir:80,gps:"GPS-001",km:1500,l100:8.6,driver:"Rakoto",station:"GALANA Ivato"},
+    {id:"dv2",name:"Land Cruiser 76",type:"Voiture / VHL",plate:"5678 TBB",marque:"Toyota",modele:"Land Cruiser 76",annee:2018,motor:"Diesel",consoTheo:11.5,reservoir:130,gps:"GPS-002",km:1200,l100:12.4,driver:"Jean"},
+    {id:"dv3",name:"Camion Hino 1",type:"Camion",plate:"9012 TCC",marque:"Toyota",modele:"Hino 300",annee:2019,motor:"Diesel",consoTheo:16,reservoir:100,gps:"GPS-003",km:1100,l100:17.8,driver:"Naina",station:"GALANA Tana"},
+    {id:"dv4",name:"Hiace navette",type:"Utilitaire",plate:"3456 TDD",marque:"Toyota",modele:"Hiace 2.8",annee:2021,motor:"Diesel",consoTheo:9.5,reservoir:70,km:900,l100:10.2,idlePct:0.42},
+    {id:"dv5",name:"Ranger 5",type:"Voiture / VHL",plate:"7890 TEE",marque:"Ford",modele:"Ranger 2.2",annee:2020,motor:"Diesel",consoTheo:8.0,reservoir:80,gps:"GPS-005",km:1300,l100:8.4,driver:"Tovo"},
+    {id:"dv6",name:"Moto Boxer 1",type:"Moto",plate:"MT-100",marque:"Bajaj",modele:"Boxer 100",annee:2022,motor:"Essence",consoTheo:2.2,reservoir:12,km:800,l100:2.4},
+    {id:"dv7",name:"Moto YBR 2",type:"Moto",plate:"MT-125",marque:"Yamaha",modele:"YBR 125",annee:2023,motor:"Essence",consoTheo:2.3,reservoir:13,km:700,l100:2.6},
+    {id:"dv8",name:"Corolla direction",type:"Voiture / VHL",plate:"1122 TFF",marque:"Toyota",modele:"Corolla 1.5",annee:2019,motor:"Essence",consoTheo:6.5,reservoir:50,km:1000,l100:7.0},
+    {id:"dv9",name:"Canter livraison",type:"Camion",plate:"3344 TGG",marque:"Mitsubishi",modele:"Canter 3.0",annee:2018,motor:"Diesel",consoTheo:15,reservoir:100,gps:"GPS-009",km:1000,l100:16.5,idlePct:0.55},
+    {id:"dv10",name:"Duster terrain",type:"Voiture / VHL",plate:"5566 THH",marque:"Renault",modele:"Duster 1.5 dCi",annee:2021,motor:"Diesel",consoTheo:6.0,reservoir:50,km:1100,l100:6.5}
+  ];
+  vehs.forEach(v=>{ DB.a1vehicles.push(tag({ id:v.id,name:v.name,type:v.type,plate:v.plate,marque:v.marque,modele:v.modele,annee:v.annee,motorisation:v.motor,consoTheo:v.consoTheo,reservoir:v.reservoir,gpsId:v.gps||"",gpsProvider:v.gps?"Ultimate":"",clientId:cid,driver:v.driver||"",station:v.station||"" })); });
+  vehs.forEach(v=>{ months.forEach(m=>{ const km=Math.round(v.km*(0.9+0.2*Math.random())); let liters=Math.max(1,Math.round(km*v.l100/100));
+      if(v.id==="dv1" && m==="2026-06") liters=300; // anomalie : plein excessif -> carburant fantôme (recoupement GPS)
+      const unit=(v.motor==="Essence")?5500:(price[m]||4860); const log={ id:rid(), vehicleId:v.id, date:m+"-12", km, liters, cost:Math.round(liters*unit), unitPrice:unit, currency:"MGA", station:v.station||"GALANA", driver:v.driver||"" };
+      if(v.idlePct){ log.hours=Math.max(1,Math.round(km/40)); log.idle=Math.round(log.hours*v.idlePct); }
+      if(v.id==="dv1" && m==="2026-05") log.litersReal=liters-25; // écart jauge (anti-siphonnage)
+      DB.a1logs.push(tag(log)); }); });
+  vehs.filter(v=>v.gps).forEach(v=>{ months.forEach(m=>{ let gkm=Math.round(v.km*(0.9+0.2*Math.random()));
+      if(v.id==="dv1" && m==="2026-06") gkm=1400; // GPS ne voit que 1400 km alors que 300 L ~ 3500 km
+      DB.a1gpslogs.push(tag({ id:rid(), vehicleId:v.id, clientId:cid, date:m+"-28", gpsKm:gkm, idleH:rnd(3,9), moveH:Math.round(gkm/45), maxSpeed:rnd(85,115), stops:rnd(80,200), source:"import" })); }); });
+  const gens=[
+    {id:"dg1",name:"Groupe siège SDMO 300",marque:"SDMO / Kohler",modele:"D300",kva:300,kw:240,conso:60,res:600,h:120,kwh:8600,charge:15},
+    {id:"dg2",name:"Groupe entrepôt HFW-200",marque:"Himoinsa",modele:"HFW-200 T5",kva:200,kw:160,conso:43,res:400,h:90,kwh:6800,charge:30},
+    {id:"dg3",name:"Groupe agence CAT 110",marque:"Caterpillar",modele:"DE110E3",kva:110,kw:88,conso:23,res:300,h:60,kwh:3800,charge:45}
+  ];
+  gens.forEach(g=>{ DB.a1gensets.push(tag({ id:g.id,name:g.name,marque:g.marque,modele:g.modele,puissanceKva:g.kva,puissanceKw:g.kw,consoTheoLh:g.conso,reservoirL:g.res,annee:2018,carburant:"Diesel",clientId:cid,specsSource:"Fiche technique : "+g.marque+" "+g.modele }));
+    months.forEach(m=>{ const h=Math.round(g.h*(0.9+0.2*Math.random())); const kwh=Math.round(g.kwh*(0.9+0.2*Math.random())); const liters=Math.round(h*g.conso*(0.9+0.15*Math.random()));
+      DB.a1genlogs.push(tag({ id:rid(), gensetId:g.id, date:m+"-05", hours:h, liters, kwh, chargePct:g.charge, cost:Math.round(liters*(price[m]||4860)), currency:"MGA" })); }); });
+  // Factures carburant GALANA — anomalies VOLONTAIRES (démo du module Contrôle & écarts)
+  months.forEach(m=>{ const liters=rnd(1200,1400); const unit=(m==="2026-06")?5100:(price[m]||4860); let amount=Math.round(liters*unit);
+    if(m==="2026-05") amount+=250000; // erreur de calcul (montant > qté × PU)
+    DB.a1invoices.push(tag({id:rid(),kind:"fuel",clientId:cid,supplier:"GALANA",currency:"MGA",fuelType:"Gasoil",period:m,date:m+"-30",ref:"INV-"+m.replace("-",""),liters,unit,amount})); });
+  DB.a1invoices.push(tag({id:rid(),kind:"fuel",clientId:cid,supplier:"GALANA",currency:"MGA",fuelType:"Gasoil",period:"2026-04",date:"2026-04-30",ref:"INV-202603",liters:1250,unit:4660,amount:Math.round(1250*4660)})); // doublon n° de mars
+  ["2026-03","2026-04","2026-05","2026-06"].forEach(m=>{ const kwh=rnd(7000,8500); const unit=DB.meta.jiramaHistory[m]||612;
+    DB.a1invoices.push(tag({id:rid(),kind:"jirama",clientId:cid,supplier:"JIRAMA",period:m,date:m+"-28",ref:"JIR-"+m.replace("-",""),kwh,unit,amount:Math.round(kwh*unit),currency:"MGA",targetKind:"gen",targetId:"dg1"})); });
+  a1Client=cid; a1genClient=cid; if(typeof focusClient!=="undefined") focusClient=cid;
+  save();
+  toast("Client de démonstration chargé ✅ ("+vehs.length+" véhicules, "+gens.length+" groupes, factures + GPS).");
+  setScreen("a1fleet");
+}
+function removeA1Demo(silent){
+  ["clients","a1vehicles","a1logs","a1gensets","a1genlogs","a1gpslogs","a1invoices","events","missions","risks","recommendations","transactions"].forEach(col=>{ if(Array.isArray(DB[col])) DB[col]=DB[col].filter(x=>x._demo!=="a1demo"); });
+  if(a1Client==="demo-client") a1Client=""; if(a1genClient==="demo-client") a1genClient=""; if(typeof focusClient!=="undefined" && focusClient==="demo-client") focusClient="";
+  if(!silent){ save(); if(typeof currentScreen!=="undefined" && String(currentScreen).indexOf("a1")===0) a1RefreshCurrent(); else if(typeof refreshAll==="function") refreshAll(); toast("Client de démonstration retiré."); }
 }
 function buildA1Context(){
   const {arr, fleetConso, totals}=a1Compute();
@@ -7322,6 +7396,7 @@ function renderA1Genset(){
     </tr>`).join("");
   document.getElementById("scr-a1genset").innerHTML=`
     <button class="backlink" onclick="setScreen('audit')">← Retour aux audits</button>
+    ${a1ModuleTabs('gen')}
     <div class="pagetitle"><div><h1>🔌 A1 — Groupes électrogènes / JIRAMA</h1><div class="sub">Rendement, coût du kWh vs réseau, dérives & anomalies — prestation d'optimisation énergétique</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="cta ghost" onclick="openFuelPrices()">⛽ Prix carburant</button>
