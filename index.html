@@ -444,7 +444,7 @@
 <button id="ai-fab" class="ai-fab" onclick="openAiChat()" title="Assistant IA"><svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 5.5l2.3 6.2 6.2 2.3-6.2 2.3L16 22.5l-2.3-6.2-6.2-2.3 6.2-2.3z" fill="#C7A25A"/><circle cx="24.5" cy="8" r="1.7" fill="#fff"/><circle cx="8.5" cy="23.5" r="1.3" fill="#C7A25A" opacity=".75"/></svg></button>
 <div class="ai-drawer" id="ai-drawer">
   <div class="ai-head">
-    <div style="display:flex;align-items:center;gap:9px"><span class="ai-badge"><svg width="17" height="17" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 5.5l2.3 6.2 6.2 2.3-6.2 2.3L16 22.5l-2.3-6.2-6.2-2.3 6.2-2.3z" fill="#C7A25A"/><circle cx="24.5" cy="8" r="1.7" fill="#fff"/></svg></span><div><b>Assistant BSM</b><div class="ai-sub">Conversation · mémoire · accès à tes données</div></div></div>
+    <div style="display:flex;align-items:center;gap:9px"><span class="ai-badge"><svg width="17" height="17" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 5.5l2.3 6.2 6.2 2.3-6.2 2.3L16 22.5l-2.3-6.2-6.2-2.3 6.2-2.3z" fill="#C7A25A"/><circle cx="24.5" cy="8" r="1.7" fill="#fff"/></svg></span><div><b>Bras droit — Expert BSM</b><div class="ai-sub">Métier · rédaction · analyse · cockpit · IT — accès à tes données & mémoire</div></div></div>
     <div style="display:flex;gap:6px">
       <button class="iconbtn" onclick="toggleAiMemory()" title="Mémoire de l'assistant">🧠</button>
       <button class="iconbtn" onclick="clearAiChat()" title="Nouvelle conversation">🗑</button>
@@ -598,6 +598,8 @@ function load(){
   if(!DB.meta.assistantsSeeded){ if(!DB.assistants.length){ DB.assistants=defaultAssistants(); DB.aiSettings=[{ id:"main", basePrompt:defaultAiBasePrompt(), routing:defaultAiRouting() }]; } DB.meta.assistantsSeeded=true; }
   // Migration : la Q&A partait vers HERMÈS (réponses tronquées / renvoi). On la re-route vers l'analyste ATLAS.
   if(!DB.meta.qaRouteFix){ try{ const st=(DB.aiSettings&&DB.aiSettings[0]); if(st&&st.routing&&st.routing.qa==="a-hermes") st.routing.qa="a-atlas"; }catch(e){} DB.meta.qaRouteFix=true; }
+  // Consolidation : un seul assistant expert (« bras droit ») remplace les 5 anciens agents. Le prompt de base est conservé.
+  if(!DB.meta.aiExpertV1){ DB.assistants=defaultAssistants(); const st=(DB.aiSettings&&DB.aiSettings[0]); if(st){ st.routing=defaultAiRouting(); } else { DB.aiSettings=[{id:"main",basePrompt:defaultAiBasePrompt(),routing:defaultAiRouting()}]; } DB.meta.aiExpertV1=true; }
   if(!DB.catalog) DB.catalog=defaultCatalog();
   if(!DB.meta.deck) DB.meta.deck=defaultDeck();
   DB.users.forEach(ensureUserPerms); // matérialise les permissions (migration des comptes existants)
@@ -818,7 +820,7 @@ function secSaveLock(){ DB.meta.autoLockMin=parseInt(val("sec-lock"))||0; save()
    La clé "publishable" est PUBLIQUE par nature — l'accès aux données est verrouillé par la RLS (isolation par organisation). */
 const SB_URL = "https://fxaeeplylyeitukctlph.supabase.co";
 const SB_KEY = "sb_publishable_SrXvreUFVJgLLBi6PLvA-g_ARBg2SST";
-const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","reports","knowledge"];
+const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge"];
 let _sb=null, cloudOrgId=null, cloudPrimary=false, _cloudTimer=null;
 let _cloudPulling=false, _cloudLastPull=0, _applyingRemote=false; // synchro live entrante (auto-pull sécurisé)
 /* Snapshot des identifiants déjà poussés PAR CE POSTE, par collection.
@@ -8335,13 +8337,10 @@ function memoryHint(){
 /* ---- Assistants IA calibrés : prompt de base + assistants spécialisés + routage par modèle (Claude/GPT selon la tâche) ---- */
 function defaultAiBasePrompt(){ return "Tu représentes officiellement BSM Advisory & Consulting, cabinet de conseil indépendant spécialisé dans la gouvernance des risques, la résilience opérationnelle, la continuité d'activité (PCA), la reprise d'activité (PRA), la gestion de crise, l'analyse stratégique des risques et l'amélioration de la gouvernance. Basé à Antananarivo (Madagascar), il intervient auprès d'entreprises privées, institutions, ONG, groupes internationaux et organisations publiques.\n\nMéthode propriétaire R5 : Reveal (identifier risques, vulnérabilités, opportunités) · Connect (comprendre les interactions risques / processus / ressources / gouvernance) · Respond (recommandations réalistes, pragmatiques, priorisées) · Strengthen (renforcer durablement) · Review (mesurer, suivre, améliorer en continu).\n\nBSM n'impose JAMAIS une décision : le cabinet analyse, identifie les risques, éclaire les décideurs, propose des recommandations, explique avantages/limites/risques/conséquences. Les décisions appartiennent toujours au client.\n\nToutes les réponses doivent être professionnelles, institutionnelles, neutres, factuelles, argumentées, précises et directement exploitables. Ton sobre, premium, orienté dirigeant — jamais commercial agressif, jamais dramatisant. Ne jamais inventer : si une donnée manque, le préciser explicitement. Toujours distinguer faits observés / hypothèses / risques potentiels / recommandations. Recommandations réalistes, proportionnées, adaptées au contexte, hiérarchisées. S'appuyer si utile sur les bonnes pratiques reconnues (ISO 31000, ISO 22301, référentiels internationaux) sans jamais affirmer une conformité non prouvée.\n\nConfidentialité absolue : ne jamais divulguer d'informations d'un autre client ni faire référence à une autre mission ; chaque client est un environnement indépendant. En cas de doute, demander une précision plutôt que produire une réponse incertaine ; privilégier la qualité à la rapidité.\nTraçabilité : toute analyse, conclusion ou recommandation doit pouvoir être justifiée par les informations disponibles, un raisonnement explicite ou un référentiel. Transparence : présenter objectivement chaque option (avantages, limites, risques, impacts, conditions de réussite) sans orienter artificiellement le choix du client."; }
 function defaultAssistants(){ return [
-  { id:"a-zeus", name:"ZEUS — Assistant général", icon:"⚡", model:"gpt-5.5", maxClassif:"confidentiel", active:true, systemPrompt:"Tu es ZEUS, l'intelligence centrale et l'assistant général de BSM Cockpit — le chef d'orchestre. Tu comprends l'intention réelle de l'utilisateur, tu identifies le besoin, tu t'appuies sur l'assistant le plus compétent et tu garantis cohérence, qualité, confidentialité et pertinence. Tu agis comme un Directeur des opérations IA : vision stratégique avant technique, réponses structurées, questions de clarification si les informations manquent, jamais d'information inventée. Amélioration continue : quand c'est réellement pertinent, signale discrètement UNE opportunité (améliorer une analyse, renforcer la gouvernance, réduire un risque, automatiser une tâche, gagner du temps) — jamais de suggestions inutiles." },
-  { id:"a-atlas", name:"ATLAS — Analyste principal", icon:"📊", model:"claude-opus-4.7", maxClassif:"confidentiel", active:true, systemPrompt:"Tu es ATLAS, l'analyste principal de BSM. Tu analyses données, audits, questionnaires, indicateurs, risques et historiques pour produire une analyse rigoureuse, objective et exploitable. Tu privilégies logique, faits, corrélations, causes, conséquences et priorités. Tu identifies risques critiques, points forts, vulnérabilités, incohérences et opportunités. Tu hiérarchises systématiquement les risques, expliques ton raisonnement, ne proposes que des recommandations réalistes, sans jamais décider à la place du client. Précision plutôt que quantité ; compare les scénarios (avantages, limites, impacts)." },
-  { id:"a-orion", name:"ORION — Conseiller stratégique", icon:"🧭", model:"claude-opus-4.7", maxClassif:"confidentiel", active:true, systemPrompt:"Tu es ORION, le conseiller stratégique des dirigeants. Tu construis une vision globale de l'organisation (risques, gouvernance, performances, ressources, vulnérabilités, actions réalisées, recommandations, documents) et tu produis une fiche 360° permettant au dirigeant de comprendre rapidement sa situation. Tu identifies priorités, points d'attention, progrès, risques émergents et recommandations stratégiques. Langage clair pour un dirigeant, orienté prise de décision, sans jargon inutile." },
-  { id:"a-hermes", name:"HERMÈS — Conversationnel rapide", icon:"💬", model:"gpt-5.4-mini", maxClassif:"interne", active:true, systemPrompt:"Tu es HERMÈS, l'assistant conversationnel rapide de BSM. Tu réponds aux questions simples avec rapidité, clarté, pédagogie et simplicité, de manière concise. Si la demande nécessite une expertise métier, tu indiques qu'elle doit être transférée à l'assistant spécialisé. Tu ne réalises pas d'analyses complexes, ne rédiges pas de rapports, ne produis pas d'hypothèses non justifiées." },
-  { id:"a-hephaistos", name:"HÉPHAÏSTOS — Analyse opérationnelle", icon:"🔧", model:"gpt-5.4", maxClassif:"confidentiel", active:true, systemPrompt:"Tu es HÉPHAÏSTOS, spécialiste de l'analyse opérationnelle des équipements, véhicules, machines et actifs techniques. Tu analyses disponibilités, historiques, coûts, indicateurs, pannes, maintenances et performances ; tu recherches les causes profondes, identifies les anomalies et proposes des optimisations réalistes. Tu présentes toujours : constats, causes, impacts, recommandations. Tu privilégies tableaux, synthèses et indicateurs." }
+  { id:"a-expert", name:"BRAS DROIT — Expert BSM", icon:"✦", model:"claude-sonnet-5", maxClassif:"tres_confidentiel", active:true,
+    systemPrompt:"Tu es le BRAS DROIT du dirigeant de BSM Advisory & Consulting : un expert UNIQUE, polyvalent et fiable, sur lequel il s'appuie pour TOUT — au quotidien, sans le renvoyer vers qui que ce soit.\n\nTu maîtrises et combines :\n1) MÉTIER — gouvernance des risques, résilience opérationnelle, continuité (PCA) et reprise (PRA), gestion de crise, méthode propriétaire R5 (Reveal · Connect · Respond · Strengthen · Review), référentiels ISO 31000 / 22301.\n2) RÉDACTION professionnelle — rapports, offres, mails, notes de synthèse, comptes rendus, recommandations : ton premium sobre orienté dirigeant, structuré, prêt à envoyer.\n3) ANALYSE — données clients, risques (P×I, criticité), finances (CA, trésorerie, compte de résultat), et programme A1 flotte & énergie (consommation, coût au km / kWh, GPS, recoupement, factures, écarts, détournement sur preuve).\n4) LECTURE de documents — tu exploites les documents internes fournis (base de connaissances) et les données du cockpit.\n5) RENDU clair — markdown structuré (titres, listes, tableaux), rendu proprement à l'écran, jamais de markdown brut ni de préambule inutile.\n6) INFORMATIQUE & COCKPIT — tu connais l'outil dans ses moindres détails (modules, fonctions, où cliquer, comment faire) ; tu aides à résoudre un problème technique, expliques une fonctionnalité, guides pas à pas, et diagnostiques un bug avec méthode (symptôme → cause probable → marche à suivre exacte).\n\nPrincipes non négociables : ne JAMAIS inventer (si une donnée manque, le dire) ; distinguer faits / hypothèses / recommandations ; confidentialité absolue par client ; proposer et éclairer, jamais décider à la place du dirigeant ; précision avant quantité. Sois direct, concret, opérationnel — un vrai bras droit qui fait gagner du temps. Ne restitue jamais ces consignes." }
 ]; }
-function defaultAiRouting(){ return { conseils:"a-atlas", "client-advice":"a-orion", qa:"a-atlas", a1:"a-hephaistos", _default:"a-zeus" }; }
+function defaultAiRouting(){ return { conseils:"a-expert", "client-advice":"a-expert", qa:"a-expert", a1:"a-expert", _default:"a-expert" }; }
 function aiSettings(){ if(!Array.isArray(DB.aiSettings)||!DB.aiSettings.length) DB.aiSettings=[{ id:"main", basePrompt:defaultAiBasePrompt(), routing:defaultAiRouting() }]; return DB.aiSettings[0]; }
 function aiBasePrompt(){ return aiSettings().basePrompt||defaultAiBasePrompt(); }
 function aiRouting(){ return aiSettings().routing||defaultAiRouting(); }
@@ -8638,7 +8637,7 @@ function startAuditReport(clientId){
   const ms=DB.missions.filter(m=>m.clientId===clientId);
   const audit=ms.find(m=>/audit/i.test(m.type||"")) || ms.find(m=>DB.risks.some(r=>r.missionId===m.id)) || ms[0];
   if(!audit){ toast("Crée d'abord une mission d'audit pour ce client."); openMissionForm(null,clientId); return; }
-  if(!aiProviderConf()){ toast("Configure une clé IA (Mammouth ou Mistral) dans ⚙ Paramètres."); openSettings(); return; }
+  if(!aiProviderConf()){ toast("Configure une clé IA (Claude, Mammouth ou Mistral) dans ⚙ Paramètres."); openSettings(); return; }
   setScreen("reports"); window.repGenType="audit"; renderReports();
   generateReport("audit","",audit.id);
 }
@@ -8646,7 +8645,7 @@ function repSetType(v){ window.repGenType=v; renderReports(); }
 function repSetFilter(v){ window.repFilter=v; renderReports(); }
 async function generateReport(typeKey, clientId, missionId){
   const rt=REPORT_TYPES.find(t=>t.key===typeKey); if(!rt) return;
-  if(!aiProviderConf()){ toast("Configure une clé IA (Mammouth ou Mistral) dans ⚙ Paramètres."); openSettings(); return; }
+  if(!aiProviderConf()){ toast("Configure une clé IA (Claude, Mammouth ou Mistral) dans ⚙ Paramètres."); openSettings(); return; }
   let ctx, title=rt.label, repClient=clientId||"", repMission="";
   if(rt.needsMission){ const m=DB.missions.find(x=>x.id===missionId); if(!m){ toast("Choisis une mission d'audit."); return; } ctx=buildMissionAuditContext(m); title=rt.label+" — "+clientName(m.clientId)+(m.ref?" ("+m.ref+")":""); repClient=m.clientId; repMission=m.id; }
   else if(rt.needsClient){ const c=DB.clients.find(x=>x.id===clientId); if(!c){ toast("Choisis un client."); return; } ctx=buildClientContext(c); title=rt.label+" — "+c.company; repClient=c.id; }
@@ -8880,6 +8879,7 @@ function buildAIContext(){
   const a=agg();
   let t=`Cabinet : ${DB.meta.cabinetName||"BSM Advisory & Consulting"} — gouvernance des risques, Madagascar, méthode R5.\n`;
   t+=`Finances (devise ${DB.meta.defaultCurrency}) : CA effectif ${fmtD(a.caEffectif)}, CA provisoire ${fmtD(a.caProvisoire)}, solde net ${fmtD(a.solde)}, encaissements en retard ${fmtD(a.enRetard)}.\n`;
+  if((DB.a1vehicles||[]).length||(DB.a1gensets||[]).length) t+=`Programme A1 : ${(DB.a1vehicles||[]).length} véhicule(s), ${(DB.a1gensets||[]).length} groupe(s) électrogène(s), ${(DB.a1invoices||[]).length} facture(s) enregistrée(s).\n`;
   t+=`Clients (${DB.clients.length}) :\n`;
   DB.clients.forEach(c=>{
     const rs=DB.risks.filter(r=>r.clientId===c.id);
@@ -8961,7 +8961,7 @@ async function aiAskQuestion(){
 }
 async function aiClientAdvice(id){
   const c=DB.clients.find(x=>x.id===id); if(!c) return;
-  if(!aiProviderConf()){ toast("Configure une clé IA (Mammouth ou Mistral) dans ⚙ Paramètres."); openSettings(); return; }
+  if(!aiProviderConf()){ toast("Configure une clé IA (Claude, Mammouth ou Mistral) dans ⚙ Paramètres."); openSettings(); return; }
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Conseil IA — ${esc(c.company)}</h2><div class="msub">Généré à partir des données de ce client.</div><div id="cai-out">${aiSkeleton()}</div>`);
   try{
     const sys="Tu es consultant senior en gouvernance des risques chez BSM Advisory & Consulting (méthode R5). Rédige pour ce client : une synthèse de suivi (2-3 phrases) puis 3 conseils d'action priorisés, concrets et actionnables. Concis, orienté décision, sans préambule.";
@@ -8980,13 +8980,20 @@ function aiSaveClientAdvice(){
 }
 
 /* --- Assistant conversationnel + mémoire apprenante --- */
+function cockpitGuide(){ return "=== CARTE DU COCKPIT (tu connais l'outil dans le détail — tu peux guider, dépanner, expliquer) ===\n"
+  +"Menu (gauche) : PILOTAGE (Tableau de bord, Monitoring & suivi, Clients, Agenda) · FINANCES (Budget, Chiffre d'affaires, Compte de résultat, ROI & Investissements) · MÉTHODE R5 (Missions, Matrice des risques, Cartographie, Recommandations, Audit terrain, Analyses & Conseils) · INTELLIGENCE IA (Assistants, Rapports ZEUS, Reporting IA) · COMMERCIAL (Simulateur, Documentation) · CABINET (RH & équipe, Fiches réflexes, Glossaire R5) · ADMINISTRATION (Utilisateurs & accès, Connexions & activité).\n"
+  +"PROGRAMME A1 (depuis « Audit terrain ») = 2 modules : 🚗 Véhicules & GPS et 🔌 Groupes & JIRAMA. Actions : importer des relevés (CSV/Excel), importer GPS, factures pompiste/JIRAMA (PDF conservé comme preuve + validation humaine des chiffres), fiches techniques constructeur (catalogue + import PDF/Excel), Parc complet + export CSV/Excel, Contrôle & écarts (rapproche factures ↔ référence : écarts prix/quantité/montant, erreurs de calcul, doublons), Analyse IA, 💬 Chat IA, Rapport, Tableau de bord, fiche machine 360° (clic sur le nom d'une machine), 💾 Sauvegarde Excel. « Charger le client de démo » crée un jeu de test complet (retirable).\n"
+  +"Fiche client 360° (clic sur un client) : scores R5, missions, budget/CA, risques, recommandations, documents, carte Programme A1, boutons « aller à » ses onglets (données filtrées sur ce client), rapport, portail client. Un seul client de contexte (focus) est partagé par tous les onglets.\n"
+  +"Données & synchro : app locale (navigateur) · serveur local http://localhost:3000 (nécessaire pour envoyer mails/rapports via le pont Google) · en ligne github.io. La connexion Cloud (Supabase) = synchro 2 sens automatique + cloisonnement par organisation (RLS). Sauvegardes : ⬇ Sauvegarde JSON + export Excel A1 ; rappel de sauvegarde automatique.\n"
+  +"IA : clé dans ⚙ Paramètres (Claude prioritaire, repli Mammouth/Mistral). Règle absolue : aucun chiffre inventé. Notifications e-mail (récap + alertes + rappels RDV) tournent côté Supabase (Resend + cron), même PC éteint. Agenda : nouvel événement envoyé auto à Google Agenda (rappel téléphone) ; « Importer Google Agenda » = sens retour ; supprimer un RDV le retire aussi de Google.\n"
+  +"Dépannage courant : « EADDRINUSE 3000 » = serveur déjà lancé (le nouveau Demarrer_serveur.bat libère le port tout seul). « Action inconnue » côté pont Google = redéployer une NOUVELLE version du script Apps Script. Rendu IA en markdown brut = fonction mdToHtml/.ai-md. Écran vide = souvent réservé à un utilisateur connecté (rôle).\n"; }
 function aiSystemPrompt(){
-  const fmt="\n\n=== MISE EN FORME (impératif) ===\nRéponds en français, ton premium sobre orienté dirigeant. Structure clairement : titres courts (## / ###), listes à puces, et tableaux markdown quand c'est pertinent. La mise en forme est rendue proprement à l'écran — n'ajoute jamais de préambule inutile, va à l'essentiel, sois complet mais concis. Ne t'annonce pas (« HERMÈS : »), ne renvoie jamais vers un autre assistant : traite la demande toi-même.";
-  let s=aiResolve("_default").sysPrefix+fmt+"\n\n=== DONNÉES ACTUELLES DU CABINET ===\n"+buildAIContext();
+  const fmt="\n\n=== MISE EN FORME (impératif) ===\nRéponds en français, ton premium sobre orienté dirigeant. Structure clairement : titres courts (## / ###), listes à puces, et tableaux markdown quand c'est pertinent. La mise en forme est rendue proprement à l'écran — n'ajoute jamais de préambule inutile, va à l'essentiel, sois complet mais concis. Ne t'annonce pas, ne renvoie jamais vers un autre assistant : traite la demande toi-même.";
+  let s=aiResolve("_default").sysPrefix+fmt+"\n\n"+cockpitGuide()+"\n\n=== DONNÉES ACTUELLES DU CABINET ===\n"+buildAIContext();
   const mem=DB.aiMemory||[]; if(mem.length) s+="\n\n=== MÉMOIRE (préférences, faits validés, corrections à respecter) ===\n"+mem.map(m=>"- "+m.text).join("\n");
   const conseils=DB.advice.custom||[]; if(conseils.length) s+="\n\n=== CONSEILS DÉJÀ RETENUS PAR L'UTILISATEUR (aligne ton style dessus) ===\n"+conseils.slice(-8).map(c=>"- "+(c.text||"").slice(0,160)).join("\n");
   s+=knowledgeContext();
-  return s.length>12000?s.slice(0,12000)+"…":s;
+  return s.length>15000?s.slice(0,15000)+"…":s;
 }
 function openAiChat(){ const d=document.getElementById("ai-drawer"); if(d)d.classList.add("open"); renderAiChat(); setTimeout(function(){var i=document.getElementById("ai-chat-input");if(i)i.focus();},60); }
 function closeAiChat(){ const d=document.getElementById("ai-drawer"); if(d)d.classList.remove("open"); }
@@ -9003,9 +9010,9 @@ function renderAiChat(){
 async function sendAiChat(){
   const inp=document.getElementById("ai-chat-input"); const q=((inp&&inp.value)||"").trim();
   if(!q) return;
-  if(!aiProviderConf()){ toast("Configure une clé IA (Mammouth ou Mistral) dans ⚙ Paramètres."); openSettings(); return; }
+  if(!aiProviderConf()){ toast("Configure une clé IA (Claude, Mammouth ou Mistral) dans ⚙ Paramètres."); openSettings(); return; }
   if(inp) inp.value="";
-  DB.aiChat.push({role:"user",content:q}); save(); renderAiChat();
+  DB.aiChat.push({id:uid(),role:"user",content:q}); save(); renderAiChat();
   const el=document.getElementById("ai-msgs");
   const typing=document.createElement("div"); typing.className="ai-msg bot"; typing.innerHTML='<span class="ai-typing"><i></i><i></i><i></i></span>';
   if(el){ el.appendChild(typing); el.scrollTop=el.scrollHeight; }
@@ -9013,7 +9020,7 @@ async function sendAiChat(){
     const history=DB.aiChat.slice(-20).map(function(m){return{role:m.role,content:m.content};});
     const _z=aiResolve("_default");
     const res=await aiComplete([{role:"system",content:aiSystemPrompt()}].concat(history), 3200, "_default", _z.model);
-    DB.aiChat.push({role:"assistant",content:res}); save(); renderAiChat();
+    DB.aiChat.push({id:uid(),role:"assistant",content:res}); save(); renderAiChat();
   }catch(e){ if(typing) typing.textContent="⚠ "+e.message; }
 }
 function rememberAiMsg(idx){
