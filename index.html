@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.10.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.11.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -673,6 +673,7 @@ function load(){
   if(!DB.a1targets) DB.a1targets={};                       // objectifs par client (Lot D)
   if(!Array.isArray(DB.a1execreports)) DB.a1execreports=[]; // archivage numéroté des rapports exécutifs (Lot D)
   if(!Array.isArray(DB.a1relances)) DB.a1relances=[];       // relances de collecte tracées (Lot E)
+  if(DB.meta.mailCopyTo===undefined) DB.meta.mailCopyTo="jeanbaptiste.barthe@bsmconseils.com"; // copie pro de tout mail client (réglable dans ⚙)
   // Lot E : l'écran « Suivi du mois » est soumis aux permissions → on l'accorde aux comptes direction existants (l'admin a déjà tout).
   if(!DB.meta.a1suiviPermV1){
     try{ (DB.users||[]).forEach(u=>{ if(Array.isArray(u.allowed) && u.allowed.indexOf("a1suivi")<0 && (u.role==="admin"||u.role==="direction")) u.allowed.push("a1suivi"); }); }catch(e){}
@@ -1400,6 +1401,17 @@ async function googleCall(action, payload){
   let data; try{ data=await r.json(); }catch(e){ throw new Error("Serveur local requis (ouvrez le Cockpit via http://…:3000)."); }
   if(!data.ok) throw new Error(data.error||"Erreur du pont Google");
   return data;
+}
+/* Tout e-mail CLIENT part aussi en copie sur la boîte professionnelle BSM (DB.meta.mailCopyTo, réglable dans ⚙ Paramètres) :
+   la preuve d'envoi vit dans la boîte pro. Copie = 2e envoi séparé (invisible pour le client, compatible avec le pont Google déjà déployé). */
+async function bsmClientMail(payload){
+  const res=await googleCall("mail", payload);
+  const copyTo=String(DB.meta.mailCopyTo||"").trim();
+  if(copyTo && copyTo.toLowerCase()!==String(payload.to||"").trim().toLowerCase()){
+    try{ await googleCall("mail", Object.assign({}, payload, { to:copyTo, subject:"[Copie client → "+String(payload.to||"")+"] "+(payload.subject||"") })); }
+    catch(e){ toast("⚠️ Envoyé au client, mais copie boîte BSM en échec : "+(e.message||e)); }
+  }
+  return res;
 }
 async function googleTest(){
   const el=document.getElementById("gtest"); if(el) el.textContent="⏳ Test en cours…";
@@ -4839,6 +4851,8 @@ function openSettings(){
       </div>
       <div class="hint" id="gtest" style="margin-top:6px">Nécessite le serveur local + le pont Google configuré (voir INTEGRATION_GOOGLE.md).</div></div>
     <div class="field"><label>E-mail pour les rapports (point CA, alertes)</label><input id="s-reportmail" value="${esc(DB.meta.reportEmail||'')}" placeholder="votre adresse e-mail"></div>
+    <div class="field"><label>📥 Copie de tous les e-mails clients (boîte professionnelle BSM)</label><input id="s-mailcopy" value="${esc(DB.meta.mailCopyTo||'')}" placeholder="prenom.nom@bsmconseils.com — vide = pas de copie"></div>
+    <div class="hint">Chaque e-mail envoyé à un client (relance de collecte, rapport, facture, offre) part aussi en copie sur cette adresse : la <b>preuve d'envoi</b> vit dans ta boîte pro.</div>
     <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
     <div class="field"><label>Révision des risques — les risques sont mobiles</label>
       <select id="s-reviewmonths">${[3,6,12].map(m=>`<option value="${m}" ${reviewMonths()===m?'selected':''}>Tous les ${m} mois</option>`).join("")}</select>
@@ -4904,6 +4918,7 @@ function saveSettings(){
     }
   } else { DB.meta.claudeKey=_k.claude; DB.meta.mammouthKey=_k.mammouth; DB.meta.mistralKey=_k.mistral; }
   DB.meta.reportEmail=val("s-reportmail").trim();
+  DB.meta.mailCopyTo=(val("s-mailcopy")||"").trim();
   const rm=parseInt(val("s-reviewmonths")); if([3,6,12].includes(rm)) DB.meta.reviewMonths=rm;
   const rh=parseInt(val("s-recurhorizon")); if(!isNaN(rh)&&rh>=1&&rh<=120){ DB.meta.recurHorizonMonths=rh; generateRecurring(); }
   DB.meta.identity={ nom:val("s-id-nom").trim(), titre:val("s-id-titre").trim(), rs:val("s-id-rs").trim(),
@@ -5416,7 +5431,7 @@ async function sendInvoiceEmail(txId, mode){
   const html=invoiceHtml(t, d);
   const subject=(relance?"[BSM] Relance — Facture ":"[BSM] Facture ")+t.invoiceNo+" — "+t.label;
   try{
-    await googleCall("mail",{ to:d.to, subject, html, pdfHtml:html, pdfName:t.invoiceNo+(relance?"-relance":"") });
+    await bsmClientMail({ to:d.to, subject, html, pdfHtml:html, pdfName:t.invoiceNo+(relance?"-relance":"") });
     if(relance){ (t.reminders=t.reminders||[]).push(todayISO()); t.emailedTo=d.to; }
     else { t.emailedAt=todayISO(); t.emailedTo=d.to; }
     save(); closeModal(); refreshAll();
@@ -6579,7 +6594,7 @@ async function a1ExecReport(kind){
   const alertsHtml=alerts.length
     ?`<p style="font-size:12.5px;margin-top:8px"><b style="color:#C0392B">Alertes de la période (${alerts.length})</b> : ${alerts.map(p=>esc(isGen?p.g.name:p.v.name)+(p.anomaly?" — surconsommation":"")+((isGen?p.lowLoad:p.idleFlag)?(isGen?" — sous-charge":" — ralenti excessif"):"")+((p.diag&&p.diag.fraudScore>=35)?" — risque à investiguer (preuves physiques)":"")).join(" · ")}.</p>`
     :`<p style="font-size:12.5px;margin-top:8px;color:#2F855A">Aucune alerte sur la période — exploitation conforme aux seuils.</p>`;
-  let evoHtml="";
+  let evoHtml="", evoTitle="";
   if(series.length>=2){
     const L=series[series.length-1], P=series[series.length-2];
     const avg=k=>{const v=series.map(x=>x[k]).filter(x=>x!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;};
@@ -6602,8 +6617,8 @@ async function a1ExecReport(kind){
     const chart2=isGen
       ? a1TrendSvg(months,[{name:"Conso réelle (L)",color:"#102A43",values:series.map(s=>s.liters)},{name:"Conso attendue (L)",color:"#9CA3AF",dash:true,values:series.map(s=>s.expected||null)}],{})
       : a1TrendSvg(months,[{name:"Coût carburant mensuel (Ar)",color:"#102A43",values:series.map(s=>s.cost)}],{});
-    evoHtml=`<h2 class="docsec">2. Évolution sur ${series.length} mois & comparatif mensuel</h2>
-      <table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;margin-bottom:8px"><thead><tr style="background:#F9FAFB">
+    evoTitle="Évolution sur "+series.length+" mois & comparatif mensuel";
+    evoHtml=`<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;margin-bottom:8px"><thead><tr style="background:#F9FAFB">
         <th style="text-align:left;padding:6px 10px;font-size:11px;color:#6B7280">Indicateur</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#6B7280">Mois précédent</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#6B7280">Dernier mois</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#6B7280">Moyenne ${series.length} mois</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#6B7280">Tendance</th></tr></thead><tbody>${trHtml}</tbody></table>
       ${better.length?`<p style="font-size:12.5px;margin:6px 0"><b style="color:#2F855A">En amélioration :</b> ${better.join(" · ")}</p>`:""}
       ${worse.length?`<p style="font-size:12.5px;margin:6px 0"><b style="color:#C0392B">En dégradation :</b> ${worse.join(" · ")}</p>`:""}
@@ -6625,6 +6640,42 @@ async function a1ExecReport(kind){
     :[["Distance parcourue",totals.km.toLocaleString("fr-FR")+" km"],["Carburant consommé",Math.round(totals.liters).toLocaleString("fr-FR")+" L"],["Coût carburant total",fmtD(totals.cost)],["Conso moyenne flotte",comp.fleetConso?comp.fleetConso.toFixed(1)+" L/100 km":"—"],["Coût moyen au km",totals.costPerKm?fmtD(totals.costPerKm):"—"]];
   const missing=q.checks.filter(c=>!c.ok);
   const recos=(ia.recos&&ia.recos.length)?ia.recos:[{titre:"Compléter les données de suivi",detail:(missing.map(c=>c.label).join(", ")||"Poursuivre la collecte mensuelle des relevés."),impact:"Fiabilise l'analyse et les décisions d'optimisation"}];
+  // ---- Lot F : benchmark anonymisé, conducteurs (flotte), contexte délestages (groupes) ----
+  const bench=clientId?a1Benchmark(kind, clientId):null;
+  const benchHtml=(bench&&bench.n>=2)?(function(){ const unit=isGen?" Ar/kWh":" L/100 km"; const F=v=>isGen?Math.round(v).toLocaleString("fr-FR"):v.toFixed(1); const good=bench.mine<=bench.median;
+    return `<table style="width:100%;border-collapse:collapse;background:#F9FAFB;border:1px solid #E5E7EB;margin:8px 0"><tbody>
+      <tr><td style="padding:7px 12px;color:#6B7280;border-bottom:1px solid #F3F4F6">${isGen?"Votre coût du kWh produit":"Votre consommation moyenne flotte"}</td><td style="padding:7px 12px;text-align:right;font-weight:700;border-bottom:1px solid #F3F4F6">${F(bench.mine)}${unit}</td></tr>
+      <tr><td style="padding:7px 12px;color:#6B7280;border-bottom:1px solid #F3F4F6">Médiane des ${bench.n} sites comparables suivis par BSM</td><td style="padding:7px 12px;text-align:right;font-weight:700;border-bottom:1px solid #F3F4F6">${F(bench.median)}${unit}</td></tr>
+      <tr><td style="padding:7px 12px;color:#6B7280">Position</td><td style="padding:7px 12px;text-align:right;font-weight:700;color:${good?"#2F855A":"#B5923A"}">${bench.deltaPct>0?"+":""}${Math.round(bench.deltaPct)} % vs médiane — mieux placé que ${bench.pct} % des sites</td></tr>
+    </tbody></table>
+    <p style="font-size:11px;color:#6B7280">Repère issu du portefeuille de sites suivis par ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")} à Madagascar — strictement anonymisé, aucun client n'est nommé.</p>`; })():"";
+  const drvStats=(!isGen&&clientId)?a1DriverStats(clientId):null;
+  const drvHtml=(drvStats&&drvStats.arr.length>=2)?(a1DriverTableHtml(drvStats,8)+`<p style="font-size:11px;color:#6B7280;margin-top:6px">Écart mesuré vs consommation constructeur des véhicules conduits (repli : moyenne flotte) ; ralenti croisé relevés + GPS. La conduite est généralement le gisement d'économies le plus rapide (éco-conduite, coupure moteur à l'arrêt, objectifs par conducteur).</p>`):"";
+  const season=(isGen&&clientId)?a1OutageSeason(clientId):null;
+  const seasonHtml=season?`<p style="font-size:12.5px;margin-top:8px;color:${season.level==="intense"?"#B5923A":season.level==="faible"?"#102A43":"#374151"}"><b>🗓️ Contexte délestages :</b> ${esc(a1SeasonText(season))}</p>`:"";
+  // ---- Assemblage : sections numérotées dynamiquement (seules les sections avec matière apparaissent) ----
+  const secs=[];
+  secs.push(["Synthèse exécutive",
+    `<table style="width:100%;border-collapse:collapse;margin:8px 0 12px;background:#F9FAFB;border:1px solid #E5E7EB"><tbody>
+      ${kpiRow("Coût total de la période", fmtD(totals.cost))}
+      ${kpiRow("Économies potentielles identifiées", eco>0?fmtD(eco):"aucune quantifiée à ce stade")}
+      ${kpiRow("Fiabilité de l'analyse (complétude des données)", q.pct+" %")}
+    </tbody></table>
+    ${ia.verdict?`<p style="font-size:13.5px;line-height:1.75">${esc(ia.verdict)}</p>`:""}
+    ${alertsHtml}
+    ${seasonHtml}`]);
+  if(evoHtml) secs.push([evoTitle, evoHtml]);
+  if(benchHtml) secs.push(["Positionnement — sites comparables (anonymisé)", benchHtml]);
+  secs.push(["Indicateurs clés de la période", `<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB"><tbody>${kpis.map(k=>kpiRow(k[0],k[1])).join("")}</tbody></table>`]);
+  if(drvHtml) secs.push(["Conduite & conducteurs", drvHtml]);
+  secs.push(["Constats détaillés", `<div class="ai-md">${mdToHtml(synth.replace(/^# .*\n/,""))}</div>`]);
+  secs.push(["Recommandations prioritaires", recos.map((r,i)=>`
+      <div style="border:1px solid #E5E7EB;border-left:3px solid #B5923A;padding:11px 14px;margin:9px 0;page-break-inside:avoid;background:#FDFCFA">
+        <b>${i+1}. ${esc(r.titre||"")}</b><div style="font-size:12.5px;margin-top:4px;line-height:1.6">${esc(r.detail||"")}</div>
+        ${r.impact?`<div style="font-size:12px;color:#6B7280;margin-top:4px"><b>Impact attendu :</b> ${esc(r.impact)}</div>`:""}
+      </div>`).join("")]);
+  secs.push(["Méthodologie & limites",
+    `<p style="font-size:12px;color:#374151;line-height:1.7">Analyse conduite selon la méthode R5® de ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}, à partir des relevés d'exploitation fournis par le client${isGen?", des fiches techniques constructeur et des heures de coupure réseau déclarées":" et des données constructeur des véhicules"}. Les coûts sont valorisés aux prix renseignés à la date du rapport (factures archivées lorsqu'elles existent).${benchHtml?" Le positionnement inter-sites est calculé sur le portefeuille BSM, strictement anonymisé.":""} Toute mention d'un risque de détournement reposerait exclusivement sur des preuves physiques convergentes (écarts jauge/compteur, contrôles de stock) — jamais sur la seule consommation. Complétude des données : ${q.pct} %${missing.length?" — éléments à compléter : "+missing.map(c=>c.label).join(", ")+".":"."} Référence du rapport : ${ref}.</p>`]);
   const body=`
     <div style="page-break-after:always;text-align:center;padding-top:110px">
       <div style="font-size:12px;letter-spacing:.25em;color:#B5923A;text-transform:uppercase">Rapport exécutif</div>
@@ -6632,27 +6683,7 @@ async function a1ExecReport(kind){
       <div style="font-size:16px;color:#374151;margin-bottom:30px">${esc(cName)}</div>
       <div style="font-size:12px;color:#6B7280;line-height:1.8">${period}<br>Référence : <b>${ref}</b><br>Document confidentiel — établi par ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}<br>Méthode R5® · Reveal · Connect · Respond · Strengthen · Review</div>
     </div>
-    <h2 class="docsec">1. Synthèse exécutive</h2>
-    <table style="width:100%;border-collapse:collapse;margin:8px 0 12px;background:#F9FAFB;border:1px solid #E5E7EB"><tbody>
-      ${kpiRow("Coût total de la période", fmtD(totals.cost))}
-      ${kpiRow("Économies potentielles identifiées", eco>0?fmtD(eco):"aucune quantifiée à ce stade")}
-      ${kpiRow("Fiabilité de l'analyse (complétude des données)", q.pct+" %")}
-    </tbody></table>
-    ${ia.verdict?`<p style="font-size:13.5px;line-height:1.75">${esc(ia.verdict)}</p>`:""}
-    ${alertsHtml}
-    ${evoHtml}
-    <h2 class="docsec">${evoHtml?"3":"2"}. Indicateurs clés de la période</h2>
-    <table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB"><tbody>${kpis.map(k=>kpiRow(k[0],k[1])).join("")}</tbody></table>
-    <h2 class="docsec">${evoHtml?"4":"3"}. Constats détaillés</h2>
-    <div class="ai-md">${mdToHtml(synth.replace(/^# .*\n/,""))}</div>
-    <h2 class="docsec">${evoHtml?"5":"4"}. Recommandations prioritaires</h2>
-    ${recos.map((r,i)=>`
-      <div style="border:1px solid #E5E7EB;border-left:3px solid #B5923A;padding:11px 14px;margin:9px 0;page-break-inside:avoid;background:#FDFCFA">
-        <b>${i+1}. ${esc(r.titre||"")}</b><div style="font-size:12.5px;margin-top:4px;line-height:1.6">${esc(r.detail||"")}</div>
-        ${r.impact?`<div style="font-size:12px;color:#6B7280;margin-top:4px"><b>Impact attendu :</b> ${esc(r.impact)}</div>`:""}
-      </div>`).join("")}
-    <h2 class="docsec">${evoHtml?"6":"5"}. Méthodologie & limites</h2>
-    <p style="font-size:12px;color:#374151;line-height:1.7">Analyse conduite selon la méthode R5® de ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}, à partir des relevés d'exploitation fournis par le client${isGen?", des fiches techniques constructeur et des heures de coupure réseau déclarées":" et des données constructeur des véhicules"}. Les coûts sont valorisés aux prix renseignés à la date du rapport. Toute mention d'un risque de détournement reposerait exclusivement sur des preuves physiques convergentes (écarts jauge/compteur, contrôles de stock) — jamais sur la seule consommation. Complétude des données : ${q.pct} %${missing.length?" — éléments à compléter : "+missing.map(c=>c.label).join(", ")+".":"."} Référence du rapport : ${ref}.</p>`;
+    `+secs.map((s,i)=>`<h2 class="docsec">${i+1}. ${s[0]}</h2>`+s[1]).join("");
   const html=docChrome(body,{ title:"Rapport exécutif "+ref+" — "+cName, typeLabel:isGen?"Optimisation énergétique":"Optimisation flotte & carburant", date:period, clientName:cName, objet:isGen?"Analyse des groupes électrogènes et du coût de l'énergie":"Analyse de la flotte et du poste carburant" });
   openPrintable(html);
   a1ArchiveExecReport({ref, clientId:clientId||"", kind, cost:totals.cost, fiab:q.pct, alerts:alerts.length}, html);   // archivage numéroté (preuve du suivi)
@@ -6750,7 +6781,7 @@ function renderA1Suivi(){
       <div style="display:flex;gap:8px;justify-content:center;margin-top:6px"><button class="cta" onclick="setScreen('a1genset')">🔌 Groupes électrogènes →</button><button class="cta" onclick="setScreen('a1fleet')">🚗 Flotte & carburant →</button></div></div>`}`;
 }
 /* ---- Lot E-7 : relance de collecte — mail type + fiche de relevé vierge jointe, tracée par mois ---- */
-function printA1CollectSheetFor(kind, clientId){ openPrintable(a1CollectSheetHtml(kind, clientId)); }
+function printA1CollectSheetFor(kind, clientId){ openPrintable(a1CollectSheetHtml(kind, clientId, window.a1SuiviMonth||undefined)); }
 function openA1Relance(clientId, kind){
   const c=DB.clients.find(x=>x.id===clientId); if(!c){ toast("Client introuvable."); return; }
   const isGen=kind==="gen";
@@ -6778,10 +6809,10 @@ async function a1RelanceSend(clientId, kind){
   const month=window.a1SuiviMonth||todayISO().slice(0,7);
   const subject=(val("rl-subject")||("[BSM] Fiche de relevé — "+a1MonthLabel(month))).trim();
   const msg=(val("rl-msg")||"").trim();
-  const fiche=a1CollectSheetHtml(kind, clientId);
+  const fiche=a1CollectSheetHtml(kind, clientId, month);
   toast("📨 Envoi en cours…");
   try{
-    await googleCall("mail",{ to, subject, html:'<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7">'+esc(msg).replace(/\n/g,"<br>")+'</p>', pdfHtml:fiche, pdfName:"Fiche_de_releve_"+month });
+    await bsmClientMail({ to, subject, html:'<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7">'+esc(msg).replace(/\n/g,"<br>")+'</p>', pdfHtml:fiche, pdfName:"Fiche_de_releve_"+month });
     DB.a1relances=DB.a1relances||[];
     DB.a1relances.push({id:uid(), clientId, kind, month, to, at:new Date().toISOString(), by:(currentUser&&currentUser.name)||""});
     if(!c.contactEmail) c.contactEmail=to;   // mémorise l'adresse saisie sur la fiche client
@@ -6822,11 +6853,172 @@ async function a1ExecSendGo(id){
     const f=await (await fetch("/api/file?id="+encodeURIComponent("a1rep_"+r.id))).json();
     const doc=String(f.data||"").replace(/^kbtext:/,"");
     if(!doc) throw new Error("rapport introuvable sur le serveur");
-    await googleCall("mail",{ to, subject, html:'<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7">'+esc(msg).replace(/\n/g,"<br>")+'</p>', pdfHtml:doc, pdfName:String(r.ref||"rapport").replace(/[^A-Za-z0-9._-]+/g,"_") });
+    await bsmClientMail({ to, subject, html:'<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7">'+esc(msg).replace(/\n/g,"<br>")+'</p>', pdfHtml:doc, pdfName:String(r.ref||"rapport").replace(/[^A-Za-z0-9._-]+/g,"_") });
     r.sentAt=new Date().toISOString(); r.sentTo=to; r.sentBy=(currentUser&&currentUser.name)||"";
     const c=DB.clients.find(x=>x.id===r.clientId); if(c&&!c.contactEmail) c.contactEmail=to;
     save(); closeModal(); if(currentScreen==="a1suivi") renderA1Suivi(); toast("✉️ Rapport "+(r.ref||"")+" envoyé à "+to+" ✅");
   }catch(e){ toast("Échec de l'envoi : "+(e.message||e)); }
+}
+/* ================== LOT F — PROFONDEUR D'ANALYSE : benchmark inter-clients, bibliothèque technique auto, conducteurs, saisonnalité ================== */
+/* --- F-9 · Benchmark inter-clients ANONYMISÉ : le repère que personne d'autre ne peut donner à Madagascar. --- */
+function a1BenchClients(kind){ // clients réels ayant des données (hors SIMULATION / démo / test)
+  const ids={};
+  ((kind==="gen"?DB.a1gensets:DB.a1vehicles)||[]).forEach(m=>{ if(m.clientId) ids[m.clientId]=1; });
+  return Object.keys(ids).filter(cid=>{ const c=DB.clients.find(x=>x.id===cid); return c && !/simulation|d[ée]mo|test/i.test(c.company||""); });
+}
+function a1Benchmark(kind, clientId){
+  if(!clientId) return null;
+  const isGen=kind==="gen";
+  const metric=cid=>{ const comp=isGen?a1GenCompute(cid):a1Compute(cid); const v=isGen?comp.totals.costPerKwh:comp.fleetConso; return (v>0)?v:null; };
+  const mine=metric(clientId); if(mine==null) return null;
+  const peers=a1BenchClients(kind).filter(cid=>cid!==clientId).map(metric).filter(v=>v!=null);
+  if(!peers.length) return null;
+  const s=peers.slice().sort((a,b)=>a-b);
+  const median=s.length%2?s[(s.length-1)/2]:(s[s.length/2-1]+s[s.length/2])/2;
+  const worse=s.filter(v=>v>mine).length;   // métriques « coût / conso » : plus bas = mieux
+  return { mine, median, n:peers.length, deltaPct:median?(mine-median)/median*100:0, pct:Math.round(worse/s.length*100) };
+}
+function a1BenchCard(kind){
+  const cid=kind==="gen"?a1genClient:a1Client; if(!cid) return "";
+  const b=a1Benchmark(kind, cid); if(!b||b.n<2) return "";   // médiane crédible à partir de 2 pairs
+  const isGen=kind==="gen"; const unit=isGen?" Ar/kWh":" L/100 km";
+  const F=v=>isGen?Math.round(v).toLocaleString("fr-FR"):v.toFixed(1);
+  const good=b.mine<=b.median;
+  return `<div class="card" style="border-left:3px solid ${good?'var(--green)':'var(--orange)'}"><h2 style="margin:0 0 6px">🏅 Positionnement — sites comparables suivis par BSM</h2>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;font-size:13px">
+      <div>${isGen?"Votre coût du kWh":"Votre conso moyenne"} : <b style="font-size:17px">${F(b.mine)}${unit}</b></div>
+      <div>Médiane des <b>${b.n} sites comparables</b> : <b>${F(b.median)}${unit}</b></div>
+      <div style="color:${good?'var(--green)':'var(--orange)'};font-weight:700">${b.deltaPct>0?"+":""}${Math.round(b.deltaPct)} % vs médiane ${good?"✓":""}</div>
+      <div style="color:var(--muted)">mieux placé que <b>${b.pct} %</b> des sites</div>
+    </div>
+    <div class="hint" style="margin-top:6px">Benchmark <b>anonymisé</b> du portefeuille BSM — aucun client n'est nommé. Plus le portefeuille grandit, plus ce repère prend de la valeur.</div></div>`;
+}
+/* --- F-10 · Bibliothèque de fiches techniques MUTUALISÉE : saisie une fois, servie à tous les clients. --- */
+function a1SpecLookup(kind, machine){
+  const name=(((machine.marque||"")+" "+(machine.modele||"")).trim())||machine.name||"";
+  if(!name) return null;
+  return (DB.a1specs||[]).find(s=>s.kind===kind && ((s.brand||"")+(s.model||"")).trim() && a1NameMatch(((s.brand||"")+" "+(s.model||"")).trim(), name));
+}
+function a1AutoSpecApply(machine, kind){ // à la création par import : modèle connu de la bibliothèque → specs d'office
+  const isGen=kind==="gen";
+  const missing=isGen ? (!(machine.puissanceKva>0||machine.puissanceKw>0) || !(machine.consoTheoLh>0)) : !(machine.consoTheo>0);
+  if(!missing) return false;
+  const s=a1SpecLookup(kind, machine); if(!s) return false;
+  if(isGen){
+    if(!machine.puissanceKva&&s.kva) machine.puissanceKva=s.kva;
+    if(!machine.puissanceKw&&s.kw) machine.puissanceKw=s.kw;
+    if(!machine.consoTheoLh&&s.consoTheoLh) machine.consoTheoLh=s.consoTheoLh;
+    if(!machine.reservoirL&&s.reservoirL) machine.reservoirL=s.reservoirL;
+    if(!machine.cosPhi&&s.cosPhi) machine.cosPhi=s.cosPhi;
+    if(!machine.marque&&s.brand) machine.marque=s.brand;
+    if(!machine.modele&&s.model) machine.modele=s.model;
+  } else {
+    if(!machine.consoTheo&&s.consoTheo) machine.consoTheo=s.consoTheo;
+    if(!machine.reservoir&&s.reservoir) machine.reservoir=s.reservoir;
+    if(!machine.puissance&&s.puissance) machine.puissance=s.puissance;
+    if(!machine.motorisation&&s.motorisation) machine.motorisation=s.motorisation;
+  }
+  machine.specsSource="Bibliothèque BSM : "+a1SpecLabel(s)+(s.provisional?" (indicatif)":"");
+  return true;
+}
+function a1SpecUpsertFromGenset(g){ // une fiche technique importée pour UN client enrichit la bibliothèque de TOUS
+  if(!(g.puissanceKva>0||g.puissanceKw>0) || !(g.consoTheoLh>0)) return;
+  const brand=(g.marque||String(g.name||"").trim().split(/\s+/)[0]||"").trim();
+  const model=(g.modele||String(g.name||"").trim().split(/\s+/).slice(1).join(" ")||"").trim();
+  if(!brand&&!model) return;
+  const data={kind:"gen", brand, model, kva:g.puissanceKva||"", kw:g.puissanceKw||"", consoTheoLh:g.consoTheoLh||"", reservoirL:g.reservoirL||"", cosPhi:g.cosPhi||0.8, provisional:false, source:"Mutualisée — fiche technique importée le "+frDate(todayISO())};
+  const ex=(DB.a1specs||[]).find(s=>s.kind==="gen" && ((s.brand||"")+(s.model||"")).trim() && a1NameMatch(((s.brand||"")+" "+(s.model||"")).trim(), (brand+" "+model).trim()));
+  if(ex){ if(ex.provisional || !(ex.consoTheoLh>0)) Object.assign(ex, data, {id:ex.id, builtin:false}); }
+  else DB.a1specs.push(Object.assign({id:"spec-"+uid(), builtin:false, createdAt:todayISO()}, data));
+}
+/* --- F-11 · Volet CONDUCTEURS : classement par surconsommation et ralenti — les économies rapides. --- */
+function a1DriverStats(clientId){
+  const vids=DB.a1vehicles.filter(v=>!clientId||v.clientId===clientId);
+  const vmap={}; vids.forEach(v=>vmap[v.id]=v);
+  const price=(DB.meta.fuelPrices&&+DB.meta.fuelPrices.gasoil)||0;
+  const by={};
+  (DB.a1logs||[]).forEach(l=>{
+    const v=vmap[l.vehicleId]; if(!v) return;
+    const drv=((l.driver||v.driver||"")+"").trim(); if(!drv) return;
+    const o=by[drv]=by[drv]||{driver:drv, km:0, liters:0, cost:0, idleH:0, expected:0, n:0, vehicles:{}};
+    o.km+=(+l.km||0); o.liters+=(+l.liters||0); o.cost+=(+l.cost||0); o.idleH+=(+l.idle||0); o.n++;
+    o.vehicles[v.name||v.id]=1;
+    if(v.consoTheo>0) o.expected+=(+l.km||0)*v.consoTheo/100;
+  });
+  (DB.a1gpslogs||[]).forEach(g=>{ const v=vmap[g.vehicleId]; if(!v) return; const drv=((v.driver||"")+"").trim(); if(drv&&by[drv]) by[drv].gpsIdleH=(by[drv].gpsIdleH||0)+(+g.idleH||0); });
+  const arr=Object.values(by).filter(o=>o.km>0);
+  const fl=arr.reduce((s,o)=>({km:s.km+o.km, liters:s.liters+o.liters}),{km:0,liters:0});
+  const avg=fl.km?fl.liters/fl.km*100:0;
+  arr.forEach(o=>{
+    o.conso=o.km?o.liters/o.km*100:null;
+    o.nVeh=Object.keys(o.vehicles).length;
+    if(o.expected>0){ o.drift=(o.liters-o.expected)/o.expected*100; o.refType="constructeur"; o.overLiters=Math.max(0,o.liters-o.expected); }
+    else if(avg>0&&o.conso!=null){ o.drift=(o.conso-avg)/avg*100; o.refType="moyenne flotte"; o.overLiters=Math.max(0,(o.conso-avg)/100*o.km); }
+    else { o.drift=null; o.refType=""; o.overLiters=0; }
+    o.idleTotal=(o.idleH||0)+(o.gpsIdleH||0);
+    o.overCost=o.overLiters*(price||(o.liters?o.cost/o.liters:0));
+  });
+  arr.sort((a,b)=>(b.drift==null?-1e9:b.drift)-(a.drift==null?-1e9:a.drift));
+  return {arr, avg};
+}
+function a1DriverRowsHtml(st, max){ // partagé écran + rapport (couleurs fixes = print-safe)
+  return st.arr.slice(0, max||8).map((o,i)=>`<tr>
+    <td style="padding:6px 9px;border-bottom:1px solid #F3F4F6"><b>${i+1}. ${esc(o.driver)}</b><div style="font-size:10px;color:#6B7280">${o.nVeh} véhicule(s) · ${o.n} relevé(s)</div></td>
+    <td style="text-align:right;padding:6px 9px;border-bottom:1px solid #F3F4F6">${Math.round(o.km).toLocaleString("fr-FR")} km</td>
+    <td style="text-align:right;padding:6px 9px;border-bottom:1px solid #F3F4F6">${o.conso!=null?o.conso.toFixed(1)+" L/100":"—"}</td>
+    <td style="text-align:right;padding:6px 9px;border-bottom:1px solid #F3F4F6;font-weight:700;color:${o.drift==null?"#6B7280":o.drift>15?"#C0392B":o.drift>5?"#B5923A":"#2F855A"}">${o.drift==null?"—":(o.drift>0?"+":"")+o.drift.toFixed(0)+" %"}<div style="font-size:9px;font-weight:400;color:#6B7280">vs ${esc(o.refType)}</div></td>
+    <td style="text-align:right;padding:6px 9px;border-bottom:1px solid #F3F4F6">${o.idleTotal?Math.round(o.idleTotal)+" h":"—"}</td>
+    <td style="text-align:right;padding:6px 9px;border-bottom:1px solid #F3F4F6">${o.overCost>0?Math.round(o.overCost).toLocaleString("fr-FR")+" Ar":"—"}</td>
+  </tr>`).join("");
+}
+function a1DriverTableHtml(st, max){
+  return `<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;font-size:11.5px"><thead><tr style="background:#F9FAFB">
+    <th style="text-align:left;padding:6px 9px;font-size:10px;color:#6B7280">Conducteur</th><th style="text-align:right;padding:6px 9px;font-size:10px;color:#6B7280">Distance</th><th style="text-align:right;padding:6px 9px;font-size:10px;color:#6B7280">Conso</th><th style="text-align:right;padding:6px 9px;font-size:10px;color:#6B7280">Écart</th><th style="text-align:right;padding:6px 9px;font-size:10px;color:#6B7280">Ralenti</th><th style="text-align:right;padding:6px 9px;font-size:10px;color:#6B7280">Surcoût estimé</th>
+  </tr></thead><tbody>${a1DriverRowsHtml(st, max)}</tbody></table>`;
+}
+function a1DriverCard(){
+  const st=a1DriverStats(a1Client);
+  if(st.arr.length<2) return "";
+  const worst=st.arr[0];
+  const totalOver=st.arr.reduce((s,o)=>s+(o.overCost||0),0);
+  return `<div class="card" style="border-left:3px solid ${worst.drift>15?'var(--red)':'var(--navy)'}"><h2 style="margin:0 0 6px">🧑‍✈️ Conducteurs — surconsommation & ralenti</h2>
+    ${a1DriverTableHtml(st, 8)}
+    <div class="hint" style="margin-top:6px">${totalOver>0?`Surcoût de conduite estimé : <b>${fmtD(totalOver)}</b> — souvent le gisement d'économies le plus rapide (éco-conduite, coupure moteur à l'arrêt, objectifs par chauffeur). `:""}Le chauffeur vient du relevé (ou de l'affectation du véhicule) ; le ralenti croise relevés et GPS.</div></div>`;
+}
+/* --- F-12 · Saisonnalité des DÉLESTAGES : un pic de marche en période de coupures intensives n'est PAS une anomalie. --- */
+function a1OutageSeason(clientId, month){
+  const list=(DB.a1outages||[]).filter(o=>(o.clientId||"")===(clientId||"")&&(+o.hours>0)).slice().sort((a,b)=>String(a.period).localeCompare(String(b.period)));
+  if(list.length<3) return null;   // il faut un historique pour parler de saisonnalité
+  const last=month?list.find(o=>String(o.period).slice(0,7)===String(month).slice(0,7)):list[list.length-1];
+  if(!last) return null;
+  const avg=list.reduce((s,o)=>s+(+o.hours||0),0)/list.length;
+  const ratio=avg?(+last.hours||0)/avg:1;
+  const max=list.reduce((m,o)=>Math.max(m,+o.hours||0),0);
+  return { month:String(last.period).slice(0,7), hours:+last.hours||0, avg, max, ratio, months:list.length,
+           level: ratio>=1.3?"intense":(ratio<=0.7?"faible":"normale") };
+}
+function a1SeasonText(s){ // phrase d'interprétation partagée (écran, rapport, IA)
+  const base=`${a1MonthLabel(s.month)} : ${Math.round(s.hours)} h de coupures JIRAMA déclarées (moyenne sur ${s.months} mois : ${Math.round(s.avg)} h, pic : ${Math.round(s.max)} h).`;
+  if(s.level==="intense") return base+" Période de délestages INTENSIFS ("+(s.ratio).toFixed(1)+"× la moyenne) : un surcroît de marche et de consommation des groupes est attendu — ce n'est pas une anomalie d'exploitation.";
+  if(s.level==="faible") return base+" Période de délestages FAIBLES ("+(s.ratio).toFixed(1)+"× la moyenne) : une consommation de groupes élevée dans ce contexte doit interpeller (marche hors coupure, entretien, ou usage non justifié).";
+  return base+" Niveau de délestage conforme à l'historique du site.";
+}
+function a1SeasonCard(){
+  if(!a1genClient) return "";
+  const s=a1OutageSeason(a1genClient); if(!s) return "";
+  const col=s.level==="intense"?"var(--amber)":s.level==="faible"?"var(--navy)":"var(--line)";
+  return `<div class="card" style="border-left:3px solid ${col}"><b>🗓️ Saisonnalité délestages :</b> <span style="font-size:13px">${esc(a1SeasonText(s))}</span></div>`;
+}
+/* --- Courbe 12 mois À L'ÉCRAN (Lot D visible au quotidien, pas seulement dans le rapport) --- */
+function a1TrendCard(kind){
+  const cid=kind==="gen"?a1genClient:a1Client;
+  const series=a1MonthlySeries(kind, cid); if(series.length<2) return "";
+  const months=series.map(s=>s.m); const tgt=cid?a1TargetGet(kind, cid):null;
+  const svg=kind==="gen"
+    ? a1TrendSvg(months,[{name:"Coût du kWh (Ar)",color:"#102A43",values:series.map(s=>s.costPerKwh)}],{target:tgt?tgt.value:null})
+    : a1TrendSvg(months,[{name:"Conso moyenne (L/100 km)",color:"#102A43",values:series.map(s=>s.consoL100)}],{target:tgt?tgt.value:null});
+  if(!svg) return "";
+  return `<div class="card"><h2 style="margin:0 0 4px">📈 Évolution ${series.length} mois — ${kind==="gen"?"coût du kWh":"conso moyenne"}${tgt?` <span style="font-size:11px;color:var(--gold);font-weight:600">🎯 objectif : ${kind==="gen"?fmtD(tgt.value)+"/kWh":tgt.value+" L/100"}</span>`:""}</h2>${svg}</div>`;
 }
 /* ================== LOT B — PARCOURS GUIDÉ « NOUVELLE ANALYSE » (client → fichier → vérification → analyse) ================== */
 let _a1wiz={};
@@ -6988,9 +7180,12 @@ function renderA1Fleet(){
     ${a1Client?a1OfferCard(a1Client,"flotte"):`<div class="infobox">Sélectionne un <b>client</b> ci-dessus pour gérer ses données séparément et lui associer une <b>offre programme</b> (forfait + tarif, période offerte).</div>`}
     ${a1CrossLinkBanner("fleet")}
     ${a1ExecBannerHtml('fleet')}
+    ${a1BenchCard('fleet')}
+    ${a1TrendCard('fleet')}
     ${anomalies.length?`<div class="card" style="border-left:3px solid var(--red)"><b>⚠️ Anomalies détectées :</b> ${anomalies.map(p=>esc(p.v.name)+" ("+p.consoL100.toFixed(1)+" L/100, +"+Math.round((p.consoL100/fleetConso-1)*100)+"% vs moyenne)").join(" · ")}. À vérifier : conduite, entretien, ou vol de carburant.</div>`:""}
     ${(function(){const tl=arr.reduce((s,p)=>s+((p.diag&&p.diag.loss)||0),0);const fr=arr.filter(p=>p.diag&&p.diag.fraudScore>=35);return (tl>0||fr.length)?`<div class="card" style="border-left:3px solid var(--navy)">${tl>0?`<b>💸 Impact financier estimé (surconsommation) :</b> ${fmtD(tl)}. `:""}${fr.length?`<b style="color:var(--red)">🚨 ${fr.length} véhicule(s) à risque de détournement</b> (score ≥ 35) — ouvrez le 🔬 diagnostic pour la cause probable et les orientations.`:""}${tl<=0&&!DB.meta.fuelPrices.gasoil?` <span style="color:var(--muted)">Renseignez les <b>⛽ prix carburant</b> pour chiffrer l'impact.</span>`:""}</div>`:"";})()}
     ${a1GpsRecoupCard()}
+    ${a1DriverCard()}
     ${a1InvoiceCard("fuel")}
     ${a1ConcentrationCard("fleet")}
     <div class="grid2 wide">
@@ -7116,7 +7311,7 @@ function runA1Import(){
   if(!rows.length){ toast("Aucune ligne exploitable (vérifie l'en-tête)."); return; }
   let nv=0, nl=0;
   rows.forEach(r=>{ let v=DB.a1vehicles.find(x=>x.name.toLowerCase()===r.veh.toLowerCase() && (!cid || x.clientId===cid));
-    if(!v){ v={id:uid(),name:r.veh,type:"Autre",plate:"",clientId:cid}; DB.a1vehicles.push(v); nv++; }
+    if(!v){ v={id:uid(),name:r.veh,type:"Autre",plate:"",clientId:cid}; a1AutoSpecApply(v,"fleet"); DB.a1vehicles.push(v); nv++; }
     DB.a1logs.push({id:uid(),vehicleId:v.id,date:r.date,km:r.km,liters:r.liters,cost:r.cost,currency:cur,hours:r.hours,idle:r.idle,litersReal:r.litersReal||0,unitPrice:r.unitPrice||0,driver:r.driver||"",site:r.site||"",station:r.station||""}); nl++;
   });
   save(); closeModal(); renderA1Fleet(); toast(nl+" relevé(s) importé(s), "+nv+" véhicule(s) créé(s).");
@@ -7279,7 +7474,7 @@ function runA1GpsImport(){
   let ng=0, nv=0;
   rows.forEach(r=>{ const key=norm(r.veh);
     let v=DB.a1vehicles.find(x=>(!cid||x.clientId===cid)&&(norm(x.name)===key||norm(x.plate||"")===key||norm(x.gpsId||"")===key));
-    if(!v && create){ v={id:uid(),name:r.veh,type:"Autre",plate:"",clientId:cid,gpsId:r.veh}; DB.a1vehicles.push(v); nv++; }
+    if(!v && create){ v={id:uid(),name:r.veh,type:"Autre",plate:"",clientId:cid,gpsId:r.veh}; a1AutoSpecApply(v,"fleet"); DB.a1vehicles.push(v); nv++; }
     if(!v) return;
     DB.a1gpslogs.push({ id:uid(), vehicleId:v.id, clientId:v.clientId||cid, date:r.date, gpsKm:r.gpsKm, idleH:r.idleH, moveH:r.moveH, engineH:r.engineH, maxSpeed:r.maxSpeed, stops:r.stops, source:"import" }); ng++;
   });
@@ -7287,10 +7482,33 @@ function runA1GpsImport(){
 }
 /* ================== FICHIERS LOURDS (factures scannées) → IndexedDB (hors localStorage) ================== */
 function a1idb(){ return new Promise((res,rej)=>{ try{ const rq=indexedDB.open("bsm_a1files",1); rq.onupgradeneeded=e=>{ if(!e.target.result.objectStoreNames.contains("files")) e.target.result.createObjectStore("files"); }; rq.onsuccess=e=>res(e.target.result); rq.onerror=()=>rej(rq.error); }catch(e){ rej(e); } }); }
-async function a1FilePut(id, blob){ const db=await a1idb(); return new Promise((res,rej)=>{ const tx=db.transaction("files","readwrite"); tx.objectStore("files").put(blob,id); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); }); }
+function a1FileToDataURL(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(r.error); r.readAsDataURL(blob); }); }
+/* Pièce jointe A1 (facture, document…) : d'abord le DISQUE DU PC SERVEUR (accessible depuis tous les postes,
+   sauvegardé, miroir DD externe) ; repli IndexedDB local si pas de serveur (site en ligne). */
+async function a1FilePut(id, blob){
+  if(serverEnabled && blob.size<=15*1048576){
+    try{ const du=await a1FileToDataURL(blob);
+      if(await fileServerPut("a1file_"+id, blob.name||id, blob.type||"", du)) return true; }catch(e){}
+  }
+  const db=await a1idb(); return new Promise((res,rej)=>{ const tx=db.transaction("files","readwrite"); tx.objectStore("files").put(blob,id); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); });
+}
 async function a1FileGet(id){ const db=await a1idb(); return new Promise((res,rej)=>{ const tx=db.transaction("files","readonly"); const rq=tx.objectStore("files").get(id); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>rej(rq.error); }); }
-async function a1FileDel(id){ try{ const db=await a1idb(); return new Promise(res=>{ const tx=db.transaction("files","readwrite"); tx.objectStore("files").delete(id); tx.oncomplete=()=>res(); tx.onerror=()=>res(); }); }catch(e){} }
-async function a1FileOpen(id){ try{ const b=await a1FileGet(id); if(!b){ toast("Pièce jointe absente de cet appareil (elle reste locale au poste d'import)."); return; } const url=URL.createObjectURL(b); window.open(url,"_blank"); setTimeout(()=>URL.revokeObjectURL(url),120000); }catch(e){ toast("Lecture impossible : "+(e.message||e)); } }
+async function a1FileDel(id){
+  if(serverEnabled){ try{ fetch("/api/file-del",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:"a1file_"+id})}); }catch(e){} }
+  try{ const db=await a1idb(); return new Promise(res=>{ const tx=db.transaction("files","readwrite"); tx.objectStore("files").delete(id); tx.oncomplete=()=>res(); tx.onerror=()=>res(); }); }catch(e){}
+}
+async function a1FileOpen(id){
+  try{
+    const b=await a1FileGet(id).catch(()=>null);
+    if(b){ const url=URL.createObjectURL(b); window.open(url,"_blank"); setTimeout(()=>URL.revokeObjectURL(url),120000); return; }
+    if(serverEnabled){
+      const r=await fetch("/api/file?id="+encodeURIComponent("a1file_"+id));
+      if(r.ok){ const f=await r.json();
+        if(f && f.data && String(f.data).indexOf("data:")===0){ const a=document.createElement("a"); a.href=f.data; a.download=f.name||"piece-jointe"; a.click(); return; } }
+      toast("Pièce jointe introuvable (ni sur le serveur, ni sur cet appareil).");
+    } else toast("Pièce stockée sur le PC serveur — ouvre le Cockpit en local pour la consulter.");
+  }catch(e){ toast("Lecture impossible : "+(e.message||e)); }
+}
 /* ================== FACTURES (pompiste / JIRAMA) : PDF preuve + validation humaine ================== */
 let _a1InvoiceFile=null;
 function openA1InvoiceImport(kind){ // kind = 'fuel' | 'jirama'
@@ -7329,7 +7547,7 @@ function a1InvoiceCalcUnit(kind){ const isJ=kind==="jirama"; const q=parseFloat(
   if(u && q>0 && amt>0 && !u.dataset.touched){ u.value=(amt/q).toFixed(2); } }
 function a1InvoiceFilePicked(){ const f=(document.getElementById("inv-file").files||[])[0]; _a1InvoiceFile=f||null; const st=document.getElementById("inv-fstatus");
   if(!f){ if(st) st.textContent=""; return; }
-  const mb=(f.size/1048576).toFixed(1); if(st) st.innerHTML=`📎 <b>${esc(f.name)}</b> (${mb} Mo) — conservé comme preuve. <span style="color:var(--muted)">La pièce reste sur cet appareil ; les données validées, elles, se synchronisent.</span>`;
+  const mb=(f.size/1048576).toFixed(1); if(st) st.innerHTML=`📎 <b>${esc(f.name)}</b> (${mb} Mo) — conservé comme preuve. <span style="color:var(--muted)">${serverEnabled?"Stockée sur le serveur BSM (accessible depuis tous tes postes, sauvegardée).":"Sans serveur : la pièce reste sur cet appareil ; les données validées, elles, se synchronisent."}</span>`;
   // pré-remplissage depuis le nom du fichier (mois + fournisseur)
   const nm=norm(f.name); const months={janvier:1,fevrier:2,mars:3,avril:4,mai:5,juin:6,juillet:7,aout:8,septembre:9,octobre:10,novembre:11,decembre:12};
   const ym=f.name.match(/(20\d\d)/); let mo=0; Object.keys(months).forEach(k=>{ if(nm.indexOf(k)>=0) mo=months[k]; });
@@ -7383,7 +7601,7 @@ function openA1InvoiceRegister(kind){
   const list=(DB.a1invoices||[]).filter(i=>i.kind===kind && (!client||i.clientId===client)).sort((a,b)=>String(b.period).localeCompare(String(a.period)));
   const total=list.reduce((s,i)=>s+(+i.amount||0),0);
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📚 Registre — factures ${isJ?"JIRAMA":"carburant"}</h2>
-    <div class="msub">${list.length} facture(s)${client?" · "+esc(clientName(client)):""} · total <b>${fmtD(total)}</b>. La pièce jointe (📎) s'ouvre depuis l'appareil où elle a été importée.</div>
+    <div class="msub">${list.length} facture(s)${client?" · "+esc(clientName(client)):""} · total <b>${fmtD(total)}</b>. La pièce jointe (📎) est stockée sur le <b>serveur BSM</b> (repli : appareil d'import sans serveur).</div>
     ${list.length?`<div style="overflow:auto;max-height:52vh"><table style="font-size:12px"><thead><tr><th>Période</th><th>N°</th><th>${isJ?"Fournisseur":"Pompiste"}</th><th>Affecté</th><th style="text-align:right">${isJ?"kWh":"Litres"}</th><th style="text-align:right">Prix/u</th><th style="text-align:right">Montant</th><th>Preuve</th><th></th></tr></thead><tbody>
       ${list.map(i=>{ const tgt=i.targetKind==="veh"?("🚗 "+esc(a1VehName(i.targetId))):i.targetKind==="gen"?("🔌 "+esc(a1GenName(i.targetId))):"—"; return `<tr>
         <td>${a1MonthFr(i.period)}</td><td>${esc(i.ref||"—")}</td><td>${esc(i.supplier||"—")}</td><td>${tgt}</td>
@@ -7948,25 +8166,56 @@ async function a1ChatExport(kind){ const qa=_a1ChatLog.filter(m=>!m.pending && m
   }).join("");
   openPrintable(docChrome(body, { title:"Analyses ciblées — "+(kind==="fleet"?"Flotte & carburant":"Groupes électrogènes"), typeLabel:"Analyse d'expertise", date:frLong(todayISO()), clientName: client?clientName(client):"Tous clients", objet:"Synthèse d'analyses ciblées — programme A1" }));
 }
-/* ================== FICHE DE RELEVÉ (collecte terrain — cadrage neutre, discret) ================== */
-/* Le HTML de la fiche est séparé de l'impression : le Lot E le joint aussi en PDF aux relances de collecte. */
-function a1CollectSheetHtml(kind, clientId){
+/* ================== FICHE DE RELEVÉ (collecte terrain — pré-remplie, pensée pour être remplie par le CLIENT) ================== */
+/* Refonte Lot F : identification pré-remplie depuis le Cockpit (machines du client), 3 règles visuelles,
+   ligne d'exemple grisée, retour = une photo avant le 5 du mois suivant. Jointe en PDF aux relances (Lot E). */
+function a1CollectSheetHtml(kind, clientId, month){
   const isGen=kind==="gen"; const client=(clientId===undefined)?(isGen?a1genClient:a1Client):clientId;
+  month=month||todayISO().slice(0,7);
+  const mLbl=a1MonthLabel(month);
+  const retour=(docIdentity().email||DB.meta.mailCopyTo||"").trim();
+  const tel=(docIdentity().tel||"").trim();
+  const machines=client?(isGen?DB.a1gensets:DB.a1vehicles).filter(m=>m.clientId===client):[];
+  const regles=[
+    ["1","Une ligne par événement",(isGen?"À chaque approvisionnement en gasoil ET une fois par semaine (relevé des compteurs), même sans plein.":"À chaque plein de carburant ET en fin de semaine (relevé du compteur km), même sans plein.")],
+    ["2","Toujours les compteurs",(isGen?"Notez le compteur horaire et le compteur kWh au moment du relevé — ce sont eux qui font le calcul.":"Notez le compteur km au moment du plein — c'est lui qui fait le calcul.")],
+    ["3","Un doute ? Écrivez-le","Panne, fuite, travaux, délestage inhabituel… tout va dans Observations. Trop d'information vaut mieux que pas assez."]
+  ];
+  const reglesHtml=`<div style="display:flex;gap:10px;margin:10px 0 14px">${regles.map(r=>`<div style="flex:1;border:1px solid #E4E0D6;border-left:3px solid #B5923A;border-radius:8px;padding:9px 11px;background:#FDFCFA">
+    <div style="font-size:11px;font-weight:700;color:#102A43"><span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:#102A43;color:#fff;align-items:center;justify-content:center;font-size:10px;margin-right:6px">${r[0]}</span>${r[1]}</div>
+    <div style="font-size:10.5px;color:#4B5563;margin-top:4px;line-height:1.5">${r[2]}</div></div>`).join("")}</div>`;
+  const idHead=isGen?["Groupe électrogène","Marque / modèle","Puissance","Réservoir","Site / agence"]:["Véhicule","Marque / modèle","Immatriculation","Motorisation","Chauffeur habituel"];
+  const idRows=machines.length
+    ? machines.map(m=>`<tr>${(isGen
+        ? [m.name,[m.marque,m.modele].filter(Boolean).join(" ")||"—",(m.puissanceKva?m.puissanceKva+" kVA":(m.puissanceKw?m.puissanceKw+" kW":"—")),(m.reservoirL?m.reservoirL+" L":"—"),m.site||"—"]
+        : [m.name,[m.marque,m.modele].filter(Boolean).join(" ")||"—",m.plate||"—",m.motorisation||"—",m.driver||"—"]
+      ).map(v=>`<td style="padding:5px 8px;border:1px solid #cbd2da;font-size:10.5px">${esc(String(v))}</td>`).join("")}</tr>`).join("")
+    : Array.from({length:3}).map(()=>`<tr>${idHead.map(()=>`<td style="height:22px;border:1px solid #cbd2da"></td>`).join("")}</tr>`).join("");
   const headCols=isGen
-    ? ["Date","Compteur horaire (début → fin)","Compteur kWh (début → fin)","Carburant approvisionné (L)","Niveau réservoir avant (L)","Niveau réservoir après (L)","Opérateur","Observations"]
-    : ["Date","Compteur km (début → fin)","Carburant pris (L)","Niveau jauge avant (L)","Niveau jauge après (L)","Chauffeur / véhicule","Station","Observations"];
-  const rows=Array.from({length:14}).map(()=>`<tr>${headCols.map(()=>`<td style="height:26px;border:1px solid #cbd2da"></td>`).join("")}</tr>`).join("");
-  const idRows=(isGen
-    ? [["Site / agence"],["Groupe (marque / modèle)"],["Puissance (kVA / kW) · Année · N° de série"],["Capacité réservoir (L) · Compteur horaire initial"],["Durée de coupure réseau JIRAMA (h) · Tarif (Ar/kWh)"]]
-    : [["Site / agence"],["Véhicule(s) concerné(s) (marque / modèle / immat.)"],["Motorisation · Capacité réservoir (L)"],["Compteur km initial"],["Prix carburant (Ar/L)"]]
-  ).map(r=>`<tr><td style="padding:6px;border:1px solid #cbd2da;background:#F6F1E8;width:40%"><b>${r[0]}</b></td><td style="padding:6px;border:1px solid #cbd2da"></td></tr>`).join("");
-  const body=`<p style="font-size:12.5px;color:#4B5563">Fiche de <b>suivi d'exploitation et d'approvisionnement carburant</b> — à compléter à chaque relevé/intervention. Merci de renseigner l'ensemble des champs (heures, énergie, carburant approvisionné et niveaux de réservoir) pour un suivi fiable de la consommation et de la gestion des stocks.</p>
-    <h2 class="docsec">Identification</h2>
-    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px"><tbody>${idRows}</tbody></table>
-    <h2 class="docsec">Relevés d'exploitation</h2>
-    <table style="width:100%;border-collapse:collapse;font-size:10.5px"><thead><tr style="background:#102A43;color:#fff">${headCols.map(c=>`<th style="padding:5px;border:1px solid #cbd2da;text-align:left">${c}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
-    <p style="font-size:11px;color:#6B7280;margin-top:10px">Relevé effectué par : ________________________ &nbsp;·&nbsp; Fonction : ______________ &nbsp;·&nbsp; Signature : ______________ &nbsp;·&nbsp; Date : ____________</p>`;
-  return docChrome(body, { title:(isGen?"Fiche de relevé — Groupe électrogène":"Fiche de relevé — Flotte véhicules"), typeLabel:"Suivi d'exploitation", date:frLong(todayISO()), clientName: client?clientName(client):"____________________", objet:(isGen?"Suivi d'exploitation & d'approvisionnement — groupe électrogène":"Suivi d'exploitation & d'approvisionnement — flotte") });
+    ? ["Date","Groupe","Compteur horaire (h)","Compteur kWh","Gasoil ajouté (L)","Niveau réservoir avant → après (L)","Opérateur","Observations"]
+    : ["Date","Véhicule","Compteur km au plein","Carburant pris (L)","Montant payé (Ar)","Station","Chauffeur","Observations"];
+  const example=isGen
+    ? ["05/"+month.slice(5,7),machines[0]?esc(machines[0].name):"Groupe 1","12 542","84 950","250","320 → 540","R. Naina","RAS — délestage 9 h"]
+    : ["05/"+month.slice(5,7),machines[0]?esc(machines[0].name):"Véhicule 1","45 210","62","310 000","GALANA Ankorondrano","J. Rakoto","plein complet"];
+  const exRow=`<tr style="background:#F6F1E8;color:#8a8577;font-style:italic">${example.map(v=>`<td style="padding:4px 7px;border:1px solid #cbd2da;font-size:9.5px">${v}</td>`).join("")}</tr>`;
+  const rows=Array.from({length:15}).map(()=>`<tr>${headCols.map(()=>`<td style="height:30px;border:1px solid #cbd2da"></td>`).join("")}</tr>`).join("");
+  const body=`
+    <p style="font-size:12.5px;color:#4B5563;margin-bottom:4px">Fiche de <b>relevé d'exploitation — ${esc(mLbl)}</b>. Elle alimente directement votre suivi mensuel BSM : chaque ligne compte.</p>
+    ${reglesHtml}
+    <h2 class="docsec">1. Vos ${isGen?"groupes électrogènes":"véhicules"} <span style="font-weight:400;font-size:11px;color:#6B7280">(pré-rempli par BSM — vérifiez, corrigez au stylo si besoin)</span></h2>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px"><thead><tr style="background:#102A43;color:#fff">${idHead.map(c=>`<th style="padding:5px 8px;border:1px solid #cbd2da;text-align:left;font-size:10px">${c}</th>`).join("")}</tr></thead><tbody>${idRows}</tbody></table>
+    <h2 class="docsec">2. Relevés du mois <span style="font-weight:400;font-size:11px;color:#6B7280">(la 1<sup>re</sup> ligne grisée est un exemple)</span></h2>
+    <table style="width:100%;border-collapse:collapse;font-size:10.5px"><thead><tr style="background:#102A43;color:#fff">${headCols.map(c=>`<th style="padding:5px 7px;border:1px solid #cbd2da;text-align:left;font-size:9.5px">${c}</th>`).join("")}</tr></thead><tbody>${exRow}${rows}</tbody></table>
+    <div style="display:flex;gap:14px;margin-top:12px;align-items:stretch">
+      <div style="flex:1.4;border:1px solid #E4E0D6;border-radius:8px;padding:9px 12px;background:#F6F1E8;page-break-inside:avoid">
+        <div style="font-size:11px;font-weight:700;color:#102A43">📸 Retour de la fiche — c'est tout ce qu'on vous demande</div>
+        <div style="font-size:10.5px;color:#4B5563;margin-top:4px;line-height:1.6">Une <b>photo lisible ou un scan</b> de cette fiche, ${retour?`envoyé à <b>${esc(retour)}</b>`:"envoyé à votre interlocuteur BSM"}${tel?` (ou WhatsApp : ${esc(tel)})`:""}, <b>avant le 5 du mois suivant</b>. BSM se charge de tout le reste : saisie, contrôle, analyse, rapport.</div>
+      </div>
+      <div style="flex:1;border:1px solid #E4E0D6;border-radius:8px;padding:9px 12px;page-break-inside:avoid">
+        <div style="font-size:10.5px;color:#4B5563;line-height:2">Relevés effectués par : ____________________<br>Fonction : ____________________<br>Date &amp; signature : ____________________</div>
+      </div>
+    </div>`;
+  return docChrome(body, { title:(isGen?"Fiche de relevé — Groupes électrogènes":"Fiche de relevé — Flotte véhicules")+" · "+mLbl, typeLabel:"Suivi d'exploitation", date:frLong(todayISO()), clientName: client?clientName(client):"____________________", objet:(isGen?"Relevés d'exploitation & approvisionnements — groupes électrogènes":"Relevés d'exploitation & approvisionnements — flotte")+" — "+mLbl });
 }
 function printA1CollectSheet(kind){ openPrintable(a1CollectSheetHtml(kind)); }
 /* ================== BARRE D'ACTIONS UNIQUE (déclutter la barre du haut) ================== */
@@ -8013,8 +8262,18 @@ async function saveA1Doc(kind){ const isGen=kind==="gen"; const client=(isGen?a1
 function deleteA1Doc(id, kind){ const d=(DB.a1docs||[]).find(x=>x.id===id); if(!d) return;
   confirmModal("Supprimer ce document ?", esc(d.title||"document"), ()=>{ if(d.hasFile) a1FileDel(d.id); DB.a1docs=DB.a1docs.filter(x=>x.id!==id); save(); closeModal(); openA1Docs(kind); toast("Supprimé."); }); }
 /* Contexte documentaire (notes) injecté dans l'IA — enrichit l'analyse par client. */
-function a1DocsContext(clientId){ const list=(DB.a1docs||[]).filter(d=>d.clientId===clientId && (d.note||"").trim()); if(!list.length) return "";
-  return "\n\n=== DOCUMENTS COMPLÉMENTAIRES DU CLIENT (contexte terrain fourni par BSM — à prendre en compte) ===\n"+list.map(d=>"- ["+(d.category||"Autre")+"] "+(d.title?d.title+" : ":"")+(d.note||"")).join("\n"); }
+function a1DocsContext(clientId){
+  const list=(DB.a1docs||[]).filter(d=>d.clientId===clientId && (d.note||"").trim());
+  let t=list.length?("\n\n=== DOCUMENTS COMPLÉMENTAIRES DU CLIENT (contexte terrain fourni par BSM — à prendre en compte) ===\n"+list.map(d=>"- ["+(d.category||"Autre")+"] "+(d.title?d.title+" : ":"")+(d.note||"")).join("\n")):"";
+  // Factures enregistrées (preuves validées à la main) : données solides pour recouper conso, prix et périodes.
+  const inv=(DB.a1invoices||[]).filter(i=>i.clientId===clientId).sort((a,b)=>String(a.period).localeCompare(String(b.period)));
+  if(inv.length){
+    t+="\n\n=== FACTURES ENREGISTRÉES (chiffres validés sur pièce — source fiable pour recoupement) ===\n"
+      +inv.slice(-18).map(i=>"- "+(i.period||"?")+" · "+(i.kind==="jirama"?"JIRAMA":"Carburant"+(i.supplier?" ("+i.supplier+")":""))+" : "
+        +(i.kind==="jirama"?Math.round(i.kwh||0).toLocaleString("fr-FR")+" kWh":Math.round(i.liters||0).toLocaleString("fr-FR")+" L")
+        +" · "+Math.round(i.amount||0).toLocaleString("fr-FR")+" Ar"+(i.unit?" ("+Math.round(i.unit).toLocaleString("fr-FR")+" Ar/u)":"")+(i.hasFile?" · preuve jointe":"")).join("\n");
+  }
+  return t; }
 function buildA1Context(){
   const {arr, fleetConso, totals}=a1Compute();
   let t=`Analyse de flotte (méthode BSM). Devise ${DB.meta.defaultCurrency}. Conso moyenne flotte ${fleetConso.toFixed(1)} L/100 km. Total ${totals.km.toLocaleString('fr-FR')} km, ${Math.round(totals.liters)} L, coût carburant ${fmtD(totals.cost)}, coût moyen ${fmtD(totals.costPerKm)}/km.\nVéhicules :\n`;
@@ -8109,6 +8368,11 @@ function buildFleetSynthesisMd(){
     md+=`- **Recoupement GPS** (${gpsArr.length} véhicule(s) équipé(s)) : ${ph.length?ph.map(p=>p.v.name+" ≈ "+p.recoup.phantomKm.toLocaleString('fr-FR')+" km de carburant non roulé (litres facturés > distance GPS possible)").join(" ; ")+". Preuve **indépendante du compteur** — à investiguer en priorité.":"distances GPS cohérentes avec le carburant facturé."}${dl.length?` Écarts compteur/GPS : ${dl.map(p=>p.v.name+" ("+(p.recoup.deltaPct>0?"+":"")+p.recoup.deltaPct.toFixed(0)+"%)").join(", ")}.`:""}\n`; }
   const invN=(DB.a1invoices||[]).filter(i=>i.kind==="fuel"&&(!a1Client||i.clientId===a1Client)).length;
   if(invN) md+=`- **Factures carburant** : ${invN} facture(s) pompiste archivée(s) comme preuve, prix au litre appliqué au mois réel.\n`;
+  const ds=a1DriverStats(a1Client);   // Lot F : classement conducteurs — l'IA le voit et peut cibler ses recommandations
+  if(ds.arr.length>=2){
+    md+=`\n## Conducteurs (classés par écart de consommation)\n\n`;
+    ds.arr.slice(0,8).forEach((o,i)=>{ md+=`- ${i+1}. **${o.driver}** : ${Math.round(o.km).toLocaleString('fr-FR')} km · ${o.conso!=null?o.conso.toFixed(1)+" L/100":"—"}${o.drift!=null?` · écart ${(o.drift>0?"+":"")+o.drift.toFixed(0)} % vs ${o.refType}`:""}${o.idleTotal?` · ralenti ${Math.round(o.idleTotal)} h`:""}${o.overCost>0?` · surcoût estimé ${Math.round(o.overCost).toLocaleString('fr-FR')} Ar`:""}\n`; });
+  }
   md+=`\n## Sources & méthode\n\n`;
   md+=`- **Conso** = litres ÷ km × 100 (L/100 km). **vs constructeur** = conso réelle ÷ conso constructeur − 1.\n`;
   md+=`- **Ralenti %** = heures moteur à l'arrêt ÷ heures moteur totales (alerte > 35 %).\n`;
@@ -8288,7 +8552,7 @@ function mailA1Offer(offerId){
     const html=docChrome(a1OfferBody(o), a1OfferDocOpt(o));
     const subject="[BSM] "+(o.label||a1ProductDef(o.product).label)+" — "+(c?c.company:clientName(o.clientId));
     try{
-      await googleCall("mail",{ to, subject, html, pdfHtml:html, pdfName:(o.ref||"offre-A1") });
+      await bsmClientMail({ to, subject, html, pdfHtml:html, pdfName:(o.ref||"offre-A1") });
       o.emailedAt=todayISO(); o.emailedTo=to; save(); a1RefreshCurrent();
       toast("Offre envoyée à "+to+" ✅");
     }catch(e){ toast("Échec envoi : "+(e.message||e)+" — nécessite le serveur local + pont Google configuré."); }
@@ -8395,6 +8659,9 @@ function renderA1Genset(){
     ${a1genClient?a1OfferCard(a1genClient,"genset"):`<div class="infobox">Sélectionne un <b>client</b> pour gérer ses groupes séparément et lui associer une <b>offre programme</b> énergie (forfait + tarif, éditable, PDF, mail).</div>`}
     ${a1CrossLinkBanner("gen")}
     ${a1ExecBannerHtml('gen')}
+    ${a1BenchCard('gen')}
+    ${a1TrendCard('gen')}
+    ${a1SeasonCard()}
     ${totals.jiramaKwh>0?`<div class="card" style="border-left:3px solid var(--navy)"><b>⚡ Comparatif réseau JIRAMA :</b> ${Math.round(totals.kwh).toLocaleString('fr-FR')} kWh produits au groupe = <b>${fmtD(totals.cost)}</b> ; au tarif réseau (${fmtD(totals.jiramaKwh)}/kWh) cela coûterait <b>${fmtD(totals.jiramaEquiv)}</b> → ${totals.cost>totals.jiramaEquiv?`surcoût d'autonomie de <b style="color:var(--amber)">${fmtD(totals.cost-totals.jiramaEquiv)}</b> (prix de la continuité pendant les délestages)`:`<b style="color:var(--green)">économie de ${fmtD(totals.jiramaEquiv-totals.cost)}</b> vs réseau`}.</div>`:""}
     ${arr.length?(totals.outageH>0?`<div class="card" style="border-left:3px solid ${totals.horsCoupureH>=2?'var(--amber)':'var(--navy)'}"><b>🔌 Coupures JIRAMA :</b> ${Math.round(totals.outageH).toLocaleString('fr-FR')} h de délestage déclarées · ${Math.round(totals.hours).toLocaleString('fr-FR')} h de marche groupes (couverture ${(totals.hours/totals.outageH).toFixed(2)}×).${totals.horsCoupureH>=2?` <b style="color:var(--amber)">~${Math.round(totals.horsCoupureH)} h HORS COUPURE</b> — marche au-delà des délestages (réseau probablement disponible, à investiguer) : ${arr.filter(p=>p.horsCoupureH>=2).map(p=>esc(p.g.name)+" +"+Math.round(p.horsCoupureH)+"h").join(" · ")}.`:` Marche cohérente avec les coupures ✅.`}<div class="hint" style="margin-top:4px">Indicateur mensuel de <b>screening</b> (pas une preuve horaire). Comparaison prix « vs réseau » = renseigne le tarif JIRAMA (facture).</div></div>`:`<div class="card" style="border-left:3px solid var(--muted)"><b>🔌 Coupures JIRAMA :</b> durée non renseignée → <b>heures hors coupure non calculables</b>. Importe le tableau de bord (colonne « Durée coupures (h) ») ou saisis-les.</div>`):""}
     ${anomalies.length||lowLoads.length?`<div class="card" style="border-left:3px solid var(--red)">${anomalies.length?`<b>⚠️ Surconsommations :</b> ${anomalies.map(p=>esc(p.g.name)+" ("+p.realLh.toFixed(1)+" L/h, +"+p.driftLh.toFixed(0)+"% vs attendu)").join(" · ")}. À vérifier : entretien, injecteurs, charge, ou détournement de carburant.`:""}${anomalies.length&&lowLoads.length?"<br>":""}${lowLoads.length?`<b style="color:var(--amber)">Sous-charge :</b> ${lowLoads.map(p=>esc(p.g.name)+" ("+p.chargePct.toFixed(0)+"%)").join(" · ")} — groupe surdimensionné, rendement et durée de vie dégradés.`:""}</div>`:""}
@@ -8571,6 +8838,7 @@ function a1ApplyFicheTechnique(rows, clientId){
     if(reservoir!=null) g.reservoirL=reservoir; if(cos!=null) g.cosPhi=cos;
     if(mise){ let y=a1ExcelYear(mise[c]); if(!y){ const mm=String(mise[c]).match(/\b(19|20)\d\d\b/); if(mm) y=+mm[0]; } if(y) g.annee=y; }
     g.specsSource="Fiche technique (constructeur)"; n++;
+    a1SpecUpsertFromGenset(g);   // Lot F : mutualisation — cette fiche servira automatiquement aux autres clients équipés du même modèle
   }
   return {n, unmatched};
 }
@@ -8643,7 +8911,7 @@ async function a1ImportXlsxFile(f){
     const tbKey=names.find(k=>/tableau.*bord|bord.*mensuel/i.test(k)) || names.find(k=>sheets[k].some(r=>r.some(c=>/conso.*reel/i.test(norm(c)))));
     if(tbKey){ const res=a1GenImportRows(sheets[tbKey]); let ng=0,nl=0;
       (res.gensets||[]).forEach(gs=>{ let g=DB.a1gensets.find(x=>a1NameMatch(x.name, gs.name)&&(!cid||x.clientId===cid));
-        if(!g){ g={id:uid(),name:gs.name,carburant:"Diesel",clientId:cid}; DB.a1gensets.push(g); ng++; }
+        if(!g){ g={id:uid(),name:gs.name,carburant:"Diesel",clientId:cid}; a1AutoSpecApply(g,"gen"); DB.a1gensets.push(g); ng++; }
         gs.logs.forEach(l=>{ const liters=+l.liters||0, cost=l.cost>0?l.cost:(price>0?liters*price:0);
           DB.a1genlogs=DB.a1genlogs.filter(x=>!(x.gensetId===g.id && x.date===l.date)); // anti-doublon : réimporter le même mois REMPLACE (pas d'addition)
           DB.a1genlogs.push({id:uid(),gensetId:g.id,date:l.date,hours:+l.hours||0,liters,kwh:+l.kwh||0,chargePct:+l.chargePct||0,expectedLiters:+l.expectedLiters||0,costGap:+l.costGap||0,cost,currency:cur,jiramaPrice:0,litersReal:0,unitPrice:0,operator:"",site:"",station:""}); nl++; }); });
@@ -8746,7 +9014,7 @@ function runA1GenImport(){
     DB.a1genlogs=DB.a1genlogs.filter(l=>ids.indexOf(l.gensetId)<0); }
   let ng=0, nl=0;
   res.gensets.forEach(gs=>{ let g=DB.a1gensets.find(x=>a1NameMatch(x.name, gs.name) && (!cid || x.clientId===cid));
-    if(!g){ g={id:uid(), name:gs.name, carburant:"Diesel", clientId:cid}; DB.a1gensets.push(g); ng++; }
+    if(!g){ g={id:uid(), name:gs.name, carburant:"Diesel", clientId:cid}; a1AutoSpecApply(g,"gen"); DB.a1gensets.push(g); ng++; }
     gs.logs.forEach(l=>{ const liters=+l.liters||0; const cost=l.cost>0?l.cost:(price>0?liters*price:0);
       DB.a1genlogs.push({ id:uid(), gensetId:g.id, date:l.date, hours:+l.hours||0, liters, kwh:+l.kwh||0, chargePct:+l.chargePct||0,
         expectedLiters:+l.expectedLiters||0, costGap:+l.costGap||0, cost, currency:cur, jiramaPrice:+l.jiramaPrice||0,
@@ -8800,6 +9068,8 @@ function buildGensetSynthesisMd(){
   const client=a1genClient?clientName(a1genClient):"";
   let md=`# Analyse groupes électrogènes${client?" — "+client:""}\n\n`;
   md+=`**Contexte** : Madagascar — production autonome sous délestages JIRAMA. **Période analysée** : ${Math.round(totals.hours)} h de marche · ${Math.round(totals.kwh).toLocaleString('fr-FR')} kWh produits · ${Math.round(totals.liters).toLocaleString('fr-FR')} L de gasoil · coût carburant ${fmtD(totals.cost)}${price>0?` (≈ ${fmtD(price)}/L)`:""}.\n\n`;
+  const season=a1genClient?a1OutageSeason(a1genClient):null;   // Lot F : le contexte saisonnier cadre l'interprétation IA
+  if(season) md+=`**Saisonnalité délestages** : ${a1SeasonText(season)}\n\n`;
   md+=`## Synthèse par groupe\n\n| Groupe | Puissance | Marche | Énergie | Taux de charge | Conso | Rendement | Coût du kWh | État |\n|---|---|---|---|---|---|---|---|---|\n`;
   arr.forEach(p=>{ const puis=[p.g.puissanceKva?p.g.puissanceKva+" kVA":"",p.kwNominal?Math.round(p.kwNominal)+" kW":""].filter(Boolean).join(" / ")||"specs ?";
     md+=`| **${p.g.name}** | ${puis} | ${Math.round(p.hours)} h | ${Math.round(p.kwh).toLocaleString('fr-FR')} kWh | ${p.chargePct>0?"**"+p.chargePct.toFixed(0)+"%**":"—"} | ${p.realLh?p.realLh.toFixed(1)+" L/h":"—"} | ${p.rendement?p.rendement.toFixed(2)+" kWh/L":"—"} | ${p.costPerKwh?fmtD(p.costPerKwh):"—"} | ${a1GensetState(p)} |\n`; });
@@ -9951,7 +10221,7 @@ async function sendReportToClient(id){
   const body=(msg?`<p style="font-family:Arial,sans-serif;font-size:14px">${esc(msg)}</p>`:"")+doc;
   const who=(currentUser&&currentUser.name)||"";
   try{
-    await googleCall("mail",{ to, subject, html:body, pdfHtml:doc, pdfName:(r.title||"rapport").replace(/[^A-Za-z0-9._-]+/g,"_") });
+    await bsmClientMail({ to, subject, html:body, pdfHtml:doc, pdfName:(r.title||"rapport").replace(/[^A-Za-z0-9._-]+/g,"_") });
     r.status="envoye"; r.sentAt=new Date().toISOString(); r.sentBy=who; r.sentTo=to;
     (r.trail=r.trail||[]).push({act:"Envoyé au client ("+to+")", by:who, at:r.sentAt});
     window.__reportUnlockConf=false;
