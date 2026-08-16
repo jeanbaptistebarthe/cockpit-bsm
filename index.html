@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.12.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.13.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -713,6 +713,11 @@ function load(){
       else if(!DB.docTemplates.some(t=>t.type===def.type)){ DB.docTemplates.push(def); }
     });
     DB.meta.docTemplatesVersion=DOC_TEMPLATES_VERSION; save();
+  }
+  // v5.13 : note technique « permutation de groupes » ajoutée à la bibliothèque des bases existantes (une fois)
+  if(!DB.meta.swapNoteSeededV1){
+    try{ if(!(DB.docTemplates||[]).some(t=>/permutation de groupes/i.test(t.title||""))) DB.docTemplates.push(a1SwapNoteTemplate()); }catch(e){}
+    DB.meta.swapNoteSeededV1=true;
   }
   generateRecurring();
 }
@@ -2818,8 +2823,44 @@ Incidence sur les honoraires : {{montant}}.
 Le présent avenant prend effet à sa date de signature par les deux parties.
 
 ## Article 5 — Clauses inchangées
-Toutes les clauses du contrat initial non modifiées par le présent avenant demeurent applicables.`}
+Toutes les clauses du contrat initial non modifiées par le présent avenant demeurent applicables.`},
+  a1SwapNoteTemplate()
 ]; }
+/* Note technique GÉNÉRIQUE « permutation de groupes » — valable pour toute paire de groupes, transférable en PDF au client. */
+function a1SwapNoteTemplate(){ return {id:uid(),type:"autre",title:"Note technique — Permutation de groupes électrogènes",active:true,body:
+`Note établie par {{cabinet}} à l'attention de {{client}}. Elle explique, en langage clair, comment se décide l'échange de deux groupes électrogènes entre sites — et ce qu'il faut mesurer avant de déplacer la moindre machine.
+
+## La question à trancher
+Deux sites, deux groupes : chaque machine est-elle au bon endroit ? Échanger les groupes peut réduire la facture de gasoil et préserver les moteurs — à condition qu'aucun site ne se retrouve sous-motorisé. Un groupe trop petit décroche au démarrage d'une climatisation ou en pleine coupure réseau. La permutation se décide donc sur des mesures, jamais sur une impression.
+
+## La règle d'or : la pointe, pas la moyenne
+- La consommation moyenne dit ce que le site consomme ; elle ne dit pas si le groupe tient.
+- Un groupe se dimensionne sur la puissance de POINTE : le pic appelé aux heures les plus chargées, plus les démarrages de moteurs (climatisations, ascenseurs, pompes : 3 à 6 fois leur courant nominal pendant quelques secondes), plus une réserve d'évolution de 15 à 20 %.
+- Zone de travail idéale d'un groupe diesel : 60 à 80 % de sa puissance nominale. En dessous de 30 %, il gaspille du carburant et s'encrasse ; au-dessus de 85 % en continu, il s'use prématurément et perd toute marge de sécurité.
+
+## Ce qu'un échange peut rapporter
+Un groupe consomme, par kWh produit, d'autant moins qu'il travaille près de sa zone idéale (repères sectoriels) :
+- à 25 % de charge : environ 0,42 litre de gasoil par kWh produit ;
+- à 50 % de charge : environ 0,30 L/kWh ;
+- à 75 % de charge : environ 0,25 L/kWh — la zone idéale.
+Rapprocher chaque site de cette zone est le gain carburant de la permutation. Deuxième effet, souvent décisif : un groupe sorti de la surcharge chronique dure plus longtemps et ne décroche pas pendant les délestages.
+
+## Exemple (données réelles anonymisées)
+Site A : groupe de 240 kW chargé à 16 % en moyenne. Site B : groupe de 135 kW chargé à 23 %. L'étude montre que l'échange est compatible (pointes estimées à moins de 45 % des puissances nominales des groupes receveurs) et dégagerait environ 290 litres de gasoil par semestre. Elle révèle aussi que les deux groupes restent largement surdimensionnés : la vraie optimisation à long terme peut être un groupe plus petit, correctement chargé — c'est précisément ce que la mesure de pointe permet de décider.
+
+## Les 7 vérifications avant toute décision
+- 1. Puissance nominale exacte des deux groupes (fiche technique constructeur).
+- 2. Au moins 3 mois de relevés d'exploitation sur chaque site — la demande varie selon les saisons et les délestages.
+- 3. La puissance de pointe RÉELLEMENT appelée par chaque site, la donnée décisive : mesure de 7 à 14 jours à la pince ampèremétrique enregistreuse sur le tableau général, heures les plus chargées incluses.
+- 4. L'inventaire des équipements à fort courant de démarrage (climatisations, ascenseurs, pompes, compresseurs).
+- 5. Les heures de coupure réseau à tenir sur chaque site (durée des délestages).
+- 6. La compatibilité technique : tension et phases, inverseur de source recalibré, câblage, manutention et transport.
+- 7. La réserve d'évolution : les projets du site à 24 mois (extension, équipements nouveaux).
+
+## Ce que {{cabinet}} vous propose
+- Campagne de mesure de pointe sur vos sites (7 à 14 jours par site), avec restitution chiffrée.
+- Étude de faisabilité complète : verdict par sens d'échange, bilan carburant, impact fiabilité, plan logistique.
+- Suivi mensuel après permutation, pour vérifier que les gains estimés se réalisent — la mesure fait foi, jamais l'estimation.`}; }
 /* Contexte de remplissage (valeurs brutes). */
 function docBuildContext(clientId, meta){
   const c=DB.clients.find(x=>x.id===clientId)||{}; const id=docIdentity(); meta=meta||{};
@@ -7166,7 +7207,7 @@ function openA1SwapStudy(){
     <div class="msub">Peut-on échanger deux groupes sans qu'un site se retrouve <b>sous-motorisé</b> ? Verdict sur les données disponibles, gains estimés, et la liste exacte de ce qu'il reste à mesurer.</div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><b style="font-size:13px">Groupe A</b>${sel("sw-a",window._swapA)}<span style="font-size:16px">⇄</span><b style="font-size:13px">Groupe B</b>${sel("sw-b",window._swapB)}</div>
     <div id="sw-result"></div>
-    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="a1SwapPrint()">🖨 Imprimer l'étude (PDF)</button></div>`);
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal();setScreen('documentation')" title="Note générique « Permutation de groupes » à générer pour un client (bibliothèque de modèles)">📄 Note méthode client</button><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="a1SwapPrint()">🖨 Imprimer l'étude (PDF)</button></div>`);
   a1SwapRender();
 }
 function a1SwapRender(){
