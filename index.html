@@ -426,7 +426,7 @@
     <div class="navgroup">INTELLIGENCE IA</div>
     <div class="navitem" data-scr="aiassist" onclick="setScreen('aiassist')"><span class="ic">🧩</span><span class="lbl">Assistants IA</span></div>
     <div class="navitem" data-scr="reports" onclick="setScreen('reports')"><span class="ic">📋</span><span class="lbl">Rapports ZEUS</span></div>
-    <div class="navitem" data-scr="aireport" onclick="setScreen('aireport')"><span class="ic">🤖</span><span class="lbl">Reporting IA</span></div>
+    <div class="navitem" data-scr="aireport" onclick="setScreen('aireport')"><span class="ic">🤖</span><span class="lbl">Usage & coûts IA</span></div>
     <div class="navgroup">COMMERCIAL</div>
     <div class="navitem" data-scr="commercial" onclick="setScreen('commercial')"><span class="ic">💼</span><span class="lbl">Simulateur</span></div>
     <div class="navitem" data-scr="documentation" onclick="setScreen('documentation')"><span class="ic">🗂️</span><span class="lbl">Documentation</span></div>
@@ -520,7 +520,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.2.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.3.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -8734,12 +8734,70 @@ function aiSyncBudget(){
   save();
 }
 /* ---- Reporting IA : le « travail de fond » — ventile l'usage (secteur/modèle/utilisateur/mois) + coût pour chiffrer le budget ---- */
-function aiPeriodCutoff(){ const p=window.aiPeriod||"month";
-  if(p==="all") return 0;
-  if(p==="30") return Date.now()-30*86400000;
-  const d=new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); }
-function aiUsageFiltered(){ const cut=aiPeriodCutoff(); return (DB.aiUsage||[]).filter(u=>new Date(u.ts).getTime()>=cut); }
+function aiPeriodRange(){ const p=window.aiPeriod||"month"; const now=new Date();
+  if(p==="all")  return {start:0, end:Infinity, label:"tout l'historique"};
+  if(p==="7")    return {start:Date.now()-7*86400000, end:Infinity, label:"7 derniers jours"};
+  if(p==="30")   return {start:Date.now()-30*86400000, end:Infinity, label:"30 derniers jours"};
+  if(p==="prev"){ const s=new Date(now.getFullYear(),now.getMonth()-1,1), e=new Date(now.getFullYear(),now.getMonth(),1); return {start:s.getTime(), end:e.getTime(), label:"mois précédent"}; }
+  return {start:new Date(now.getFullYear(),now.getMonth(),1).getTime(), end:Infinity, label:"depuis le début du mois"};
+}
+function aiUsageFiltered(){ const r=aiPeriodRange(); const mf=window.aiModelFilter||"";
+  return (DB.aiUsage||[]).filter(u=>{ const t=new Date(u.ts).getTime(); return t>=r.start && t<r.end && (!mf||u.model===mf); }); }
 function aiSetPeriod(p){ window.aiPeriod=p; renderAireport(); }
+function aiSetModelFilter(m){ window.aiModelFilter=m; renderAireport(); }
+function aiSetChartMode(m){ window.aiChartMode=m; renderAireport(); }
+/* Palette stable par modèle (même couleur d'un rendu à l'autre) — style console. */
+const AI_CHART_COLORS=["#2563EB","#C7A25A","#102A43","#2F855A","#D97706","#7C3AED","#0F766E","#C0392B"];
+function aiModelColors(models){ const map={}; models.forEach((m,i)=>map[m]=AI_CHART_COLORS[i%AI_CHART_COLORS.length]); return map; }
+/* Graphique « Coût quotidien en tokens » : barres empilées par modèle, un jour = une barre (info-bulle au survol). */
+function aiDailyChartSvg(list){
+  const r=aiPeriodRange();
+  const endT=Math.min(Date.now(), r.end===Infinity?Date.now():r.end-1);
+  let startT=r.start>0?r.start:(list.length?new Date(list[0].ts).getTime():Date.now());
+  if((endT-startT)/86400000>62) startT=endT-61*86400000;   // lisibilité : 62 jours max affichés
+  const days=[]; for(let t=new Date(new Date(startT).toISOString().slice(0,10)).getTime(); t<=endT; t+=86400000) days.push(new Date(t).toISOString().slice(0,10));
+  const byDay={}; const modelTot={};
+  list.forEach(u=>{ const d=(u.ts||"").slice(0,10); if(!byDay[d]) byDay[d]={}; const m=u.model||"?";
+    byDay[d][m]=(byDay[d][m]||0)+(u.costUsd||0); modelTot[m]=(modelTot[m]||0)+(u.costUsd||0); });
+  const models=Object.keys(modelTot).sort((a,b)=>modelTot[b]-modelTot[a]);
+  const colors=aiModelColors(models);
+  const maxDay=Math.max(0.0001, ...days.map(d=>models.reduce((s,m)=>s+((byDay[d]||{})[m]||0),0)));
+  const W=960,H=230,padL=52,padB=26,padT=10, cw=(W-padL-8)/days.length, bw=Math.max(3,Math.min(34,cw*0.62));
+  const yMax=maxDay*1.12;
+  const Y=v=>H-padB-(v/yMax)*(H-padB-padT);
+  let grid=""; for(let i=0;i<=3;i++){ const v=yMax*i/3, y=Y(v);
+    grid+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-4}" y2="${y.toFixed(1)}" stroke="#EDE8DC" stroke-width="1"/><text x="${padL-8}" y="${(y+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#8A8F98">$${v>=1?v.toFixed(2):v.toFixed(3)}</text>`; }
+  let bars=""; const lblEvery=Math.max(1,Math.ceil(days.length/10));
+  days.forEach((d,i)=>{ const x=padL+i*cw+(cw-bw)/2; let y=H-padB; const dd=byDay[d]||{};
+    const dayTot=models.reduce((s,m)=>s+(dd[m]||0),0);
+    let segs="";
+    models.forEach(m=>{ const v=dd[m]||0; if(v<=0) return; const hgt=(v/yMax)*(H-padB-padT); y-=hgt;
+      segs+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1,hgt).toFixed(1)}" rx="2" fill="${colors[m]}"/>`; });
+    const tip=frDate(d)+" — $"+dayTot.toFixed(4)+(dayTot>0?"\n"+models.filter(m=>dd[m]>0).map(m=>m+" : $"+dd[m].toFixed(4)).join("\n"):"");
+    bars+=`<g class="aic-day">${segs}<rect x="${(padL+i*cw).toFixed(1)}" y="${padT}" width="${cw.toFixed(1)}" height="${(H-padB-padT).toFixed(1)}" fill="transparent"><title>${esc(tip)}</title></rect></g>`;
+    if(i%lblEvery===0) bars+=`<text x="${(x+bw/2).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="9.5" fill="#8A8F98">${d.slice(8,10)}/${d.slice(5,7)}</text>`;
+  });
+  const legend=models.map(m=>`<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink)"><span style="width:10px;height:10px;border-radius:3px;background:${colors[m]};display:inline-block"></span>${esc(m)} <b style="color:var(--muted);font-weight:600">$${modelTot[m].toFixed(2)}</b></span>`).join("");
+  return `<div style="overflow-x:auto"><svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="min-width:560px">${grid}${bars}</svg></div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px">${legend||'<span class="hint">Aucun appel sur la période.</span>'}</div>`;
+}
+/* Vue tableau du quotidien (bascule 📈/▦ comme la console). */
+function aiDailyTableHtml(list){
+  const byDay={}; list.forEach(u=>{ const d=(u.ts||"").slice(0,10); if(!byDay[d]) byDay[d]={calls:0,tok:0,cost:0}; byDay[d].calls++; byDay[d].tok+=(u.totalTokens||0); byDay[d].cost+=(u.costUsd||0); });
+  const rows=Object.keys(byDay).sort().reverse().map(d=>`<tr><td><b>${frDate(d)}</b></td><td style="text-align:right">${byDay[d].calls}</td><td style="text-align:right">${byDay[d].tok.toLocaleString("fr-FR")}</td><td style="text-align:right">$${byDay[d].cost.toFixed(4)}</td><td style="text-align:right;color:var(--muted)">${usdToAr(byDay[d].cost).toLocaleString("fr-FR")} Ar</td></tr>`).join("");
+  return `<div style="max-height:280px;overflow:auto"><table><thead><tr><th>Jour</th><th style="text-align:right">Appels</th><th style="text-align:right">Tokens</th><th style="text-align:right">Coût</th><th style="text-align:right">≈ Ariary</th></tr></thead><tbody>${rows||'<tr><td colspan="5"><div class="empty">Aucun appel sur la période.</div></td></tr>'}</tbody></table></div>`;
+}
+/* Export CSV de l'usage filtré (séparateur ; + BOM → s'ouvre dans Excel). */
+function aiExportCsv(){
+  const list=aiUsageFiltered();
+  if(!list.length){ toast("Rien à exporter sur la période."); return; }
+  const head=["Date","Heure","Utilisateur","Module","Fournisseur","Modèle","Tokens entrée","Tokens sortie","Coût ($)"];
+  const lines=list.map(u=>[(u.ts||"").slice(0,10),(u.ts||"").slice(11,16),u.user||"",aiSectorLabel(u.sector),u.provider||"",u.model||"",u.promptTokens||0,u.completionTokens||0,String((u.costUsd||0).toFixed(6)).replace(".",",")]);
+  const csv="﻿"+[head].concat(lines).map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(";")).join("\r\n");
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+  a.download="BSM_usage_IA_"+todayISO()+".csv"; a.click(); toast("Export CSV téléchargé.");
+}
+function aiSaveBudget(){ const v=parseFloat((val("ai-budget")||"").replace(",",".")); DB.meta.aiBudgetUsd=(v>0)?v:0; save(); renderAireport(); toast(v>0?"Budget IA mensuel enregistré.":"Budget IA retiré."); }
 function usdToAr(u){ return Math.round((u||0)*(DB.meta.rateUsdMga||4500)); }
 function aiSectorLabel(s){ return AI_SECTOR_LABELS[s]||s||"—"; }
 function aiGroupBy(list, keyFn){ const g={}; list.forEach(u=>{ const k=keyFn(u)||"—"; if(!g[k]) g[k]={calls:0,tok:0,cost:0}; g[k].calls++; g[k].tok+=(u.totalTokens||0); g[k].cost+=(u.costUsd||0); }); return g; }
@@ -8768,19 +8826,44 @@ function renderAireport(){
       <td><input id="aip-in-${m}" type="number" step="0.01" value="${pr.in}" style="width:80px;padding:4px 6px;border:1px solid var(--line);border-radius:5px"></td>
       <td><input id="aip-out-${m}" type="number" step="0.01" value="${pr.out}" style="width:80px;padding:4px 6px;border:1px solid var(--line);border-radius:5px"></td></tr>`; }).join("");
   const th=`<thead><tr><th>Nom</th><th style="text-align:right">Appels</th><th style="text-align:right">Tokens</th><th style="text-align:right">Coût est.</th><th style="text-align:right">≈ Ariary</th></tr></thead>`;
+  const range=aiPeriodRange();
+  const mf=window.aiModelFilter||"";
+  const allModels=[...new Set((DB.aiUsage||[]).map(u=>u.model||"?"))].sort();
+  const chartMode=window.aiChartMode||"chart";
+  const budget=+DB.meta.aiBudgetUsd||0;
+  const budgetPct=budget>0?Math.round(monthCost/budget*100):null;
+  const srvProviders=[_srvAI.claude&&"Claude",_srvAI.mammouth&&"Mammouth",_srvAI.mistral&&"Mistral"].filter(Boolean);
+  const provHtml=(serverEnabled&&_srvAI.any)
+    ? `🔐 <b>IA via le serveur BSM</b> (clés sécurisées) : ${srvProviders.join(" → ")} · modèle Claude <b>${esc(DB.meta.claudeModel||"claude-sonnet-5")}</b>.`
+    : (prov?`<b>Fournisseur actif :</b> ${prov.name==='claude'?'✦ Claude':prov.name==='mammouth'?'☁️ Mammouth':'Mistral'} · modèle par défaut <b>${esc(prov.model)}</b>.`
+           :`⚠️ Aucune clé IA configurée — <a href="#" onclick="openSettings();return false">ouvrir les Paramètres</a>. Le comptage démarrera dès le 1er appel.`);
   host.innerHTML=`
-    <div class="pagetitle"><div><h1>Reporting IA</h1><div class="sub">Usage, consommation et coût estimé des requêtes IA — pour chiffrer le budget</div></div>
-      <div style="display:flex;gap:8px">${chip('month',"Ce mois-ci")}${chip('30',"30 jours")}${chip('all',"Tout")}</div></div>
-    <div class="card" style="border-left:3px solid ${prov?'var(--green)':'var(--orange)'}">
-      ${prov?`<b>Fournisseur actif :</b> ${prov.name==='mammouth'?'☁️ Mammouth':'Mistral'} · modèle par défaut <b>${esc(prov.model)}</b>.`
-             :`⚠️ Aucune clé IA configurée — <a href="#" onclick="openSettings();return false">ouvrir les Paramètres</a>. Le comptage démarrera dès le 1er appel.`}
-      <span style="color:var(--muted)"> Les coûts sont <b>estimés</b> (Mammouth ne renvoie pas le coût par appel) via la grille de prix ci-dessous — ajuste-la selon ta facture réelle.</span></div>
+    <div class="pagetitle"><div><h1>Usage & coûts IA</h1><div class="sub">Coût de l'utilisation IA du cabinet au fil du temps — ${range.label}${mf?` · modèle ${esc(mf)}`:""}</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select onchange="aiSetModelFilter(this.value)" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;background:#fff"><option value="">Modèle : tout</option>${allModels.map(m=>`<option value="${esc(m)}" ${mf===m?'selected':''}>${esc(m)}</option>`).join("")}</select>
+        ${chip('7',"7 jours")}${chip('month',"Ce mois-ci")}${chip('prev',"Mois précédent")}${chip('30',"30 jours")}${chip('all',"Tout")}
+        <button class="cta ghost sm" onclick="aiExportCsv()" title="Exporter l'usage filtré en CSV (Excel)">⬇ CSV</button>
+      </div></div>
+    <div class="card" style="border-left:3px solid ${(serverEnabled&&_srvAI.any)||prov?'var(--green)':'var(--orange)'}">
+      ${provHtml}
+      <span style="color:var(--muted)"> Les coûts sont <b>estimés</b> via la grille de prix ci-dessous — ajuste-la selon ta facture réelle.</span></div>
     <div class="kpis">
-      <div class="kpi"><div class="v">${totCalls}</div><div class="l">Appels (${period==='month'?'ce mois':period==='30'?'30 j':'total'})</div></div>
-      <div class="kpi"><div class="v">${totTok.toLocaleString("fr-FR")}</div><div class="l">Tokens consommés</div></div>
-      <div class="kpi"><div class="v">$${totCost.toFixed(2)}</div><div class="l">Coût estimé (période)</div></div>
-      <div class="kpi"><div class="v">$${monthCost.toFixed(2)}</div><div class="l">Coût du mois en cours</div></div>
+      <div class="kpi" style="border-top:3px solid var(--gold)"><div class="v">$${totCost.toFixed(2)}</div><div class="l">Coût total (${range.label}) · ≈ ${usdToAr(totCost).toLocaleString("fr-FR")} Ar</div></div>
+      <div class="kpi" style="border-top:3px solid var(--navy)"><div class="v">${totTok.toLocaleString("fr-FR")}</div><div class="l">Tokens consommés (période)</div></div>
+      <div class="kpi" style="border-top:3px solid var(--blue)"><div class="v">${totCalls}</div><div class="l">Appels IA (période)</div></div>
+      <div class="kpi" style="border-top:3px solid ${budgetPct!=null&&budgetPct>=80?'var(--red)':'var(--green)'}"><div class="v ${budgetPct!=null&&budgetPct>=80?'danger':''}">$${monthCost.toFixed(2)}${budgetPct!=null?` <span style="font-size:13px;font-weight:600;color:var(--muted)">· ${budgetPct}%</span>`:""}</div><div class="l">${budget>0?`Dépenses ce mois-ci · sur $${budget} de budget`:"Coût du mois en cours"}</div></div>
     </div>
+    ${(DB.aiUsage||[]).length?`
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+        <h2 style="margin:0">Coût quotidien en tokens</h2>
+        <div style="display:flex;gap:6px">
+          <button class="iconbtn" style="${chartMode==='chart'?'background:var(--cream);border-color:var(--gold)':''}" onclick="aiSetChartMode('chart')" title="Vue graphique">📈</button>
+          <button class="iconbtn" style="${chartMode==='table'?'background:var(--cream);border-color:var(--gold)':''}" onclick="aiSetChartMode('table')" title="Vue tableau">▦</button>
+        </div></div>
+      <div class="hint" style="margin-bottom:10px">Inclut tous les appels IA du Cockpit (analyses, chat, rapports, programme A1) — survole une barre pour le détail par modèle.</div>
+      ${chartMode==='table'?aiDailyTableHtml(list):aiDailyChartSvg(list)}
+    </div>`:""}
     ${!(DB.aiUsage||[]).length?`<div class="card"><div class="empty">Aucun appel IA enregistré pour l'instant. Configure une clé (Paramètres) et utilise l'assistant IA (Analyses, fiches client, programme A1) — chaque appel apparaîtra ici et alimentera le budget.</div></div>`:`
     <div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
       <div class="card"><h2>Par secteur (type de requête)</h2><table>${th}<tbody>${aiGroupRows(bySector,aiSectorLabel)||'<tr><td colspan="5"><div class="empty">—</div></td></tr>'}</tbody></table></div>
@@ -8791,7 +8874,13 @@ function renderAireport(){
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Grille de prix ($ / 1 million de tokens)</h2>
         <div style="display:flex;gap:8px"><button class="cta ghost sm" onclick="DB.meta.aiPrices=null;save();aiSyncBudget();renderAireport();toast('Grille remise par défaut.')">↺ Défaut</button><button class="cta sm" onclick="aiSavePrices()">💾 Enregistrer & recalculer</button></div></div>
-      <div class="hint" style="margin:6px 0 8px">Sert à estimer le coût de chaque appel (entrée/sortie). Modifie ces valeurs pour coller à ta facture Mammouth, puis « Enregistrer » — la ligne budget « Intelligence artificielle » est recalculée automatiquement.</div>
+      <div class="hint" style="margin:6px 0 8px">Sert à estimer le coût de chaque appel (entrée/sortie). Modifie ces valeurs pour coller à ta facture réelle, puis « Enregistrer » — la ligne budget « Intelligence artificielle » est recalculée automatiquement.</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:var(--cream);border-radius:10px">
+        <b style="font-size:12.5px">🎯 Budget IA mensuel ($)</b>
+        <input id="ai-budget" type="number" step="1" min="0" value="${+DB.meta.aiBudgetUsd||''}" placeholder="ex : 50" style="width:90px;padding:6px 8px;border:1px solid var(--line);border-radius:7px">
+        <button class="cta ghost sm" onclick="aiSaveBudget()">Enregistrer</button>
+        <span class="hint">Affiche « % utilisé » sur la carte du mois, comme la console Claude (0 ou vide = pas de budget).</span>
+      </div>
       <table><thead><tr><th>Modèle</th><th>Prix entrée ($/1M)</th><th>Prix sortie ($/1M)</th></tr></thead><tbody>${priceRows}</tbody></table>
       <div class="hint" style="margin-top:10px">💡 Le coût est reporté chaque mois dans le <b>Budget</b> (catégorie « Intelligence artificielle », entité BSM A&C), donc dans le CA net et le Compte de résultat. <button class="cta ghost sm" onclick="aiSyncBudget();toast('Ligne budget IA recalculée.')">↻ Recalculer la ligne budget maintenant</button></div>
     </div>`;
@@ -9450,7 +9539,7 @@ const PERMSCREENS=[
   {key:"resultat", label:"Compte de résultat",grp:"PILOTAGE",fin:true},
   {key:"roi",      label:"ROI & Investissements",grp:"PILOTAGE",fin:true},
   {key:"monitoring",label:"Monitoring & suivi",grp:"PILOTAGE"},
-  {key:"aireport", label:"Reporting IA",grp:"PILOTAGE",fin:true},
+  {key:"aireport", label:"Usage & coûts IA",grp:"PILOTAGE",fin:true},
   {key:"aiassist", label:"Assistants IA",grp:"PILOTAGE",fin:true},
   {key:"reports",  label:"Rapports ZEUS",grp:"PILOTAGE",fin:true},
   {key:"missions", label:"Missions (R5)",grp:"MÉTHODE R5"},
