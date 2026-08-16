@@ -15,6 +15,7 @@
 <style>
   :root{
     --navy:#102A43; --navy-light:#1E3A5F; --cream:#F6F1E8; --gold:#C7A25A;
+    --bg:#FAF9F5; --side:#F5F2EB;            /* refonte v5.1 « console » : fond page blanc chaud + sidebar claire */
     --ink:#1B2430; --muted:#6B7280; --line:#E4E0D6;
     --red:#C0392B; --orange:#D97706; --amber:#B7891A; --green:#2F855A; --blue:#2563EB;
     /* Typo éditoriale (titres) — repli système hors-ligne */
@@ -26,8 +27,8 @@
   }
   .num,.kpi .v,td,.bar-val,.v{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;}
   *{box-sizing:border-box;}
-  body{margin:0;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:var(--cream);color:var(--ink);}
-  .topbar{display:flex;align-items:center;justify-content:space-between;background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:20;box-shadow:0 2px 10px rgba(16,42,67,.05);}
+  body{margin:0;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);}
+  .topbar{display:flex;align-items:center;justify-content:space-between;background:var(--bg);border-bottom:1px solid var(--line);padding:11px 24px;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:20;}
   .brand{font-weight:700;color:var(--navy);letter-spacing:.03em;font-size:15px;}
   .brand span{color:var(--gold);}
   .topbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
@@ -40,18 +41,18 @@
   body.dark .tb-menu{background:#16202e;border-color:#273241;}
   body.dark .tb-menu button{color:var(--ink);} body.dark .tb-menu button:hover{background:#1b2736;}
   .app{display:flex;min-height:calc(100vh - 53px);}
-  .sidebar{width:210px;background:linear-gradient(180deg,#143253 0%,#0D2137 100%);color:#fff;display:flex;flex-direction:column;padding:18px 0;flex-shrink:0;box-shadow:2px 0 16px rgba(16,42,67,.10);}
-  .sidebar .logo{font-size:11px;letter-spacing:.08em;color:var(--gold);padding:0 18px 14px;border-bottom:1px solid rgba(255,255,255,.12);margin-bottom:8px;}
-  .sidebar .who{padding:0 18px 14px;font-size:12px;color:rgba(255,255,255,.6);}
-  .navitem{padding:11px 18px;font-size:13.5px;cursor:pointer;color:rgba(255,255,255,.78);border-left:3px solid transparent;display:flex;align-items:center;gap:10px;transition:background .15s ease,color .15s ease,border-color .15s ease;}
-  .navitem:hover{background:rgba(255,255,255,.06);color:#fff;}
-  .navitem.active{color:#fff;border-left-color:var(--gold);background:linear-gradient(90deg,rgba(199,162,90,.18),rgba(255,255,255,.02));font-weight:600;}
+  .sidebar{width:228px;background:var(--side);color:var(--ink);display:flex;flex-direction:column;padding:16px 8px;flex-shrink:0;border-right:1px solid var(--line);}
+  .sidebar .logo{font-size:11px;letter-spacing:.09em;color:var(--navy);font-weight:700;padding:2px 12px 14px;border-bottom:1px solid var(--line);margin-bottom:10px;}
+  .sidebar .who{padding:0 12px 12px;font-size:12px;color:var(--muted);}
+  .navitem{padding:9px 12px;margin:1px 4px;font-size:13.5px;cursor:pointer;color:#414B59;border-radius:9px;display:flex;align-items:center;gap:10px;transition:background .15s ease,color .15s ease,box-shadow .15s ease;}
+  .navitem:hover{background:#ECE7DB;color:var(--navy);}
+  .navitem.active{color:var(--navy);background:#fff;box-shadow:inset 0 0 0 1px var(--line),inset 3px 0 0 var(--gold),0 1px 2px rgba(16,42,67,.06);font-weight:600;}
   .navitem .ic{width:18px;text-align:center;}
   .navitem .badge-nav{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 7px;}
-  .main{flex:1;padding:24px 30px;overflow-x:auto;}
-  .pagetitle{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px;}
-  .pagetitle h1{font-family:var(--serif);font-size:27px;margin:0;color:var(--navy);font-weight:600;letter-spacing:.005em;line-height:1.12;}
-  .pagetitle .sub{font-size:12.5px;color:var(--muted);margin-top:3px;}
+  .main{flex:1;padding:30px 36px;overflow-x:auto;}
+  .pagetitle{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:10px;}
+  .pagetitle h1{font-family:var(--serif);font-size:33px;margin:0;color:var(--navy);font-weight:600;letter-spacing:.005em;line-height:1.1;}
+  .pagetitle .sub{font-size:13px;color:var(--muted);margin-top:5px;}
   .cta{background:var(--navy);color:#fff;border:none;padding:9px 16px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(16,42,67,.18);transition:transform .12s ease,box-shadow .12s ease,background .15s ease;}
   .cta:hover{background:var(--navy-light);box-shadow:0 4px 12px rgba(16,42,67,.22);transform:translateY(-1px);}
   .cta:active{transform:translateY(0);box-shadow:0 1px 2px rgba(16,42,67,.18);}
@@ -60,23 +61,23 @@
   .cta.ghost:hover{background:#fff;border-color:var(--gold);color:var(--navy);}
   .cta.danger{background:var(--red);}
   .cta.sm{padding:5px 11px;font-size:12px;border-radius:8px;}
-  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
-  .kpi{background:#fff;border:1px solid #ECE7DB;border-radius:14px;padding:17px 19px;box-shadow:var(--sh-card);transition:transform .15s ease,box-shadow .15s ease;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+  .kpi{background:#fff;border:1px solid #ECE7DB;border-radius:16px;padding:20px 22px;box-shadow:var(--sh-card);transition:transform .15s ease,box-shadow .15s ease;}
   .kpi:hover{transform:translateY(-2px);box-shadow:var(--sh-card-hover);}
-  .kpi .v{font-size:24px;font-weight:800;color:var(--navy);line-height:1.1;letter-spacing:-.01em;font-variant-numeric:tabular-nums;}
-  .kpi .l{font-size:10.5px;color:var(--muted);margin-top:6px;text-transform:uppercase;letter-spacing:.055em;font-weight:600;}
+  .kpi .v{font-size:29px;font-weight:750;color:var(--navy);line-height:1.08;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+  .kpi .l{font-size:12px;color:var(--muted);margin-top:7px;font-weight:500;}
   .kpi-ic{font-size:17px;opacity:.5;line-height:1;}
   .kpi-spark{margin-top:6px;}
   .kpi .v.warn{color:var(--orange);} .kpi .v.danger{color:var(--red);} .kpi .v.good{color:var(--green);}
-  .card{background:#fff;border:1px solid #ECE7DB;border-radius:14px;padding:20px;margin-bottom:18px;box-shadow:var(--sh-card);}
+  .card{background:#fff;border:1px solid #ECE7DB;border-radius:16px;padding:22px;margin-bottom:20px;box-shadow:var(--sh-card);}
   .card h2{font-size:14px;color:var(--navy);margin:0 0 12px;letter-spacing:.005em;font-weight:700;}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
   .grid2.wide{grid-template-columns:1.5fr 1fr;}
   table{width:100%;border-collapse:collapse;font-size:13px;}
-  th{text-align:left;color:var(--muted);font-weight:700;font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:9px 10px;border-bottom:1.5px solid var(--line);background:#FBF9F4;}
-  td{padding:10px;border-bottom:1px solid #F0ECE1;vertical-align:middle;}
+  th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;letter-spacing:.04em;text-transform:uppercase;padding:9px 10px;border-bottom:1px solid var(--line);background:transparent;}
+  td{padding:11px 10px;border-bottom:1px solid #F0ECE1;vertical-align:middle;}
   tr:last-child td{border-bottom:none;}
-  tbody tr:nth-child(even){background:#FCFBF7;}
+  tbody tr:nth-child(even){background:transparent;}
   tbody tr{transition:background .12s ease,box-shadow .12s ease;}
   tbody tr:hover{background:#F3EFE4;}
   table.clickrows tbody tr:hover{background:#F1ECDD;box-shadow:inset 3px 0 0 var(--gold);}
@@ -176,8 +177,8 @@
   .mini-list .li:last-child{border-bottom:none;}
   .mini-list .li .d{color:var(--muted);font-size:12px;white-space:nowrap;}
   .b-amber{background:#FEF3E2;color:var(--amber);}
-  .navgroup{font-size:10px;color:rgba(255,255,255,.4);letter-spacing:.08em;padding:12px 18px 4px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;transition:color .15s ease;}
-  .navgroup:hover{color:rgba(255,255,255,.72);}
+  .navgroup{font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.09em;padding:14px 12px 4px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;transition:color .15s ease;}
+  .navgroup:hover{color:var(--navy);}
   .nav-chev{font-size:9px;opacity:.55;transition:transform .18s ease;}
   .navgroup.collapsed .nav-chev{transform:rotate(-90deg);}
   .navitem.nav-collapsed{display:none;}
@@ -275,7 +276,15 @@
     @page{margin:14mm;}
   }
   .gauge{color:#102A43;}
-  body.dark{--cream:#0f1722;--ink:#e6e9ee;--muted:#94a3b8;--line:#273241;}
+  body.dark{--cream:#0f1722;--bg:#0c141f;--side:#0d1520;--ink:#e6e9ee;--muted:#94a3b8;--line:#273241;}
+  body.dark .sidebar{background:var(--side);border-right-color:#273241;}
+  body.dark .navitem{color:#9fb0c3;}
+  body.dark .navitem:hover{background:#1b2736;color:#e6e9ee;}
+  body.dark .navitem.active{background:#16202e;color:#fff;box-shadow:inset 0 0 0 1px #273241,inset 3px 0 0 var(--gold);}
+  body.dark .navgroup{color:#5c6b7e;} body.dark .navgroup:hover{color:#cdd6e2;}
+  body.dark .sidebar .logo{color:var(--gold);border-bottom-color:#273241;}
+  body.dark .sidebar .who{color:#5c6b7e;}
+  body.dark .topbar{background:var(--bg);}
   body.dark .topbar,body.dark .card,body.dark .kpi,body.dark .modal,body.dark .gauge,body.dark .tb-btn,body.dark .chip,body.dark .searchbox,body.dark .gsearch input,body.dark .iconbtn,body.dark .panel,body.dark .modcard,body.dark .fiche-card,body.dark .cal .day,body.dark .gs-results,body.dark .imp-mode,body.dark .doccat span,body.dark input,body.dark select,body.dark textarea,body.dark .cta.ghost{background:#16202e;color:var(--ink);border-color:#273241;}
   body.dark .brand,body.dark .pagetitle h1,body.dark h1,body.dark h2,body.dark .card h2,body.dark .modal h2,body.dark .tab.active,body.dark .subtab.active,body.dark .bar-val,body.dark .gauge{color:var(--ink);}
   body.dark .brand span{color:var(--gold);}
@@ -498,7 +507,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.0.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.1.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -9348,7 +9357,7 @@ function localStorageBytes(){ let t=0; try{ for(let i=0;i<localStorage.length;i+
 function renderAdminSante(){
   const host=document.getElementById("scr-admin-sante"); if(!host) return;
   if(!isAdmin()){ host.innerHTML=""; return; }
-  const dbBytes=JSON.stringify(DB).length, lsBytes=localStorageBytes(), lsPct=Math.min(100,Math.round(lsBytes/(5*1048576)*100));
+  const dbBytes=JSON.stringify(DB).length, lsBytes=localStorageBytes(), lsPct=Math.min(100,Math.round(lsBytes/(10*1048576)*100)); // quota localStorage Chrome/Edge ≈ 10 Mo par origine (indépendant du disque dur)
   const m=envMode();
   const counts=[["👥 Clients",(DB.clients||[]).length],["🎯 Missions",(DB.missions||[]).length],["⚠️ Risques",(DB.risks||[]).length],["✅ Recommandations",(DB.recommendations||[]).length],["💶 Transactions",(DB.transactions||[]).length],["⛽ Relevés A1 (flotte + groupes)",((DB.a1logs||[]).length+(DB.a1genlogs||[]).length)],["🧑‍💼 Salariés",(DB.employees||[]).length],["🔐 Utilisateurs",(DB.users||[]).length]];
   host.innerHTML=`
@@ -9361,7 +9370,7 @@ function renderAdminSante(){
     <div class="kpi"><div class="v">v${APP_VERSION}</div><div class="l">Version (${APP_VERSION_DATE})</div></div>
     <div class="kpi"><div class="v">${m==="local"?"🖥️ Local":(m==="online"?"🌐 En ligne":"📄 Fichier seul")}</div><div class="l">Environnement</div></div>
     <div class="kpi"><div class="v">${fmtKo(dbBytes)}</div><div class="l">Taille de la base</div></div>
-    <div class="kpi"><div class="v ${lsPct>=60?"danger":""}">${lsPct}%</div><div class="l">Stockage navigateur (~5 Mo)</div></div>
+    <div class="kpi"><div class="v ${lsPct>=60?"danger":""}">${lsPct}%</div><div class="l">Stockage navigateur (quota ~10 Mo — indépendant du disque dur)</div></div>
   </div>
   ${lsPct>=60?`<div class="card" style="border-left:3px solid var(--red);margin-bottom:12px"><b>⚠️ Stockage navigateur élevé (${fmtKo(lsBytes)}).</b> Les pièces jointes volumineuses (documents intégrés en base) approchent le quota — au-delà, l'enregistrement échoue. Archive ou supprime les plus lourdes, et vérifie que le serveur local tourne (il garde la copie de référence).</div>`:""}
   <div class="grid2">
