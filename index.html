@@ -524,7 +524,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.8.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.8.1";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -6550,14 +6550,23 @@ async function a1WizFile(f){
     if(/\.xlsx$/i.test(f.name)){
       const sheets=await a1ReadXlsx(await f.arrayBuffer()); const names=Object.keys(sheets);
       const tbKey=names.find(k=>/tableau.*bord|bord.*mensuel/i.test(k))||names.find(k=>sheets[k].some(r=>r.some(c=>/conso.*reel/i.test(norm(c)))));
+      let tbNames=[];
       if(tbKey){ const res=a1GenImportRows(sheets[tbKey]);
-        if(res.gensets.length){ ok=true;
+        if(res.gensets.length){ ok=true; tbNames=res.gensets.map(g=>g.name);
           items.push("✅ <b>"+res.gensets.length+" groupe(s)</b> : "+res.gensets.map(g=>esc(g.name)).join(", "));
           items.push("✅ <b>"+res.gensets.reduce((s,g)=>s+g.logs.length,0)+" relevé(s) mensuel(s)</b>");
           items.push((res.outages||[]).length?"✅ "+res.outages.length+" mois de coupures JIRAMA":"⚠️ Colonne « Durée coupures (h) » absente — heures hors coupure non calculables");
         } }
       const ftKey=names.find(k=>/fiche.*tech|technique|constructeur/i.test(k));
       items.push(ftKey?"✅ Fiche technique constructeur → calcul de charge réel":"⚠️ Feuille Fiche_Technique absente — taux de charge non calculable");
+      // CONTRÔLE DE COHÉRENCE : chaque colonne de la fiche technique doit correspondre à un groupe du tableau de bord.
+      if(ftKey && tbNames.length){
+        const rowsFT=sheets[ftKey];
+        let hdr=rowsFT.findIndex(r=>/parametre/.test(norm(r[0]||""))); if(hdr<0) hdr=Math.min(2,rowsFT.length-1);
+        const cols=((rowsFT[hdr]||[]).slice(1)||[]).map(c=>String(c||"").trim()).filter(Boolean);
+        const orph=cols.filter(cn=>!tbNames.some(n=>a1NameMatch(n,cn)));
+        if(orph.length) items.push("🔴 <b>Incohérence de noms</b> — la fiche technique mentionne « "+orph.map(esc).join(" », « ")+" » mais le tableau de bord contient « "+tbNames.map(esc).join(" », « ")+" ». <b>Corrige le nom dans l'Excel</b>, sinon les specs constructeur ne s'appliqueront pas (taux de charge faux).");
+      }
       const baKey=names.find(k=>/batiment|installation/i.test(k))||names.find(k=>a1IsBatimentsRows(sheets[k]));
       if(baKey) items.push("✅ Bâtiments / installations (contexte d'analyse IA)");
       _a1wiz.mode="xlsx";
@@ -8200,18 +8209,22 @@ async function a1ReadXlsx(arrayBuffer){
   return sheets;
 }
 function a1ExcelYear(v){ const n=+v; if(!(n>0)) return null; const d=new Date(Date.UTC(1899,11,30)+n*86400000); return d.getUTCFullYear(); }
+/* Comparaison de noms de machines TOLÉRANTE : ignore casse, accents, espaces, tirets, points —
+   « HBW - 160 T5 » = « HBW-160 T5 » = « hbw160t5 ». (300 ≠ 160 reste bien différent : jamais de faux rapprochement.) */
+function a1NameKey(s){ return norm(s).replace(/[^a-z0-9]/g,""); }
+function a1NameMatch(a,b){ a=a1NameKey(a); b=a1NameKey(b); return !!(a&&b&&(a.includes(b)||b.includes(a))); }
 /* Applique la Fiche_Technique (données constructeur) aux groupes existants — match par nom, remplit specs → active le vrai calcul de charge. */
 function a1ApplyFicheTechnique(rows, clientId){
-  if(!rows||rows.length<2) return 0;
+  if(!rows||rows.length<2) return {n:0, unmatched:[]};
   let hdr=rows.findIndex(r=>/parametre/.test(norm(r[0]||"")) || (r.filter(Boolean).length>=2 && r.slice(1).some(c=>/sdmo|himoinsa|kva|groupe/i.test(c))));
   if(hdr<0) hdr=1;
   const colNames=rows[hdr]||[]; const spec={};
   for(let r=hdr+1;r<rows.length;r++){ const key=norm(rows[r][0]||""); if(key) spec[key]=rows[r]; }
   const get=function(){ const kw=[].slice.call(arguments); const k=Object.keys(spec).find(x=>kw.every(w=>x.includes(w))); return k?spec[k]:null; };
-  let n=0;
+  let n=0; const unmatched=[];
   for(let c=1;c<colNames.length;c++){ const cn=(colNames[c]||"").trim(); if(!cn) continue;
-    const g=DB.a1gensets.find(x=>{ const a=norm(x.name), b=norm(cn); return a&&b&&(b.includes(a)||a.includes(b)); });
-    if(!g || (clientId && g.clientId!==clientId)) continue;
+    const g=DB.a1gensets.find(x=>a1NameMatch(x.name, cn) && (!clientId || x.clientId===clientId));
+    if(!g){ unmatched.push(cn); continue; }
     const num=function(row){ if(!row) return null; const v=parseFloat(String(row[c]||"").replace(/\s/g,"").replace(",",".")); return isNaN(v)?null:v; };
     const kva=num(get("puissance","esp","kva")), kw=num(get("puissance","esp","kw")), conso=num(get("conso","100%","esp"))||num(get("conso","constructeur")),
           reservoir=num(get("reservoir","principal"))||num(get("reservoir","journalier")), cos=num(get("cos")), mise=get("mise en service");
@@ -8220,7 +8233,7 @@ function a1ApplyFicheTechnique(rows, clientId){
     if(mise){ let y=a1ExcelYear(mise[c]); if(!y){ const mm=String(mise[c]).match(/\b(19|20)\d\d\b/); if(mm) y=+mm[0]; } if(y) g.annee=y; }
     g.specsSource="Fiche technique (constructeur)"; n++;
   }
-  return n;
+  return {n, unmatched};
 }
 /* ---- Feuille BATIMENTS : contexte des installations alimentées par chaque groupe (explique la charge électrique réelle → analyse plus juste) ---- */
 /* Détecte une feuille « bâtiments » : en-tête commençant par BATIMENT, ou colonnes typiques (clim, ascenseur, surpresseur, forage). */
@@ -8258,7 +8271,7 @@ function a1SaveBatiments(rows, clientId){
     const gi=DB.a1buildings.findIndex(r=>(r.clientId||"")===(clientId||"") && norm(r.genset)===norm(grp.genset||""));
     if(gi>=0) DB.a1buildings[gi]=rec; else DB.a1buildings.push(rec);
     n+=grp.buildings.length;
-    const b=norm(grp.genset); const g=b?DB.a1gensets.find(x=>{const a=norm(x.name);return a&&(a.includes(b)||b.includes(a))&&(!clientId||x.clientId===clientId);}):null;
+    const g=grp.genset?DB.a1gensets.find(x=>a1NameMatch(x.name, grp.genset)&&(!clientId||x.clientId===clientId)):null;
     if(g) g.hasBuildings=true;
   });
   return n;
@@ -8290,7 +8303,7 @@ async function a1ImportXlsxFile(f){
     // 1) Tableau de bord → groupes + relevés + coupures
     const tbKey=names.find(k=>/tableau.*bord|bord.*mensuel/i.test(k)) || names.find(k=>sheets[k].some(r=>r.some(c=>/conso.*reel/i.test(norm(c)))));
     if(tbKey){ const res=a1GenImportRows(sheets[tbKey]); let ng=0,nl=0;
-      (res.gensets||[]).forEach(gs=>{ let g=DB.a1gensets.find(x=>norm(x.name)===norm(gs.name)&&(!cid||x.clientId===cid));
+      (res.gensets||[]).forEach(gs=>{ let g=DB.a1gensets.find(x=>a1NameMatch(x.name, gs.name)&&(!cid||x.clientId===cid));
         if(!g){ g={id:uid(),name:gs.name,carburant:"Diesel",clientId:cid}; DB.a1gensets.push(g); ng++; }
         gs.logs.forEach(l=>{ const liters=+l.liters||0, cost=l.cost>0?l.cost:(price>0?liters*price:0);
           DB.a1genlogs=DB.a1genlogs.filter(x=>!(x.gensetId===g.id && x.date===l.date)); // anti-doublon : réimporter le même mois REMPLACE (pas d'addition)
@@ -8299,7 +8312,9 @@ async function a1ImportXlsxFile(f){
       report.push(ng+" groupe(s), "+nl+" relevé(s)"+(no?", "+no+" mois coupures":"")); }
     // 2) Fiche technique → specs constructeur (active le calcul de charge)
     const ftKey=names.find(k=>/fiche.*tech|technique|constructeur/i.test(k));
-    if(ftKey){ const ns=a1ApplyFicheTechnique(sheets[ftKey], cid); if(ns) report.push(ns+" fiche(s) technique(s) → specs constructeur"); }
+    if(ftKey){ const ft=a1ApplyFicheTechnique(sheets[ftKey], cid);
+      if(ft.n) report.push(ft.n+" fiche(s) technique(s) → specs constructeur");
+      if(ft.unmatched.length) report.push("🔴 fiche SANS groupe correspondant : "+ft.unmatched.join(", ")+" (vérifie l'orthographe des noms dans l'Excel)"); }
     // 3) BATIMENTS → contexte des installations (charge électrique réelle) par groupe
     const baKey=names.find(k=>/batiment|installation/i.test(k)) || names.find(k=>a1IsBatimentsRows(sheets[k]));
     if(baKey){ const nb=a1SaveBatiments(sheets[baKey], cid); if(nb) report.push(nb+" bâtiment(s) de contexte (feuille "+baKey+")"); }
@@ -8391,7 +8406,7 @@ function runA1GenImport(){
     DB.a1gensets=DB.a1gensets.filter(g=>!inScope(g));
     DB.a1genlogs=DB.a1genlogs.filter(l=>ids.indexOf(l.gensetId)<0); }
   let ng=0, nl=0;
-  res.gensets.forEach(gs=>{ let g=DB.a1gensets.find(x=>norm(x.name)===norm(gs.name) && (!cid || x.clientId===cid));
+  res.gensets.forEach(gs=>{ let g=DB.a1gensets.find(x=>a1NameMatch(x.name, gs.name) && (!cid || x.clientId===cid));
     if(!g){ g={id:uid(), name:gs.name, carburant:"Diesel", clientId:cid}; DB.a1gensets.push(g); ng++; }
     gs.logs.forEach(l=>{ const liters=+l.liters||0; const cost=l.cost>0?l.cost:(price>0?liters*price:0);
       DB.a1genlogs.push({ id:uid(), gensetId:g.id, date:l.date, hours:+l.hours||0, liters, kwh:+l.kwh||0, chargePct:+l.chargePct||0,
