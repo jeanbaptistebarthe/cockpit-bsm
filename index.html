@@ -331,6 +331,21 @@
   .ai-input .cta{padding:0 16px;}
   body.dark .ai-drawer,body.dark .ai-input,body.dark .ai-input textarea{background:#16202e;color:var(--ink);border-color:#273241;}
   body.dark .ai-msg.bot{background:#1b2736;border-color:#273241;} body.dark .ai-mem{background:#14212f;}
+  /* ---- Palette de commandes (Ctrl+K) — navigation, actions et recherche, style console ---- */
+  .cmdk{position:fixed;inset:0;background:rgba(16,42,67,.45);backdrop-filter:blur(2px);z-index:1200;display:none;align-items:flex-start;justify-content:center;padding-top:12vh;}
+  .cmdk.show{display:flex;}
+  .cmdk-box{width:min(640px,92vw);background:#fff;border-radius:14px;box-shadow:0 24px 64px rgba(16,42,67,.35);overflow:hidden;border:1px solid var(--line);}
+  .cmdk-box input{width:100%;border:none;outline:none;padding:15px 18px;font-size:15px;font-family:inherit;background:transparent;color:var(--ink);border-bottom:1px solid var(--line);}
+  .cmdk-list{max-height:52vh;overflow:auto;padding:6px;}
+  .cmdk-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;cursor:pointer;font-size:13.5px;color:var(--ink);border-left:3px solid transparent;}
+  .cmdk-item .ic{width:20px;text-align:center;}
+  .cmdk-item .gt{margin-left:auto;font-size:10.5px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;}
+  .cmdk-item:hover{background:var(--cream);}
+  .cmdk-item.sel{background:var(--cream);border-left-color:var(--gold);}
+  .cmdk-empty{padding:18px;text-align:center;color:var(--muted);font-size:13px;}
+  .cmdk-foot{padding:8px 14px;border-top:1px solid var(--line);font-size:11px;color:var(--muted);display:flex;gap:14px;}
+  body.dark .cmdk-box{background:#16202e;border-color:#273241;}
+  body.dark .cmdk-item:hover,body.dark .cmdk-item.sel{background:#1b2736;}
   @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.grid2,.grid2.wide{grid-template-columns:1fr;}.sidebar{width:60px;}.sidebar .logo,.sidebar .who,.navgroup,.navitem span.lbl{display:none;}.navitem{justify-content:center;}.navitem.nav-collapsed{display:flex;}.imp-modes{grid-template-columns:1fr;}.gauges{grid-template-columns:repeat(2,1fr);}.grid3{grid-template-columns:1fr;}.ai-drawer{width:100vw;}}
 </style>
 </head>
@@ -340,9 +355,10 @@
   <div class="brand" id="brandbox" onclick="goHome()" style="cursor:pointer" title="Revenir au tableau de bord">BSM <span>COCKPIT</span> — Pilotage interne</div>
   <div class="topbar-right">
     <button class="tb-btn" id="home-btn" onclick="goHome()" title="Revenir au tableau de bord" style="display:none;font-weight:700;color:var(--navy)">← Tableau de bord</button>
-    <div class="gsearch"><input id="globalsearch" placeholder="Rechercher…  (Ctrl+K)" title="Recherche globale — raccourci Ctrl+K ou /" autocomplete="off" oninput="globalSearch(this.value)" onblur="setTimeout(hideSearch,180)"><div class="gs-results" id="gs-results"></div></div>
+    <div class="gsearch"><input id="globalsearch" placeholder="Rechercher…  (Ctrl+K : palette)" title="Recherche rapide dans les données — Ctrl+K ouvre la palette de commandes (écrans, actions, recherche)" autocomplete="off" oninput="globalSearch(this.value)" onblur="setTimeout(hideSearch,180)"><div class="gs-results" id="gs-results"></div></div>
     <button class="tb-btn" id="notif-bell" onclick="goNotifications()" title="Notifications — activité récente" style="position:relative;display:none">🔔<span id="notif-count" style="display:none;position:absolute;top:-5px;right:-5px;background:var(--red);color:#fff;border-radius:9px;min-width:16px;height:16px;font-size:10px;line-height:16px;padding:0 3px;font-weight:700;text-align:center">0</span></button>
     <button class="tb-btn" id="theme-btn" onclick="toggleTheme()" title="Thème clair / sombre">🌙</button>
+    <span class="tb-btn" id="ver-badge" style="font-weight:700" onclick="if(isAdmin())setScreen('admin-sante')">v…</span>
     <span id="env-badge" class="env-badge env-online" title="" onclick="openSyncCenter()">🌐 <b>EN LIGNE</b></span>
     <button class="tb-btn" id="env-switch" onclick="envSwitch()" title="Ouvrir l'autre version du Cockpit">⇄</button>
     <button class="tb-btn" id="env-sync" onclick="openSyncCenter()" title="Synchroniser local ⇄ en ligne">🔄</button>
@@ -431,6 +447,14 @@
     <div class="screen" id="scr-admin-users"></div>
     <div class="screen" id="scr-admin-log"></div>
     <div class="screen" id="scr-admin-sante"></div>
+  </div>
+</div>
+
+<div class="cmdk" id="cmdk" onclick="if(event.target===this)closeCmdk()">
+  <div class="cmdk-box">
+    <input id="cmdk-in" placeholder="Aller à un écran, lancer une action, chercher un client…" autocomplete="off" oninput="cmdkRender()" onkeydown="cmdkKey(event)">
+    <div class="cmdk-list" id="cmdk-list"></div>
+    <div class="cmdk-foot"><span><b>↑↓</b> naviguer</span><span><b>Entrée</b> ouvrir</span><span><b>Échap</b> fermer</span></div>
   </div>
 </div>
 
@@ -1698,8 +1722,9 @@ function showOnboarding(){ DB.meta.onboardingDone=false; save(); closeModal(); s
 /* Raccourcis clavier globaux (fluidité) : Ctrl/Cmd+K ou « / » = recherche · Échap = fermer. */
 function bsmKeydown(e){
   const t=e.target, tag=(t&&t.tagName)||"", typing = tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT"||(t&&t.isContentEditable);
-  if((e.ctrlKey||e.metaKey) && (e.key==="k"||e.key==="K")){ e.preventDefault(); const s=document.getElementById("globalsearch"); if(s){ s.focus(); if(s.select) s.select(); } return; }
+  if((e.ctrlKey||e.metaKey) && (e.key==="k"||e.key==="K")){ e.preventDefault(); if(typeof openCmdk==="function") openCmdk(); return; }
   if(e.key==="Escape"){
+    const ck=document.getElementById("cmdk"); if(ck&&ck.classList.contains("show")){ closeCmdk(); return; }
     const ov=document.querySelector(".overlay.show"); if(ov && typeof closeModal==="function"){ closeModal(); return; }
     if(typeof closeTopMenu==="function") closeTopMenu();
     const gs=document.getElementById("gs-results"); if(gs) gs.classList.remove("show");
@@ -8360,20 +8385,96 @@ function applyTheme(){ document.body.classList.toggle("dark", DB.meta.theme==="d
 function toggleTheme(){ DB.meta.theme=DB.meta.theme==="dark"?"light":"dark"; save(); applyTheme(); }
 
 /* ----------------------------- Recherche globale ----------------------------- */
-function globalSearch(q){
-  q=(q||"").trim().toLowerCase(); const el=document.getElementById("gs-results");
-  if(!el) return;
-  if(q.length<2){ el.classList.remove("show"); el.innerHTML=""; return; }
+/* Collecteur commun : recherche dans les données — partagé par la recherche du haut ET la palette Ctrl+K. */
+function searchDataItems(q){
   const res=[];
   if(can("clients")) DB.clients.forEach(c=>{ if((c.company+" "+(c.sector||"")).toLowerCase().includes(q)) res.push({t:"Client",ic:"👥",label:c.company,go:`openClientFiche('${c.id}')`}); });
   if(can("missions")) DB.missions.forEach(m=>{ if(((m.ref||"")+" "+(m.type||"")+" "+clientName(m.clientId)).toLowerCase().includes(q)) res.push({t:"Mission",ic:"🎯",label:(m.ref?m.ref+" — ":"")+(m.type||"")+" · "+clientName(m.clientId),go:"setScreen('missions')"}); });
   if(can("risks")) DB.risks.forEach(r=>{ if(((r.description||"")+" "+(r.categorie||"")+" "+(r.famille||"")+" "+(r.ref||"")).toLowerCase().includes(q)) res.push({t:"Risque",ic:"⚠️",label:(r.description||r.categorie||r.ref)+" · "+clientName(r.clientId),go:"setScreen('risks')"}); });
   if(can("recos")) DB.recommendations.forEach(r=>{ if((r.texte||"").toLowerCase().includes(q)) res.push({t:"Reco",ic:"✅",label:r.texte,go:"setScreen('recos')"}); });
   if(can("rh")) DB.employees.forEach(e=>{ if((e.name+" "+(e.poste||"")).toLowerCase().includes(q)) res.push({t:"RH",ic:"🧑‍💼",label:e.name+" · "+(e.poste||""),go:"setScreen('rh')"}); });
-  const top=res.slice(0,12);
+  return res;
+}
+function globalSearch(q){
+  q=(q||"").trim().toLowerCase(); const el=document.getElementById("gs-results");
+  if(!el) return;
+  if(q.length<2){ el.classList.remove("show"); el.innerHTML=""; return; }
+  const top=searchDataItems(q).slice(0,12);
   el.innerHTML=top.length? top.map(x=>`<div class="gs-item" onmousedown="${x.go};clearSearch()"><span>${x.ic}</span><span>${esc(x.label).slice(0,54)}</span><span class="gt">${x.t}</span></div>`).join("") : `<div class="gs-empty">Aucun résultat</div>`;
   el.classList.add("show");
 }
+/* ================== PALETTE DE COMMANDES (Ctrl+K) — écrans, actions rapides, données ================== */
+let _cmdkSel=0, _cmdkCur=[];
+function cmdkScreens(){
+  const out=[];
+  document.querySelectorAll(".sidebar .navitem[data-scr]").forEach(el=>{
+    if(el.style.display==="none") return;                       // masqué par les permissions du rôle
+    const scr=el.getAttribute("data-scr");
+    const lbl=((el.querySelector(".lbl")||{}).textContent||scr).trim();
+    const ic=((el.querySelector(".ic")||{}).textContent||"▦").trim();
+    out.push({t:"Écran",ic,label:lbl,go:"setScreen('"+scr+"')"});
+  });
+  return out;
+}
+function cmdkActions(){
+  const A=[
+    ["👥","Nouveau client","clients","openClientForm"],
+    ["📅","Nouvel événement agenda","agenda","openEventForm"],
+    ["💶","Nouvelle transaction","budget","openTxForm"],
+    ["🎯","Nouvelle mission","missions","openMissionForm"],
+    ["⚠️","Nouveau risque","risks","openRiskForm"],
+    ["⇊","Importer R5 (fichier)","dashboard","openImport"],
+    ["✦","Chat IA — Bras droit","","openAiChat"],
+    ["⬇","Sauvegarde (fichier)","","exportData"],
+    ["🔐","Sécurité & chiffrement","","openSecurityPanel"],
+    ["🔄","Centre de synchronisation","","openSyncCenter"],
+    ["⚙","Paramètres","","openSettings"]
+  ];
+  const out=[];
+  A.forEach(a=>{ const ic=a[0],label=a[1],perm=a[2],fn=a[3];
+    if(perm && !can(perm)) return;
+    if(typeof window[fn]!=="function") return;
+    out.push({t:"Action",ic,label,go:fn+"()"});
+  });
+  if(isAdmin()) out.push({t:"Action",ic:"🧰",label:"Santé & sauvegardes",go:"setScreen('admin-sante')"});
+  return out;
+}
+function openCmdk(){
+  const o=document.getElementById("cmdk"); if(!o) return;
+  o.classList.add("show");
+  const i=document.getElementById("cmdk-in");
+  if(i){ i.value=""; setTimeout(()=>i.focus(),30); }
+  _cmdkSel=0; cmdkRender();
+}
+function closeCmdk(){ const o=document.getElementById("cmdk"); if(o) o.classList.remove("show"); }
+function cmdkRender(){
+  const raw=((document.getElementById("cmdk-in")||{}).value||"").trim();
+  const q=norm(raw);
+  let items=cmdkScreens().concat(cmdkActions());
+  if(q){
+    const toks=q.split(/\s+/).filter(Boolean);
+    items=items.filter(x=>{ const hay=norm(x.label+" "+x.t); return toks.every(t=>hay.includes(t)); });
+    if(raw.length>=2) items=items.concat(searchDataItems(raw.toLowerCase()).slice(0,8));
+  }
+  _cmdkCur=items.slice(0,14);
+  if(_cmdkSel>=_cmdkCur.length) _cmdkSel=Math.max(0,_cmdkCur.length-1);
+  const el=document.getElementById("cmdk-list"); if(!el) return;
+  el.innerHTML=_cmdkCur.length? _cmdkCur.map((x,i)=>`<div class="cmdk-item ${i===_cmdkSel?'sel':''}" onmouseenter="_cmdkSel=${i};cmdkPaint()" onmousedown="event.preventDefault();cmdkRun(${i})"><span class="ic">${x.ic}</span><span>${esc(x.label).slice(0,58)}</span><span class="gt">${x.t}</span></div>`).join("") : `<div class="cmdk-empty">Aucun résultat — essaie un autre mot.</div>`;
+}
+function cmdkPaint(){ const el=document.getElementById("cmdk-list"); if(!el) return; Array.prototype.forEach.call(el.children,(c,i)=>c.classList.toggle("sel",i===_cmdkSel)); }
+function cmdkRun(i){
+  const x=_cmdkCur[i]; if(!x) return;
+  closeCmdk();
+  try{ (new Function(x.go))(); }catch(e){ toast("Action indisponible : "+((e&&e.message)||"")); }
+}
+function cmdkKey(e){
+  if(e.key==="ArrowDown"){ e.preventDefault(); _cmdkSel=Math.min(_cmdkCur.length-1,_cmdkSel+1); cmdkPaint(); const s=document.querySelector(".cmdk-item.sel"); if(s) s.scrollIntoView({block:"nearest"}); }
+  else if(e.key==="ArrowUp"){ e.preventDefault(); _cmdkSel=Math.max(0,_cmdkSel-1); cmdkPaint(); const s=document.querySelector(".cmdk-item.sel"); if(s) s.scrollIntoView({block:"nearest"}); }
+  else if(e.key==="Enter"){ e.preventDefault(); cmdkRun(_cmdkSel); }
+  else if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); closeCmdk(); }
+}
+/* Badge de version dans l'en-tête (clic : Santé & sauvegardes pour l'admin). */
+(function(){ const v=document.getElementById("ver-badge"); if(v){ v.textContent="v"+APP_VERSION; v.title="Cockpit v"+APP_VERSION+" ("+APP_VERSION_DATE+") — clic : Santé & sauvegardes (admin)"; } })();
 function hideSearch(){ const el=document.getElementById("gs-results"); if(el) el.classList.remove("show"); }
 function clearSearch(){ const i=document.getElementById("globalsearch"); if(i) i.value=""; hideSearch(); }
 
