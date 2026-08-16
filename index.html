@@ -650,6 +650,14 @@ function load(){
   if(!DB.meta.qaRouteFix){ try{ const st=(DB.aiSettings&&DB.aiSettings[0]); if(st&&st.routing&&st.routing.qa==="a-hermes") st.routing.qa="a-atlas"; }catch(e){} DB.meta.qaRouteFix=true; }
   // Consolidation : un seul assistant expert (« bras droit ») remplace les 5 anciens agents. Le prompt de base est conservé.
   if(!DB.meta.aiExpertV1){ DB.assistants=defaultAssistants(); const st=(DB.aiSettings&&DB.aiSettings[0]); if(st){ st.routing=defaultAiRouting(); } else { DB.aiSettings=[{id:"main",basePrompt:defaultAiBasePrompt(),routing:defaultAiRouting()}]; } DB.meta.aiExpertV1=true; }
+  // Correction tarifaire 08/2026 : les anciens défauts Claude étaient faux (Opus 5 à 15/75 au lieu de 5/25…) → purge des overrides Claude + recalcul de tout l'historique de coûts.
+  if(!DB.meta.aiPriceFixV1){
+    try{
+      if(DB.meta.aiPrices){ Object.keys(DB.meta.aiPrices).forEach(k=>{ if(/claude|fable|mythos/i.test(k)) delete DB.meta.aiPrices[k]; }); }
+      (DB.aiUsage||[]).forEach(u=>{ u.costUsd=aiCostUsd(u.model, u.promptTokens||0, u.completionTokens||0); });
+    }catch(e){}
+    DB.meta.aiPriceFixV1=true;
+  }
   if(!DB.catalog) DB.catalog=defaultCatalog();
   if(!DB.meta.deck) DB.meta.deck=defaultDeck();
   DB.users.forEach(ensureUserPerms); // matérialise les permissions (migration des comptes existants)
@@ -8696,18 +8704,25 @@ function knowledgeContext(budget){
 /* ---- Métrologie IA : comptage tokens + coût estimé + report automatique au budget ---- */
 const AI_MODELS_MAMMOUTH=["mammouth-recommended","gpt-5.5","gpt-5.4","gpt-5.4-mini","claude-opus-4.7","mistral-medium-3.1","gemini-3.1-flash-preview","llama-4-maverick","deepseek-v4-flash"];
 const AI_SECTOR_LABELS={ conseils:"Conseils portefeuille", "client-advice":"Conseil client (fiche 360°)", "qa":"Questions / réponses", "a1":"Programme A1 (flotte)", reporting:"Reporting", autre:"Autre" };
-function defaultAiPrices(){ // $ par 1 MILLION de tokens {in,out} — ESTIMATION éditable (Mammouth ne renvoie pas le coût)
+function defaultAiPrices(){ // $ par 1 MILLION de tokens {in,out} — Claude : TARIFS OFFICIELS Anthropic (vérifiés 08/2026) ; autres : estimations éditables
   return { "mammouth-recommended":{in:2,out:8}, "gpt-5.5":{in:5,out:15}, "gpt-5.4":{in:2.5,out:10}, "gpt-5.4-mini":{in:0.4,out:1.6},
     "claude-opus-4.7":{in:5,out:25},
-    "claude-opus-5":{in:15,out:75}, "claude-sonnet-5":{in:3,out:15}, "claude-haiku-4-5-20251001":{in:0.8,out:4}, "claude-fable-5":{in:1,out:5},
+    "claude-opus-5":{in:5,out:25}, "claude-sonnet-5":{in:3,out:15}, "claude-haiku-4-5-20251001":{in:1,out:5}, "claude-haiku-4-5":{in:1,out:5}, "claude-fable-5":{in:10,out:50},
     "mistral-medium-3.1":{in:0.4,out:2}, "gemini-3.1-flash-preview":{in:0.3,out:2.5},
     "llama-4-maverick":{in:0.2,out:0.6}, "deepseek-v4-flash":{in:0.3,out:1.2}, "mistral-large-latest":{in:2,out:6}, "mistral-small-latest":{in:0.2,out:0.6}, "_default":{in:3,out:15} };
 }
+/* Modèles affichés dans la grille de prix éditable (Claude d'abord — fournisseur principal). */
+const AI_PRICE_GRID=["claude-sonnet-5","claude-opus-5","claude-haiku-4-5-20251001","mistral-large-latest","mistral-small-latest"].concat(AI_MODELS_MAMMOUTH);
 function aiPrices(){ return Object.assign({}, defaultAiPrices(), DB.meta.aiPrices||{}); }
 function aiPrice(model){ const p=aiPrices(); if(p[model]) return p[model];
   const m=String(model||""); const key=Object.keys(p).find(k=>k!=="_default" && m.indexOf(k)===0); if(key) return p[key]; // ids versionnés (claude-opus-5-YYYYMMDD…)
-  if(/opus/i.test(m)) return {in:15,out:75}; if(/sonnet/i.test(m)) return {in:3,out:15}; if(/haiku/i.test(m)) return {in:0.8,out:4};
+  if(/fable|mythos/i.test(m)) return {in:10,out:50}; if(/opus/i.test(m)) return {in:5,out:25}; if(/sonnet/i.test(m)) return {in:3,out:15}; if(/haiku/i.test(m)) return {in:1,out:5};
   return p["_default"]||{in:3,out:15}; }
+/* Recalcule le coût de TOUT l'historique d'usage avec la grille actuelle, puis met à jour la ligne budget. */
+function aiRecomputeCosts(){
+  (DB.aiUsage||[]).forEach(u=>{ u.costUsd=aiCostUsd(u.model, u.promptTokens||0, u.completionTokens||0); });
+  aiSyncBudget();
+}
 function aiCostUsd(model, pin, pout){ const pr=aiPrice(model); return (pin/1e6)*pr.in + (pout/1e6)*pr.out; }
 function recordAiUsage(provider, model, usage, sector){
   const pin=(usage&&usage.prompt_tokens)||0, pout=(usage&&usage.completion_tokens)||0;
@@ -8804,9 +8819,9 @@ function aiGroupBy(list, keyFn){ const g={}; list.forEach(u=>{ const k=keyFn(u)|
 function aiGroupRows(g, labelFn){ return Object.keys(g).sort((a,b)=>g[b].cost-g[a].cost).map(k=>{ const x=g[k];
   return `<tr><td><b>${esc(labelFn?labelFn(k):k)}</b></td><td style="text-align:right">${x.calls}</td><td style="text-align:right">${x.tok.toLocaleString("fr-FR")}</td><td style="text-align:right">$${x.cost.toFixed(4)}</td><td style="text-align:right;color:var(--muted)">${usdToAr(x.cost).toLocaleString("fr-FR")} Ar</td></tr>`; }).join(""); }
 function aiSavePrices(){ const p=Object.assign({}, aiPrices());
-  AI_MODELS_MAMMOUTH.concat(["mistral-large-latest"]).forEach(m=>{ const inn=parseFloat(val("aip-in-"+m)), out=parseFloat(val("aip-out-"+m));
+  AI_PRICE_GRID.forEach(m=>{ const inn=parseFloat(val("aip-in-"+m)), out=parseFloat(val("aip-out-"+m));
     if(!isNaN(inn)&&!isNaN(out)) p[m]={in:inn,out:out}; });
-  delete p._default_placeholder; DB.meta.aiPrices=p; save(); aiSyncBudget(); toast("Grille de prix enregistrée — budget recalculé."); renderAireport(); }
+  delete p._default_placeholder; DB.meta.aiPrices=p; save(); aiRecomputeCosts(); toast("Grille enregistrée — TOUT l'historique de coûts recalculé."); renderAireport(); }
 function renderAireport(){
   const host=document.getElementById("scr-aireport"); if(!host) return;
   if(!(isAdmin()||can("aireport"))){ host.innerHTML=""; return; }
@@ -8821,7 +8836,7 @@ function renderAireport(){
   const byMonth={}; (DB.aiUsage||[]).forEach(u=>{ const m=(u.ts||"").slice(0,7); if(!m)return; if(!byMonth[m])byMonth[m]={calls:0,tok:0,cost:0}; byMonth[m].calls++; byMonth[m].tok+=(u.totalTokens||0); byMonth[m].cost+=(u.costUsd||0); });
   const monthRows=Object.keys(byMonth).sort().reverse().map(m=>`<tr><td><b>${m}</b></td><td style="text-align:right">${byMonth[m].calls}</td><td style="text-align:right">${byMonth[m].tok.toLocaleString("fr-FR")}</td><td style="text-align:right">$${byMonth[m].cost.toFixed(4)}</td><td style="text-align:right;color:var(--muted)">${usdToAr(byMonth[m].cost).toLocaleString("fr-FR")} Ar</td></tr>`).join("");
   const prices=aiPrices();
-  const priceRows=AI_MODELS_MAMMOUTH.concat(["mistral-large-latest"]).map(m=>{ const pr=prices[m]||prices._default;
+  const priceRows=AI_PRICE_GRID.map(m=>{ const pr=prices[m]||prices._default;
     return `<tr><td>${esc(m)}</td>
       <td><input id="aip-in-${m}" type="number" step="0.01" value="${pr.in}" style="width:80px;padding:4px 6px;border:1px solid var(--line);border-radius:5px"></td>
       <td><input id="aip-out-${m}" type="number" step="0.01" value="${pr.out}" style="width:80px;padding:4px 6px;border:1px solid var(--line);border-radius:5px"></td></tr>`; }).join("");
