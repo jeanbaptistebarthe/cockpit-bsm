@@ -524,7 +524,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.4.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.5.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -654,6 +654,18 @@ function load(){
   if(!DB.meta.qaRouteFix){ try{ const st=(DB.aiSettings&&DB.aiSettings[0]); if(st&&st.routing&&st.routing.qa==="a-hermes") st.routing.qa="a-atlas"; }catch(e){} DB.meta.qaRouteFix=true; }
   // Consolidation : un seul assistant expert (« bras droit ») remplace les 5 anciens agents. Le prompt de base est conservé.
   if(!DB.meta.aiExpertV1){ DB.assistants=defaultAssistants(); const st=(DB.aiSettings&&DB.aiSettings[0]); if(st){ st.routing=defaultAiRouting(); } else { DB.aiSettings=[{id:"main",basePrompt:defaultAiBasePrompt(),routing:defaultAiRouting()}]; } DB.meta.aiExpertV1=true; }
+  // Consolidation DÉFINITIVE des assistants (demande JB 2026-08-16) : les anciens agents (ZEUS/ORION/ATLAS/HERMÈS/HÉPHAÏSTOS…)
+  // revenaient par la synchro serveur/cloud → on force UN SEUL agent expert « Bras droit », qui répond avec Claude (modèle des ⚙ Paramètres).
+  if(!DB.meta.aiExpertV2){
+    try{
+      const expert=defaultAssistants()[0]; expert.model=DB.meta.claudeModel||"claude-opus-5";
+      DB.assistants=[expert];
+      const st=(DB.aiSettings&&DB.aiSettings[0]);
+      if(st){ st.routing=defaultAiRouting(); } else { DB.aiSettings=[{id:"main",basePrompt:defaultAiBasePrompt(),routing:defaultAiRouting()}]; }
+    }catch(e){}
+    DB.meta.aiExpertV2=true;
+  }
+  if(!Array.isArray(DB.trash)) DB.trash=[];   // corbeille 30 jours (P4)
   // Correction tarifaire 08/2026 : les anciens défauts Claude étaient faux (Opus 5 à 15/75 au lieu de 5/25…) → purge des overrides Claude + recalcul de tout l'historique de coûts.
   if(!DB.meta.aiPriceFixV1){
     try{
@@ -4863,13 +4875,57 @@ function openModal(html, size){
   document.getElementById("overlay").classList.add("show");
 }
 function closeModal(){ document.getElementById("overlay").classList.remove("show"); }
+/* ================== CORBEILLE 30 JOURS (P4) ==================
+   À chaque suppression confirmée, on compare la base avant/après : tout enregistrement disparu
+   (repéré par son id, dans n'importe quelle collection) part en corbeille, restaurable 30 jours. */
+function trashCapture(beforeJson, label){
+  try{
+    const before=JSON.parse(beforeJson); const lost=[];
+    const SKIP={trash:1, activityLog:1, aiUsage:1};   // la corbeille ne se capture pas elle-même ; les journaux tournent tout seuls
+    Object.keys(before).forEach(k=>{
+      if(SKIP[k]) return;
+      const a=before[k], b=DB[k];
+      if(!Array.isArray(a)||!Array.isArray(b)) return;
+      const ids=new Set(b.map(x=>x&&x.id).filter(Boolean));
+      a.forEach(x=>{ if(x&&x.id&&!ids.has(x.id)) lost.push({coll:k, item:x}); });
+    });
+    if(!lost.length) return;
+    if(JSON.stringify(lost).length>300000) return;   // trop lourd (pièces intégrées) → l'annulation immédiate (armUndo) reste disponible
+    DB.trash=DB.trash||[];
+    DB.trash.push({ id:uid(), ts:new Date().toISOString(), label:String(label||"Suppression").replace(/\s*\?\s*$/,""), by:(currentUser&&currentUser.login)||"", items:lost });
+    const cut=Date.now()-30*86400000;
+    DB.trash=DB.trash.filter(t=>new Date(t.ts).getTime()>=cut).slice(-100);
+    save();
+  }catch(e){}
+}
+function trashRestore(id){
+  const t=(DB.trash||[]).find(x=>x.id===id); if(!t) return;
+  let n=0;
+  t.items.forEach(e=>{
+    if(!Array.isArray(DB[e.coll])) DB[e.coll]=[];
+    if(!DB[e.coll].some(x=>x&&x.id===e.item.id)){ DB[e.coll].push(e.item); n++; }
+  });
+  DB.trash=DB.trash.filter(x=>x.id!==id);
+  save(); refreshAll(); closeModal(); toast("↩ "+n+" enregistrement(s) restauré(s).");
+}
+function openTrash(){
+  const list=(DB.trash||[]).slice().reverse();
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🗑 Corbeille (30 jours)</h2>
+    <div class="msub">Chaque suppression confirmée est conservée ici 30 jours — restaure en un clic, même après avoir fermé le Cockpit.</div>
+    ${list.length?`<table><thead><tr><th>Quand</th><th>Action</th><th style="text-align:right">Éléments</th><th></th></tr></thead><tbody>
+      ${list.map(t=>`<tr><td style="white-space:nowrap">${frDate(t.ts)} ${String(t.ts).slice(11,16)}</td><td>${esc(t.label)}${t.by?` <span class="badge b-grey">${esc(t.by)}</span>`:""}</td><td style="text-align:right">${t.items.length}</td>
+        <td style="text-align:right"><button class="cta ghost sm" onclick="trashRestore('${t.id}')">↩ Restaurer</button></td></tr>`).join("")}
+    </tbody></table>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta danger" onclick="confirmModal('Vider la corbeille ?','Les éléments ne seront plus restaurables.',()=>{DB.trash=[];save();closeModal();toast('Corbeille vidée.');})">Vider la corbeille</button></div>`
+    :`<div class="empty">Corbeille vide — aucune suppression récente.</div><div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`}`);
+}
 function confirmModal(title, text, onYes){
   // Fiabilité : toute action destructive confirmée devient ANNULABLE (instantané mémoire de la DB avant l'action).
   window.__yes=function(){
     const destructive=/supprim|vider|effac|remettre|réinitial|reinitial|retirer/i.test(title||"");
     const snap=destructive?JSON.stringify(DB):null;
     try{ (onYes||function(){})(); }
-    finally{ if(destructive && snap){ armUndo(String(title).replace(/\s*\?\s*$/,""), snap); } }
+    finally{ if(destructive && snap){ armUndo(String(title).replace(/\s*\?\s*$/,""), snap); trashCapture(snap, title); } }
   };
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>${title}</h2>
     <div class="x" style="font-size:13.5px;color:var(--ink);line-height:1.6;margin:8px 0 16px">${text}</div>
@@ -8522,6 +8578,7 @@ function cmdkActions(){
     out.push({t:"Action",ic,label,go:fn+"()"});
   });
   if(isAdmin()) out.push({t:"Action",ic:"🧰",label:"Santé & sauvegardes",go:"setScreen('admin-sante')"});
+  out.push({t:"Action",ic:"🗑",label:"Corbeille (restaurer une suppression)",go:"openTrash()"});
   return out;
 }
 function openCmdk(){
@@ -8637,8 +8694,9 @@ async function aiComplete(messages, maxTokens, sector, modelOverride){
   // 1) VOIE SÉCURISÉE : proxy du serveur local — la clé API ne quitte jamais le PC serveur.
   if(serverEnabled && _srvAI.any){
     try{
+      const mamOverride=AI_MODELS_MAMMOUTH.includes(modelOverride)?modelOverride:"";   // un id Claude API ne doit jamais partir chez Mammouth
       const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ messages, maxTokens:maxTokens||900, modelOverride:modelOverride||"",
+        body:JSON.stringify({ messages, maxTokens:maxTokens||900, modelOverride:mamOverride,
           claudeModel:DB.meta.claudeModel||"claude-sonnet-5",
           mistralModel:DB.meta.aiModel||"mistral-large-latest",
           mammouthModel:DB.meta.aiModelMammouth||"mammouth-recommended" })});
@@ -8659,7 +8717,7 @@ async function aiComplete(messages, maxTokens, sector, modelOverride){
     : "Aucune clé API IA configurée — ouvre ⚙ Paramètres (Claude, Mammouth ou Mistral).");
   let lastErr=null;
   for(let i=0;i<providers.length;i++){ const p=providers[i];
-    const model=(p.name==="mammouth" && modelOverride) ? modelOverride : p.model; // routage par assistant : Mammouth uniquement (multi-modèles)
+    const model=(p.name==="mammouth" && AI_MODELS_MAMMOUTH.includes(modelOverride)) ? modelOverride : p.model; // override Mammouth uniquement, et seulement pour un modèle Mammouth valide
     try{
       const ctrl=(typeof AbortController!=="undefined")?new AbortController():null;
       const to=ctrl?setTimeout(()=>ctrl.abort(),45000):null; // timeout 45s → évite de rester bloqué, bascule ensuite
@@ -9535,6 +9593,7 @@ function renderAdminSante(){
   host.innerHTML=`
   <div class="pagetitle"><div><h1>🧰 Santé & sauvegardes</h1><div class="sub">L'état du Cockpit en un coup d'œil — version, stockage, sauvegardes, connexions.</div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="cta ghost sm" onclick="openTrash()">🗑 Corbeille${(DB.trash||[]).length?" ("+DB.trash.length+")":""}</button>
       <button class="cta ghost sm" onclick="exportData()">⬇ Sauvegarde fichier</button>
       <button class="cta sm" onclick="save();renderAdminSante();toast('Enregistré — serveur & cloud notifiés.')">💾 Enregistrer maintenant</button>
     </div></div>
