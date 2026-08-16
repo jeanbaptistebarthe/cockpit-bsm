@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.11.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.12.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -3129,20 +3129,47 @@ function openPrintable(html){
   if(w){ try{ w.document.write(html); w.document.close(); setTimeout(()=>{ try{w.print();}catch(e){} },700); return; }catch(e){} }
   showPrintOverlay(html);
 }
+/* Aperçu imprimable SANS pop-up : le document est rendu dans la page (styles re-scopés pour ne pas
+   déteindre sur l'app), et à l'impression — bouton OU Ctrl+P — SEUL le document sort (fini la barre bleue imprimée). */
+function povScopeCss(css){
+  return String(css||"")
+    .replace(/:root\s*\{/g,"#pov-doc{")                 // variables du document → scopées au conteneur
+    .replace(/(^|\}|,|\s)body\s*(?=[,{])/g,"$1#pov-doc") // règles body → conteneur (l'app n'est pas restylée)
+    .replace(/(^|\})\s*\*\s*\{/g,"$1#pov-doc, #pov-doc *{");
+}
+function povExtractBody(html){
+  const m=String(html||"").match(/<body[^>]*>([\s\S]*)<\/body>/i);
+  return (m?m[1]:String(html||"")).replace(/<div class="np"[\s\S]*?<\/div>/,""); // la barre de boutons interne au document ne sert à rien ici
+}
 function showPrintOverlay(html){
   closePrintOverlay();
+  let css=""; String(html).replace(/<style>([\s\S]*?)<\/style>/g,(m,c)=>{ css+=c+"\n"; return ""; });
+  // polices du document (Cormorant/Raleway) : chargées une fois dans la page hôte
+  String(html).replace(/<link[^>]*href="(https:\/\/fonts[^"]+)"[^>]*>/g,(m,href)=>{
+    if(!document.querySelector('link[href="'+href+'"]')){ const l=document.createElement("link"); l.rel="stylesheet"; l.href=href; document.head.appendChild(l); } return ""; });
   const ov=document.createElement("div"); ov.id="print-overlay";
   ov.style.cssText="position:fixed;inset:0;z-index:100000;background:rgba(13,31,69,.94);display:flex;flex-direction:column";
-  ov.innerHTML=`<div style="padding:10px 16px;display:flex;gap:8px;justify-content:flex-end;align-items:center;background:#0D1F45">
-      <span style="color:rgba(255,255,255,.7);font-size:12px;margin-right:auto">Pop-ups bloqués — aperçu dans l'onglet</span>
-      <button class="cta" id="print-overlay-print">Imprimer / PDF</button>
-      <button class="cta ghost" style="color:#fff;border-color:rgba(255,255,255,.4)" onclick="closePrintOverlay()">Fermer</button></div>
-    <iframe id="print-overlay-frame" style="flex:1;border:none;background:#fff;width:100%"></iframe>`;
+  ov.innerHTML=`<div id="pov-bar" style="padding:10px 16px;display:flex;gap:8px;justify-content:flex-end;align-items:center;background:#0D1F45">
+      <span style="color:rgba(255,255,255,.75);font-size:12px;margin-right:auto">Aperçu — « Imprimer / PDF » (ou Ctrl+P) : seul le document sort, jamais cette barre.</span>
+      <button id="print-overlay-print" style="background:#B5923A;color:#0D1F45;border:none;border-radius:7px;padding:9px 20px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">Imprimer / PDF</button>
+      <button style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.55);border-radius:7px;padding:9px 16px;font-size:13px;cursor:pointer;font-family:inherit" onclick="closePrintOverlay()">Fermer</button></div>
+    <div id="pov-scroll" style="flex:1;overflow:auto;background:#525659;padding:18px 10px">
+      <div id="pov-doc" style="background:#fff;max-width:880px;margin:0 auto;box-shadow:0 4px 22px rgba(0,0,0,.45)">${povExtractBody(html)}</div>
+    </div>
+    <style>${povScopeCss(css)}
+    @media print{
+      body.pov-printing>*:not(#print-overlay){display:none!important}
+      body.pov-printing #print-overlay{position:static!important;background:#fff!important;display:block!important}
+      body.pov-printing #pov-bar{display:none!important}
+      body.pov-printing #pov-scroll{overflow:visible!important;background:#fff!important;padding:0!important}
+      body.pov-printing #pov-doc{box-shadow:none!important;max-width:none!important}
+      .np{display:none!important}
+    }</style>`;
   document.body.appendChild(ov);
-  const f=document.getElementById("print-overlay-frame"); f.srcdoc=html;
-  document.getElementById("print-overlay-print").onclick=function(){ try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ toast("Utilise Ctrl+P pour imprimer."); } };
+  document.body.classList.add("pov-printing");
+  document.getElementById("print-overlay-print").onclick=function(){ window.print(); };
 }
-function closePrintOverlay(){ const o=document.getElementById("print-overlay"); if(o) o.remove(); }
+function closePrintOverlay(){ const o=document.getElementById("print-overlay"); if(o) o.remove(); document.body.classList.remove("pov-printing"); }
 function printClientDoc(id){
   const d=(DB.clientDocs||[]).find(x=>x.id===id); if(!d){ toast("Document introuvable."); return; }
   const c=DB.clients.find(x=>x.id===d.clientId)||{}; const m=docTypeMeta(d.type);
@@ -7020,6 +7047,141 @@ function a1TrendCard(kind){
   if(!svg) return "";
   return `<div class="card"><h2 style="margin:0 0 4px">📈 Évolution ${series.length} mois — ${kind==="gen"?"coût du kWh":"conso moyenne"}${tgt?` <span style="font-size:11px;color:var(--gold);font-weight:600">🎯 objectif : ${kind==="gen"?fmtD(tgt.value)+"/kWh":tgt.value+" L/100"}</span>`:""}</h2>${svg}</div>`;
 }
+/* --- 🔁 ÉTUDE DE PERMUTATION DE GROUPES : peut-on échanger deux groupes sans qu'un site se retrouve sous-motorisé ?
+   Verdict déterministe sur les données disponibles + gains estimés + LISTE de ce qu'il faut mesurer pour la certitude. --- */
+function a1GroupLoadStats(g){
+  const logs=(DB.a1genlogs||[]).filter(l=>l.gensetId===g.id);
+  const hours=logs.reduce((s,l)=>s+(+l.hours||0),0), kwh=logs.reduce((s,l)=>s+(+l.kwh||0),0), liters=logs.reduce((s,l)=>s+(+l.liters||0),0);
+  const months={}; logs.forEach(l=>{ const m=String(l.date||"").slice(0,7); if(m) months[m]=1; });
+  const kwNom=(+g.puissanceKw)||((+g.puissanceKva||0)*(+g.cosPhi||0.8));
+  const kwAvg=hours>0?kwh/hours:0;
+  return { g, nLogs:logs.length, months:Object.keys(months).length, hours, kwh, liters, kwNom,
+    kwAvg, charge:(kwNom>0&&kwAvg>0)?kwAvg/kwNom*100:null, rendement:liters>0?kwh/liters:0 };
+}
+/* Courbe diesel STANDARD (repère sectoriel, pas une mesure) : conso spécifique L/kWh selon le taux de charge. */
+function a1SpecConsoLkWh(chargePct){
+  if(chargePct==null||!(chargePct>0)) return null;
+  const pts=[[10,0.60],[25,0.42],[50,0.30],[75,0.25],[100,0.23]];
+  if(chargePct<=pts[0][0]) return pts[0][1];
+  if(chargePct>=100) return 0.23;
+  for(let i=1;i<pts.length;i++){ if(chargePct<=pts[i][0]){ const a=pts[i-1],b=pts[i]; return a[1]+(chargePct-a[0])/(b[0]-a[0])*(b[1]-a[1]); } }
+  return 0.25;
+}
+const A1_SWAP_PEAK=1.6;   // pointe estimée = kW moyen × 1,6 — règle PRUDENTE en l'absence de mesure de pointe réelle
+function a1SwapAssess(idA, idB){
+  const gA=DB.a1gensets.find(x=>x.id===idA), gB=DB.a1gensets.find(x=>x.id===idB);
+  if(!gA||!gB) return null;
+  const A=a1GroupLoadStats(gA), B=a1GroupLoadStats(gB);
+  const evalDir=(site, gen)=>{ // le SITE (demande mesurée sur son groupe actuel) alimenté par l'AUTRE groupe
+    if(!(site.kwAvg>0)) return {status:"inconnu", why:"aucun kWh/heure mesuré sur le site"};
+    if(!(gen.kwNom>0))  return {status:"inconnu", why:"puissance nominale du groupe receveur inconnue (fiche technique)"};
+    const chargeAvg=site.kwAvg/gen.kwNom*100;
+    const peakKw=site.kwAvg*A1_SWAP_PEAK, peakPct=peakKw/gen.kwNom*100;
+    return { chargeAvg, peakKw, peakPct, status: peakPct<=80?"ok":(peakPct<=100?"risque":"non") };
+  };
+  const AB=evalDir(A,B), BA=evalDir(B,A);   // AB = site de A sur groupe B ; BA = site de B sur groupe A
+  const gainSite=(site, after)=>{ const s1=a1SpecConsoLkWh(site.charge), s2=a1SpecConsoLkWh(after&&after.chargeAvg); return (s1!=null&&s2!=null&&site.kwh>0)?site.kwh*(s1-s2):0; };
+  const fuelA=gainSite(A,AB), fuelB=gainSite(B,BA);          // + = économie de gasoil pour ce site, − = surconsommation
+  const litersSaved=fuelA+fuelB;
+  // Fiabilité : un site en surcharge chronique (>85 %) soulagé par l'échange = gain d'usure/risque, même sans gain carburant.
+  const relief=[]; const strain=[];
+  [[A,AB],[B,BA]].forEach(([site,dir])=>{ if(dir.chargeAvg==null||site.charge==null) return;
+    if(site.charge>85&&dir.chargeAvg<=80) relief.push(site.g.name);
+    if(dir.chargeAvg>80&&site.charge<=80) strain.push(site.g.name);
+  });
+  const price=(DB.meta.fuelPrices&&+DB.meta.fuelPrices.gasoil)||0;
+  const monthsRef=Math.max(A.months,B.months,1);
+  const feasible=(AB.status==="inconnu"||BA.status==="inconnu")?"inconnu":(AB.status==="non"||BA.status==="non")?"non":(AB.status==="risque"||BA.status==="risque")?"risque":"ok";
+  return { A, B, AB, BA, fuelA, fuelB, litersSaved, costSaved:litersSaved*price, monthsRef,
+    costSavedYear:(litersSaved*price)/monthsRef*12, relief, strain, feasible };
+}
+function a1SwapChecklist(A,B){
+  const cid=a1genClient||"";
+  const hasBuild=(DB.a1buildings||[]).some(b=>(b.clientId||"")===cid)||[A.g,B.g].some(g=>g.hasBuildings);
+  const hasOut=(DB.a1outages||[]).some(o=>(o.clientId||"")===cid);
+  return [
+    { ok:A.kwNom>0&&B.kwNom>0, label:"Puissance nominale des DEUX groupes (fiche technique)",
+      how:"Importer le .xlsx (feuille Fiche_Technique) ou appliquer une fiche de la 📚 bibliothèque — sans elle, aucun verdict sérieux." },
+    { ok:A.months>=3&&B.months>=3, label:"Au moins 3 mois de relevés sur chaque groupe (saisonnalité de la demande)",
+      how:"Poursuivre la collecte mensuelle (fiches de relevé) — la demande d'un site varie selon les mois et les délestages." },
+    { ok:false, label:"Puissance de POINTE réellement appelée par chaque site — LA donnée décisive",
+      how:"Mesure 7 à 14 jours à la pince ampèremétrique enregistreuse (ou analyseur de réseau) sur le TGBT de chaque site, incluant les heures les plus chargées. À défaut : relevé des ampèremètres du tableau à l'heure de pointe (P ≈ U × I × √3 × cos φ). C'est elle qui dit si le « petit » groupe tient la charge." },
+    { ok:hasBuild, label:"Inventaire des charges à fort courant de démarrage (clim, ascenseurs, pompes, compresseurs)",
+      how:"Importer la feuille BATIMENTS du classeur Excel : un moteur qui démarre appelle 3 à 6 × son courant nominal pendant quelques secondes — un groupe trop juste décroche à ce moment-là." },
+    { ok:hasOut, label:"Heures de coupure JIRAMA par site (durée des délestages à tenir)",
+      how:"Colonne « Durée coupures (h) » du tableau de bord mensuel — un groupe juste dimensionné qui tourne 8 h d'affilée en pointe n'a aucune marge thermique." },
+    { ok:false, label:"Compatibilité technique & logistique (à faire vérifier par l'électricien)",
+      how:"Tension et nombre de phases identiques, inverseur de source (ATS) recalibré au nouveau calibre, section des câbles, génie civil / manutention du transport, mise à la terre." },
+    { ok:false, label:"Réserve d'évolution du site (+15 à 20 %)",
+      how:"Demander au client ses projets 24 mois : extension, clim supplémentaire, nouvelles machines — le groupe permuté doit encaisser la croissance, pas seulement l'existant." }
+  ];
+}
+function a1SwapStatusBadge(st){
+  const m={ok:["#2F855A","✅ Compatible (pointe estimée ≤ 80 % du nominal)"],risque:["#B5923A","⚠️ Limite (80–100 % du nominal en pointe) — mesure de pointe indispensable avant décision"],non:["#C0392B","⛔ Sous-dimensionné (pointe estimée > 100 % du nominal)"],inconnu:["#6B7280","❔ Indéterminé — données manquantes"]};
+  return m[st]||m.inconnu;
+}
+function a1SwapInnerHtml(res, forPrint){
+  const F0=v=>Math.round(v).toLocaleString("fr-FR");
+  const dir=(lbl, site, gen, r)=>{ const [col,txt]=a1SwapStatusBadge(r.status);
+    return `<div style="border:1px solid #E5E7EB;border-left:4px solid ${col};border-radius:8px;padding:10px 13px;margin:8px 0;page-break-inside:avoid">
+      <div style="font-weight:700;font-size:13px;color:#111827">${lbl}</div>
+      <div style="font-size:12px;color:#374151;margin-top:4px">${r.status==="inconnu"?("Impossible à évaluer : "+esc(r.why||"données manquantes")+".")
+        :`Demande moyenne du site : <b>${F0(site.kwAvg)} kW</b> → charge moyenne <b>${F0(r.chargeAvg)} %</b> du nominal (${F0(gen.kwNom)} kW). Pointe estimée <b>${F0(r.peakKw)} kW</b> (kW moyen × ${A1_SWAP_PEAK}) = <b>${F0(r.peakPct)} %</b> du nominal.`}</div>
+      <div style="font-size:12px;font-weight:700;color:${col};margin-top:4px">${txt}</div></div>`; };
+  const [gcol,gtxt]=a1SwapStatusBadge(res.feasible);
+  const chk=a1SwapChecklist(res.A,res.B);
+  const nOk=chk.filter(c=>c.ok).length;
+  return `
+    <div style="border:2px solid ${gcol};border-radius:10px;padding:12px 15px;margin-bottom:12px;background:${res.feasible==="ok"?"#F0FAF4":res.feasible==="risque"?"#FDF6E9":res.feasible==="non"?"#FDF0EE":"#F9FAFB"}">
+      <div style="font-size:15px;font-weight:700;color:${gcol}">${gtxt.replace(/\(.*\)/,"").trim()} — verdict provisoire de la permutation</div>
+      <div style="font-size:12px;color:#374151;margin-top:4px">Sur les données disponibles (${res.monthsRef} mois de relevés), en estimant la pointe à ${A1_SWAP_PEAK}× la puissance moyenne. <b>Ce verdict se confirme par la mesure de pointe (point n° 3 ci-dessous)</b> — jamais l'inverse.</div>
+    </div>
+    ${dir(`Site du « ${esc(res.A.g.name)} » alimenté par « ${esc(res.B.g.name)} »`, res.A, res.B, res.AB)}
+    ${dir(`Site du « ${esc(res.B.g.name)} » alimenté par « ${esc(res.A.g.name)} »`, res.B, res.A, res.BA)}
+    <h2 class="docsec">Ce que la permutation rapporterait (estimation indicative)</h2>
+    <p style="font-size:12.5px">Un groupe électrogène consomme <b>par kWh produit</b> d'autant moins qu'il travaille près de sa zone optimale (60–80 % de charge) : à 25 % de charge, chaque kWh coûte ≈ 0,42 L de gasoil ; à 75 %, ≈ 0,25 L (courbe diesel standard). Deux effets à peser : le <b>carburant</b> (taux de charge) et la <b>fiabilité</b> (un groupe en surcharge chronique s'use et décroche).</p>
+    <ul style="font-size:12.5px;line-height:1.7;margin:6px 0 6px 20px">
+      ${res.fuelA?`<li>Site du « ${esc(res.A.g.name)} » : ${res.fuelA>0?`<b style="color:#2F855A">≈ −${F0(res.fuelA)} L</b> de gasoil (charge recentrée)`:`<b style="color:#C0392B">≈ +${F0(-res.fuelA)} L</b> (le site descend en charge, moins bon rendement)`}.</li>`:""}
+      ${res.fuelB?`<li>Site du « ${esc(res.B.g.name)} » : ${res.fuelB>0?`<b style="color:#2F855A">≈ −${F0(res.fuelB)} L</b> de gasoil`:`<b style="color:#C0392B">≈ +${F0(-res.fuelB)} L</b> (le site descend en charge, moins bon rendement)`}.</li>`:""}
+      ${res.relief.length?`<li><b style="color:#2F855A">Fiabilité :</b> ${res.relief.map(esc).join(" et ")} sort(ent) de la surcharge chronique (&gt;85 %) — usure, température et risque de décrochage pendant les délestages nettement réduits.</li>`:""}
+      ${res.strain.length?`<li><b style="color:#B5923A">Vigilance :</b> après échange, ${res.strain.map(esc).join(" et ")} travaillerait en charge continue élevée (&gt;80 %) — acceptable ponctuellement, à surveiller en continu.</li>`:""}
+    </ul>
+    ${res.litersSaved>0.5?`<p style="font-size:13px"><b>Bilan carburant net : ≈ −${F0(res.litersSaved)} L sur la période analysée (${fmtD(res.costSaved)} économisés)${res.monthsRef>=2?`, soit ≈ <b>${fmtD(res.costSavedYear)}</b> en rythme annuel`:""}.</b> Estimation sur courbe standard — la mesure réelle après permutation fera foi.</p>`
+      :res.litersSaved<-0.5?`<p style="font-size:12.5px"><b style="color:#C0392B">Bilan carburant net : ≈ +${F0(-res.litersSaved)} L de surconsommation.</b> Si la permutation se justifie, ce sera par la <b>fiabilité</b> (surcharge soulagée, secours), pas par le carburant — à arbitrer en connaissance de cause.</p>`
+      :`<p style="font-size:12.5px;color:#6B7280">Bilan carburant net quasi nul : l'arbitrage se fera sur la fiabilité, l'usure et la logistique.</p>`}
+    <h2 class="docsec">Pour passer de l'estimation à la certitude — ${nOk}/${chk.length} éléments réunis</h2>
+    ${chk.map(c=>`<div style="display:flex;gap:9px;margin:7px 0;page-break-inside:avoid"><div style="flex-shrink:0;font-size:13px">${c.ok?"✅":"⬜"}</div>
+      <div><div style="font-size:12.5px;font-weight:600;color:#111827">${esc(c.label)}</div>
+      <div style="font-size:11.5px;color:#4B5563;line-height:1.55">${esc(c.how)}</div></div></div>`).join("")}
+    <p style="font-size:11px;color:#6B7280;margin-top:10px">Règle BSM : un groupe se dimensionne sur la <b>pointe mesurée</b> + démarrages moteurs + réserve d'évolution — jamais sur la moyenne. La moyenne dit ce que le site consomme ; la pointe dit si le groupe tient.</p>`;
+}
+function openA1SwapStudy(){
+  const cid=a1genClient||"";
+  const gens=DB.a1gensets.filter(g=>!cid||g.clientId===cid);
+  if(gens.length<2){ toast("Il faut au moins 2 groupes"+(cid?" chez ce client":"")+" pour étudier une permutation."); return; }
+  window._swapA=window._swapA&&gens.some(g=>g.id===window._swapA)?window._swapA:gens[0].id;
+  window._swapB=window._swapB&&gens.some(g=>g.id===window._swapB&&g.id!==window._swapA)?window._swapB:(gens.find(g=>g.id!==window._swapA)||{}).id;
+  const sel=(id,v)=>`<select id="${id}" onchange="window.${id==='sw-a'?'_swapA':'_swapB'}=this.value;a1SwapRender()" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px">${gens.map(g=>`<option value="${g.id}" ${g.id===v?'selected':''}>${esc(g.name)}${g.site?" — "+esc(g.site):""}</option>`).join("")}</select>`;
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔁 Étude de permutation — groupes électrogènes${cid?" · "+esc(clientName(cid)):""}</h2>
+    <div class="msub">Peut-on échanger deux groupes sans qu'un site se retrouve <b>sous-motorisé</b> ? Verdict sur les données disponibles, gains estimés, et la liste exacte de ce qu'il reste à mesurer.</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><b style="font-size:13px">Groupe A</b>${sel("sw-a",window._swapA)}<span style="font-size:16px">⇄</span><b style="font-size:13px">Groupe B</b>${sel("sw-b",window._swapB)}</div>
+    <div id="sw-result"></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="a1SwapPrint()">🖨 Imprimer l'étude (PDF)</button></div>`);
+  a1SwapRender();
+}
+function a1SwapRender(){
+  const host=document.getElementById("sw-result"); if(!host) return;
+  if(window._swapA===window._swapB){ host.innerHTML='<div class="hint" style="color:var(--orange)">Choisis deux groupes différents.</div>'; return; }
+  const res=a1SwapAssess(window._swapA, window._swapB);
+  host.innerHTML=res?a1SwapInnerHtml(res):'<div class="empty">Groupes introuvables.</div>';
+}
+function a1SwapPrint(){
+  const res=a1SwapAssess(window._swapA, window._swapB); if(!res) return;
+  const cid=a1genClient||"";
+  openPrintable(docChrome(a1SwapInnerHtml(res, true), { title:"Étude de permutation — "+res.A.g.name+" ⇄ "+res.B.g.name,
+    typeLabel:"Étude technique", date:frLong(todayISO()), clientName:cid?clientName(cid):"—",
+    objet:"Faisabilité de l'échange des groupes « "+res.A.g.name+" » et « "+res.B.g.name+" » — verdict provisoire, gains estimés et mesures à réaliser" }));
+}
 /* ================== LOT B — PARCOURS GUIDÉ « NOUVELLE ANALYSE » (client → fichier → vérification → analyse) ================== */
 let _a1wiz={};
 function openA1Wizard(kind){
@@ -8223,7 +8385,7 @@ function openA1Actions(kind){ const isGen=kind==="gen";
   const G=(title,items)=>`<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);letter-spacing:.05em;font-weight:600;margin-bottom:5px">${title}</div><div style="display:flex;gap:7px;flex-wrap:wrap">${items.filter(Boolean).map(b=>`<button class="cta ${b[2]||'ghost'} sm" onclick="closeModal();${b[1]}">${b[0]}</button>`).join("")}</div></div>`;
   const html=`<span class="close" onclick="closeModal()">✕</span><h2>☰ Actions — ${isGen?"Groupes & JIRAMA":"Véhicules & GPS"}</h2>
     <div class="msub">Toutes les actions du programme, regroupées. Choisis ce dont tu as besoin.</div>
-    ${G("Analyse",[["🧭 Nouvelle analyse (guidé)","openA1Wizard('"+(isGen?"gen":"fleet")+"')","gold"],["🤖 Analyse IA",isGen?"a1GenAnalyze()":"a1Analyze()"],["💬 Chat IA","openA1Chat('"+(isGen?"gen":"fleet")+"')"],["📕 Rapport exécutif","a1ExecReport('"+(isGen?"gen":"fleet")+"')"],["🎯 Données & fiabilité","openA1DataPanel('"+(isGen?"gen":"fleet")+"')"],["🥅 Objectif client","openA1Target('"+(isGen?"gen":"fleet")+"')"],["📚 Historique des rapports","openA1ExecHistory('"+(isGen?"gen":"fleet")+"')"],["📆 Suivi du mois (tous clients)","setScreen('a1suivi')"],["🎬 Mode démo client","a1DemoMode('"+(isGen?"gen":"fleet")+"')"],["📊 Tableau de bord",isGen?"a1GenDashboard()":"a1FleetDashboard()"],["🖨 Rapport technique",isGen?"printA1GenReport()":"printA1Report()"]])}
+    ${G("Analyse",[["🧭 Nouvelle analyse (guidé)","openA1Wizard('"+(isGen?"gen":"fleet")+"')","gold"],["🤖 Analyse IA",isGen?"a1GenAnalyze()":"a1Analyze()"],["💬 Chat IA","openA1Chat('"+(isGen?"gen":"fleet")+"')"],["📕 Rapport exécutif","a1ExecReport('"+(isGen?"gen":"fleet")+"')"],["🎯 Données & fiabilité","openA1DataPanel('"+(isGen?"gen":"fleet")+"')"],["🥅 Objectif client","openA1Target('"+(isGen?"gen":"fleet")+"')"],isGen&&["🔁 Étude de permutation","openA1SwapStudy()"],["📚 Historique des rapports","openA1ExecHistory('"+(isGen?"gen":"fleet")+"')"],["📆 Suivi du mois (tous clients)","setScreen('a1suivi')"],["🎬 Mode démo client","a1DemoMode('"+(isGen?"gen":"fleet")+"')"],["📊 Tableau de bord",isGen?"a1GenDashboard()":"a1FleetDashboard()"],["🖨 Rapport technique",isGen?"printA1GenReport()":"printA1Report()"]])}
     ${G("Saisie & données",[[isGen?"+ Relevé":"+ Relevé",isGen?"openA1GenLog()":"openA1Log()","gold"],[isGen?"+ Groupe":"+ Véhicule",isGen?"openA1Genset()":"openA1Vehicle()"],["⇊ Importer CSV",isGen?"openA1GenImport()":"openA1Import()"],!isGen&&["📍 Importer GPS","openA1GpsImport()"],["📋 Parc complet","openA1Roster('"+(isGen?"gen":"fleet")+"')"],["📚 Fiches techniques","openA1SpecLibrary('"+(isGen?"gen":"fleet")+"')"]])}
     ${G("Factures & contrôle",[["🧾 Facture","openA1InvoiceImport('"+(isGen?"jirama":"fuel")+"')"],["📚 Registre","openA1InvoiceRegister('"+(isGen?"jirama":"fuel")+"')"],["🔎 Contrôle & écarts","openA1Control('"+(isGen?"jirama":"fuel")+"')"]])}
     ${G("Documents & terrain",[["📎 Documents client","openA1Docs('"+(isGen?"gen":"fleet")+"')"],["📋 Fiche de relevé (imprimer)","printA1CollectSheet('"+(isGen?"gen":"fleet")+"')"]])}
@@ -9075,6 +9237,13 @@ function buildGensetSynthesisMd(){
     md+=`| **${p.g.name}** | ${puis} | ${Math.round(p.hours)} h | ${Math.round(p.kwh).toLocaleString('fr-FR')} kWh | ${p.chargePct>0?"**"+p.chargePct.toFixed(0)+"%**":"—"} | ${p.realLh?p.realLh.toFixed(1)+" L/h":"—"} | ${p.rendement?p.rendement.toFixed(2)+" kWh/L":"—"} | ${p.costPerKwh?fmtD(p.costPerKwh):"—"} | ${a1GensetState(p)} |\n`; });
   const noSpecs=arr.filter(p=>!(p.kwNominal>0));
   if(noSpecs.length) md+=`\n> ⚠ **Fiche technique non importée** pour ${noSpecs.map(p=>p.g.name).join(", ")} → le taux de charge ne peut pas être calculé (puissance nominale inconnue). Importe le **.xlsx complet** (feuille Fiche_Technique) ou complète les specs du groupe (bouton ✎) pour activer le calcul de charge et une analyse fiable.\n`;
+  // Repères de DIMENSIONNEMENT (l'IA peut raisonner permutation/redéploiement sans inventer : pointe estimée ≠ pointe mesurée)
+  if(arr.length>=2){
+    md+=`\n## Dimensionnement des groupes (repères pour permutation / redéploiement)\n\n`;
+    arr.forEach(p=>{ const st=a1GroupLoadStats(p.g);
+      md+=`- **${p.g.name}** : nominal ${st.kwNom?Math.round(st.kwNom)+" kW":"inconnu (fiche technique manquante)"} · puissance moyenne produite ${st.kwAvg?Math.round(st.kwAvg)+" kW":"—"}${st.charge!=null?` (charge moyenne ${Math.round(st.charge)} %)`:""} · pointe ESTIMÉE ≈ ${st.kwAvg?Math.round(st.kwAvg*A1_SWAP_PEAK)+" kW":"—"} (moyenne × ${A1_SWAP_PEAK}, à confirmer par mesure).\n`; });
+    md+=`- Règle : un échange de groupes ne se valide que si la **pointe mesurée** du site (pince ampèremétrique 7-14 j sur le TGBT) + démarrages moteurs + réserve ~20 % tiennent dans le nominal du groupe receveur. La moyenne ne suffit JAMAIS à conclure. L'outil « 🔁 Étude de permutation » (☰ Actions) donne le verdict provisoire et la liste des mesures.\n`;
+  }
   md+=`\n## Constats\n\n`;
   const low=arr.filter(p=>p.lowLoad);
   if(low.length) md+=`- **Dimensionnement — sous-charge : ${low.map(p=>p.g.name+" ("+p.chargePct.toFixed(0)+"%)").join(", ")}.** Ces groupes tournent très en dessous de leur plage optimale (50–85 % de charge). Un diesel chroniquement sous-chargé subit : rendement dégradé (plus de litres par kWh), **cokéfaction / wet-stacking** (encrassement injecteurs et turbo), usure prématurée et surcoût de carburant. **C'est le constat principal, chiffrable et actionnable.**\n`;
