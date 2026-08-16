@@ -70,7 +70,14 @@
   .kpi-spark{margin-top:6px;}
   .kpi .v.warn{color:var(--orange);} .kpi .v.danger{color:var(--red);} .kpi .v.good{color:var(--green);}
   .card{background:#fff;border:1px solid #ECE7DB;border-radius:16px;padding:22px;margin-bottom:20px;box-shadow:var(--sh-card);}
-  .card h2{font-size:14px;color:var(--navy);margin:0 0 12px;letter-spacing:.005em;font-weight:700;}
+  .card h2{font-size:14.5px;color:var(--navy);margin:0 0 12px;letter-spacing:.005em;font-weight:700;}
+  .card h2::before,.card h3::before{content:"";display:inline-block;width:4px;height:13px;border-radius:3px;background:linear-gradient(180deg,var(--gold),#C1954A);margin-right:8px;vertical-align:-2px;}
+  /* Ascenseurs élégants (discrets, dorés au survol) */
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:#D9D2C0;border-radius:8px;border:2px solid var(--bg);}
+  ::-webkit-scrollbar-thumb:hover{background:var(--gold);}
+  body.dark ::-webkit-scrollbar-thumb{background:#33445a;border-color:var(--bg);}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
   .grid2.wide{grid-template-columns:1.5fr 1fr;}
   table{width:100%;border-collapse:collapse;font-size:13px;}
@@ -111,10 +118,11 @@
   /* bars */
   .bars{display:flex;align-items:flex-end;gap:10px;height:150px;margin-top:10px;}
   .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;}
-  .bar{width:70%;background:var(--gold);border-radius:4px 4px 0 0;min-height:2px;transition:height .3s;}
-  .bar.prov{background:#DCD3BE;}
-  .bar-val{font-size:9.5px;color:var(--navy);font-weight:700;margin-bottom:3px;}
-  .bar-lbl{font-size:10.5px;color:var(--muted);margin-top:6px;}
+  .bar{width:70%;background:linear-gradient(180deg,#DCC28A 0%,var(--gold) 55%,#B98F45 100%);border-radius:7px 7px 2px 2px;min-height:2px;transition:height .3s ease,filter .15s ease;box-shadow:0 2px 8px -3px rgba(183,137,26,.5);}
+  .bar-col:hover .bar{filter:brightness(1.08);}
+  .bar.prov{background:linear-gradient(180deg,#ECE4D0,#DCD3BE);box-shadow:none;}
+  .bar-val{font-size:10px;color:var(--navy);font-weight:700;margin-bottom:4px;}
+  .bar-lbl{font-size:10.5px;color:var(--muted);margin-top:7px;}
   /* calendar */
   .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
   .cal-head .m{font-weight:700;color:var(--navy);font-size:15px;}
@@ -141,9 +149,9 @@
   .advice .acts{display:flex;gap:6px;flex-shrink:0;}
   .tag-manual{font-size:9.5px;background:var(--cream);color:var(--muted);border-radius:8px;padding:1px 6px;vertical-align:middle;}
   /* modal */
-  .overlay{position:fixed;inset:0;background:rgba(16,42,67,.55);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
+  .overlay{position:fixed;inset:0;background:rgba(12,20,31,.5);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
   .overlay.show{display:flex;}
-  .modal{background:#fff;border-radius:12px;padding:24px;width:480px;max-width:96vw;max-height:90vh;overflow-y:auto;position:relative;}
+  .modal{background:#fff;border-radius:16px;padding:26px;width:480px;max-width:96vw;max-height:90vh;overflow-y:auto;position:relative;box-shadow:0 24px 64px rgba(16,42,67,.28);}
   .modal h2{font-family:var(--serif);margin:0 0 4px;color:var(--navy);font-size:22px;font-weight:600;letter-spacing:.005em;line-height:1.15;}
   .modal .msub{font-size:12px;color:var(--muted);margin-bottom:16px;}
   .modal .close{position:absolute;top:14px;right:18px;cursor:pointer;font-size:20px;color:var(--muted);}
@@ -177,10 +185,14 @@
   .mini-list .li:last-child{border-bottom:none;}
   .mini-list .li .d{color:var(--muted);font-size:12px;white-space:nowrap;}
   .b-amber{background:#FEF3E2;color:var(--amber);}
-  .navgroup{font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.09em;padding:14px 12px 4px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;transition:color .15s ease;}
-  .navgroup:hover{color:var(--navy);}
-  .nav-chev{font-size:9px;opacity:.55;transition:transform .18s ease;}
-  .navgroup.collapsed .nav-chev{transform:rotate(-90deg);}
+  .navgroup{font-size:10.5px;color:var(--muted);font-weight:700;letter-spacing:.09em;padding:8px 10px;margin:8px 4px 2px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;border-radius:8px;transition:background .15s ease,color .15s ease;}
+  .navgroup:hover{background:#ECE7DB;color:var(--navy);}
+  .nav-chev{width:17px;height:17px;border-radius:50%;background:#E4DDCC;color:var(--navy);display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;line-height:1;flex-shrink:0;transition:background .15s ease,color .15s ease;}
+  .navgroup:hover .nav-chev{background:var(--gold);color:#fff;}
+  .navgroup.collapsed .nav-chev{background:var(--navy);color:#fff;}
+  body.dark .navgroup:hover{background:#1b2736;}
+  body.dark .nav-chev{background:#22303f;color:#cdd6e2;}
+  body.dark .navgroup.collapsed .nav-chev{background:var(--gold);color:#0c141f;}
   .navitem.nav-collapsed{display:none;}
   .subtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px;flex-wrap:wrap;}
   .subtab{padding:9px 16px;font-size:13px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;font-weight:600;}
@@ -188,8 +200,9 @@
   .r5mini{display:inline-flex;gap:3px;width:104px;vertical-align:middle;}
   .r5mini div{flex:1;height:6px;border-radius:2px;background:rgba(16,42,67,.12);}
   .r5mini div.on{background:var(--gold);}
-  .progress{background:var(--line);border-radius:6px;height:8px;overflow:hidden;min-width:64px;display:inline-block;width:80px;vertical-align:middle;}
-  .progress i{display:block;height:100%;background:var(--gold);}
+  .progress{background:#EFEAE0;border-radius:8px;height:9px;overflow:hidden;min-width:64px;display:inline-block;width:80px;vertical-align:middle;}
+  .progress i{display:block;height:100%;background:linear-gradient(90deg,#D8BC7E,var(--gold));border-radius:8px;box-shadow:0 1px 2px rgba(183,137,26,.35);}
+  body.dark .progress{background:#22303f;}
   .heat-wrap{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;}
   .heat{display:grid;grid-template-columns:46px repeat(5,minmax(46px,1fr));grid-auto-rows:54px;gap:4px;flex:1;min-width:340px;}
   .heat .yl{display:flex;align-items:center;justify-content:flex-end;font-size:10px;color:var(--muted);padding-right:6px;}
@@ -507,7 +520,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.1.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.2.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -1506,6 +1519,8 @@ function goHome(){ if(!currentUser) return; setScreen(can("dashboard")?"dashboar
 /* ---- Repli des groupes d'onglets (sidebar plus épurée) ---- */
 function applyNavGroupState(h, collapsed){
   h.classList.toggle("collapsed", collapsed);
+  const chev=h.querySelector(".nav-chev");
+  if(chev){ chev.textContent=collapsed?"+":"−"; chev.title=collapsed?"Déplier la section":"Replier la section"; }
   let n=h.nextElementSibling;
   while(n && !n.classList.contains("navgroup")){
     if(n.classList.contains("navitem")) n.classList.toggle("nav-collapsed", collapsed);
@@ -1523,7 +1538,7 @@ function initNavGroups(){
   document.querySelectorAll(".sidebar .navgroup").forEach(function(h){
     if(!h.dataset.group){
       h.dataset.group=(h.textContent||"").trim();
-      const chev=document.createElement("span"); chev.className="nav-chev"; chev.textContent="▾";
+      const chev=document.createElement("span"); chev.className="nav-chev"; chev.textContent="−";
       h.appendChild(chev);
       h.addEventListener("click",function(){ toggleNavGroup(h); });
     }
@@ -1746,10 +1761,16 @@ if(!window.__bsmKeysBound){ document.addEventListener("keydown", bsmKeydown); wi
 // Mini-courbe (sparkline) SVG pour enrichir un KPI.
 function sparkline(vals, color){
   vals=(vals||[]).map(v=>+v||0); if(vals.length<2) return "";
-  const w=120,h=26,max=Math.max(1,...vals),min=Math.min(0,...vals),rng=(max-min)||1;
-  const pts=vals.map((v,i)=>((i/(vals.length-1))*w).toFixed(1)+","+(h-((v-min)/rng)*h).toFixed(1)).join(" ");
-  const last=vals[vals.length-1], lx=w, ly=(h-((last-min)/rng)*h).toFixed(1);
-  return '<svg class="kpi-spark" width="100%" height="'+h+'" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none"><polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="'+lx+'" cy="'+ly+'" r="2.4" fill="'+color+'"/></svg>';
+  const w=120,h=28,max=Math.max(1,...vals),min=Math.min(0,...vals),rng=(max-min)||1;
+  const P=vals.map((v,i)=>[ (i/(vals.length-1))*w, h-3-((v-min)/rng)*(h-6) ]);
+  const pts=P.map(p=>p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
+  const last=P[P.length-1];
+  const gid="sg"+Math.random().toString(36).slice(2,7); // id unique : plusieurs sparklines par page
+  return '<svg class="kpi-spark" width="100%" height="'+h+'" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none">'
+    +'<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="'+color+'" stop-opacity=".20"/><stop offset="100%" stop-color="'+color+'" stop-opacity="0"/></linearGradient></defs>'
+    +'<polygon points="0,'+h+' '+pts+' '+w+','+h+'" fill="url(#'+gid+')"/>'
+    +'<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+    +'<circle cx="'+last[0].toFixed(1)+'" cy="'+last[1].toFixed(1)+'" r="2.6" fill="'+color+'" stroke="#fff" stroke-width="1.2"/></svg>';
 }
 function kpiCard(screen, value, cls, label, icon, accent, spark){
   return '<div class="kpi clk" onclick="setScreen(\''+screen+'\')" style="border-top:3px solid '+(accent||'var(--gold)')+'">'
