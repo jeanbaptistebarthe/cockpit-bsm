@@ -1212,7 +1212,33 @@ async function serverSyncInit(){
     } else {
       serverPush();                          // 1er démarrage : on envoie les données locales actuelles au serveur
     }
+    aiServerInit();                          // proxy IA : détecte les clés serveur + migre les clés locales hors du navigateur
   }catch(e){ /* pas de serveur : on reste en local, sans afficher d'erreur */ }
+}
+/* ---- Proxy IA serveur : le navigateur ne stocke plus les clés API ; il sait seulement quels fournisseurs sont prêts. ---- */
+let _srvAI={checked:false, claude:false, mammouth:false, mistral:false, any:false};
+async function aiServerInit(){
+  try{
+    const r=await fetch("/api/ai-config",{cache:"no-store"}); if(!r.ok) throw 0;
+    const j=await r.json(); if(!j||!j.ok) throw 0;
+    _srvAI={checked:true, claude:!!j.providers.claude, mammouth:!!j.providers.mammouth, mistral:!!j.providers.mistral,
+            any:!!(j.providers.claude||j.providers.mammouth||j.providers.mistral)};
+    // Migration sécurité (une fois) : toute clé encore stockée dans le navigateur part sur le serveur puis est effacée d'ici.
+    const mig={};
+    if((DB.meta.claudeKey||"").trim().length>=10)   mig.claudeKey=DB.meta.claudeKey.trim();
+    if((DB.meta.mammouthKey||"").trim().length>=10) mig.mammouthKey=DB.meta.mammouthKey.trim();
+    if((DB.meta.mistralKey||"").trim().length>=10)  mig.mistralKey=DB.meta.mistralKey.trim();
+    if(Object.keys(mig).length){
+      const r2=await fetch("/api/ai-config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(mig)});
+      const j2=await r2.json().catch(()=>null);
+      if(j2&&j2.ok){
+        DB.meta.claudeKey=""; DB.meta.mammouthKey=""; DB.meta.mistralKey=""; save();
+        _srvAI={checked:true, claude:!!j2.providers.claude, mammouth:!!j2.providers.mammouth, mistral:!!j2.providers.mistral,
+                any:!!(j2.providers.claude||j2.providers.mammouth||j2.providers.mistral)};
+        toast("🔐 Clés IA déplacées vers le serveur — elles ne sont plus stockées dans le navigateur.");
+      }
+    }
+  }catch(e){ _srvAI.checked=true; }
 }
 
 /* ----------------------------- Bascule & synchro LOCAL ⇄ EN LIGNE -----------------------------
@@ -4578,20 +4604,20 @@ function openSettings(){
         <input id="s-id-stat" value="${esc(docIdentity().stat)}" placeholder="STAT">
       </div></div>
     <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
-    <div class="field"><label>Assistant IA — Clé API Claude (Anthropic) <span style="color:var(--gold)">(prioritaire — recommandé pour les rapports)</span></label><input id="s-claude" type="password" value="${esc(DB.meta.claudeKey||'')}" placeholder="Colle ta clé Claude (sk-ant-…)"></div>
+    <div class="field"><label>Assistant IA — Clé API Claude (Anthropic) <span style="color:var(--gold)">(prioritaire — recommandé pour les rapports)</span></label>${aiKeyInputHtml("s-claude", DB.meta.claudeKey, _srvAI.claude, "Colle ta clé Claude (sk-ant-…)")}</div>
     <div class="field"><label>Modèle Claude</label><select id="s-claude-model">
       ${[["claude-sonnet-5","Claude Sonnet 5 (équilibré — recommandé)"],["claude-opus-5","Claude Opus 5 (meilleure qualité, rapports)"],["claude-haiku-4-5-20251001","Claude Haiku 4.5 (rapide / éco)"]].map(m=>`<option value="${m[0]}" ${(DB.meta.claudeModel||'claude-sonnet-5')===m[0]?'selected':''}>${m[1]}</option>`).join("")}</select></div>
-    <div class="hint">Clé <b>Anthropic</b> (console.anthropic.com). Si saisie, Claude est utilisé <b>en priorité</b> pour toutes les analyses/rapports (repli automatique sur Mammouth/Mistral). ⚠️ Clé stockée localement dans ton navigateur — à n'utiliser que sur ton poste de confiance.</div>
+    <div class="hint">Clé <b>Anthropic</b> (console.anthropic.com). Si saisie, Claude est utilisé <b>en priorité</b> pour toutes les analyses/rapports (repli automatique sur Mammouth/Mistral). ${serverEnabled&&_srvAI.checked?'🔐 <b>Stockage sécurisé :</b> la clé est conservée sur le serveur BSM, jamais dans le navigateur — ton associé peut utiliser l\'IA sans voir la clé.':'⚠️ Sans serveur local, la clé est stockée dans ce navigateur — à n\'utiliser que sur un poste de confiance.'}</div>
     <hr style="border:none;border-top:1px dashed var(--line);margin:12px 0">
-    <div class="field"><label>Assistant IA — Clé API Mammouth <span style="color:var(--muted)">(repli multi-modèles)</span></label><input id="s-mammouth" type="password" value="${esc(DB.meta.mammouthKey||'')}" placeholder="Colle ta clé Mammouth (sk-…)"></div>
+    <div class="field"><label>Assistant IA — Clé API Mammouth <span style="color:var(--muted)">(repli multi-modèles)</span></label>${aiKeyInputHtml("s-mammouth", DB.meta.mammouthKey, _srvAI.mammouth, "Colle ta clé Mammouth (sk-…)")}</div>
     <div class="field"><label>Modèle Mammouth</label><select id="s-aimodel-mam">
       ${AI_MODELS_MAMMOUTH.map(m=>`<option value="${m}" ${(DB.meta.aiModelMammouth||'mammouth-recommended')===m?'selected':''}>${m}</option>`).join("")}</select></div>
     <div class="hint">Si une clé Mammouth est saisie, elle est utilisée en priorité (sinon repli sur Mistral ci-dessous). Chaque appel est compté (tokens + coût estimé) → onglet <b>Reporting IA</b>, et alimente automatiquement la ligne budget « Intelligence artificielle ». ⚠️ Pense à allouer un budget à ta clé dans ton compte Mammouth.</div>
     <hr style="border:none;border-top:1px dashed var(--line);margin:12px 0">
-    <div class="field"><label>Assistant IA — Clé API Mistral <span style="color:var(--muted)">(repli)</span></label><input id="s-mistral" type="password" value="${esc(DB.meta.mistralKey||'')}" placeholder="Colle ta clé Mistral"></div>
+    <div class="field"><label>Assistant IA — Clé API Mistral <span style="color:var(--muted)">(repli)</span></label>${aiKeyInputHtml("s-mistral", DB.meta.mistralKey, _srvAI.mistral, "Colle ta clé Mistral")}</div>
     <div class="field"><label>Modèle Mistral</label><select id="s-aimodel">
       ${[["mistral-small-latest","Mistral Small (rapide / éco)"],["mistral-medium-latest","Mistral Medium"],["mistral-large-latest","Mistral Large (recommandé)"]].map(m=>`<option value="${m[0]}" ${(DB.meta.aiModel||'mistral-large-latest')===m[0]?'selected':''}>${m[1]}</option>`).join("")}</select></div>
-    <div class="hint">Clés stockées localement, jamais publiées. Les données envoyées à l'IA servent uniquement à générer les conseils.</div>
+    <div class="hint">${serverEnabled&&_srvAI.checked?'🔐 Clés conservées sur le <b>serveur BSM</b> (fichier local du PC, jamais publié ni synchronisé).':'Clés stockées localement, jamais publiées.'} Les données envoyées à l'IA servent uniquement à générer les conseils.</div>
     <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
     <div class="field"><label>Intégrations Google (Sheet R5 · Agenda · e-mail)</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -4634,6 +4660,13 @@ function openSettings(){
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="saveSettings()">Enregistrer</button></div>`);
   refreshCloudPanel(); refreshBackupsPanel(); refreshNotifPanel();
 }
+/* Champ de clé IA : en mode serveur, le champ ne pré-remplit JAMAIS la clé (elle vit sur le serveur, pas ici). */
+function aiKeyInputHtml(id, localVal, srvConfigured, placeholder){
+  if(serverEnabled&&_srvAI.checked){
+    return `<input id="${id}" type="password" value="" placeholder="${srvConfigured?'Configurée sur le serveur ✅ — vide = conserver · EFFACER = supprimer':placeholder}">`;
+  }
+  return `<input id="${id}" type="password" value="${esc(localVal||'')}" placeholder="${placeholder}">`;
+}
 function curSym(c){ return c==="MGA"?"Ar":(c==="USD"?"$":"€"); }
 function curIndicatorText(){ const d=DB.meta.defaultCurrency; return curSym(d)+" · "+CURRENCIES.map(c=>c[0]).filter(c=>c!==d).map(curSym).join(" · "); }
 function saveSettings(){
@@ -4641,9 +4674,23 @@ function saveSettings(){
   const r=parseFloat(val("s-rate")); DB.meta.rateEurMga=(!isNaN(r)&&r>0)?r:DB.meta.rateEurMga;
   const ru=parseFloat(val("s-rateusd")); DB.meta.rateUsdMga=(!isNaN(ru)&&ru>0)?ru:DB.meta.rateUsdMga;
   DB.meta.cabinetName=val("s-cabinet");
-  DB.meta.mistralKey=val("s-mistral"); DB.meta.aiModel=val("s-aimodel");
-  DB.meta.mammouthKey=val("s-mammouth").trim(); DB.meta.aiModelMammouth=val("s-aimodel-mam");
-  DB.meta.claudeKey=(val("s-claude")||"").trim(); DB.meta.claudeModel=val("s-claude-model")||"claude-sonnet-5";
+  DB.meta.aiModel=val("s-aimodel"); DB.meta.aiModelMammouth=val("s-aimodel-mam"); DB.meta.claudeModel=val("s-claude-model")||"claude-sonnet-5";
+  const _k={claude:(val("s-claude")||"").trim(), mammouth:(val("s-mammouth")||"").trim(), mistral:(val("s-mistral")||"").trim()};
+  if(serverEnabled&&_srvAI.checked){
+    // Clés → serveur uniquement (jamais dans le navigateur). Champ vide = conserver l'existante ; taper EFFACER = supprimer.
+    DB.meta.claudeKey=""; DB.meta.mammouthKey=""; DB.meta.mistralKey="";
+    const payload={};
+    [["claudeKey",_k.claude],["mammouthKey",_k.mammouth],["mistralKey",_k.mistral]].forEach(([key,v])=>{
+      if(v) payload[key]=(v.toUpperCase()==="EFFACER")?"":v;
+    });
+    if(Object.keys(payload).length){
+      fetch("/api/ai-config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
+        .then(r=>r.json()).then(j=>{
+          if(j&&j.ok){ _srvAI={checked:true,claude:!!j.providers.claude,mammouth:!!j.providers.mammouth,mistral:!!j.providers.mistral,any:!!(j.providers.claude||j.providers.mammouth||j.providers.mistral)}; toast("🔐 Clé(s) IA enregistrée(s) sur le serveur."); }
+          else toast("⚠️ Enregistrement des clés sur le serveur impossible.");
+        }).catch(()=>toast("⚠️ Enregistrement des clés sur le serveur impossible."));
+    }
+  } else { DB.meta.claudeKey=_k.claude; DB.meta.mammouthKey=_k.mammouth; DB.meta.mistralKey=_k.mistral; }
   DB.meta.reportEmail=val("s-reportmail").trim();
   const rm=parseInt(val("s-reviewmonths")); if([3,6,12].includes(rm)) DB.meta.reviewMonths=rm;
   const rh=parseInt(val("s-recurhorizon")); if(!isNaN(rh)&&rh>=1&&rh<=120){ DB.meta.recurHorizonMonths=rh; generateRecurring(); }
@@ -8397,8 +8444,29 @@ function aiProvidersList(){
 }
 function aiProviderConf(){ return aiProvidersList()[0]||null; } // compat (1er fournisseur)
 async function aiComplete(messages, maxTokens, sector, modelOverride){
+  // 1) VOIE SÉCURISÉE : proxy du serveur local — la clé API ne quitte jamais le PC serveur.
+  if(serverEnabled && _srvAI.any){
+    try{
+      const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({ messages, maxTokens:maxTokens||900, modelOverride:modelOverride||"",
+          claudeModel:DB.meta.claudeModel||"claude-sonnet-5",
+          mistralModel:DB.meta.aiModel||"mistral-large-latest",
+          mammouthModel:DB.meta.aiModelMammouth||"mammouth-recommended" })});
+      const j=await r.json().catch(()=>null);
+      if(j&&j.ok&&j.content){
+        try{ recordAiUsage(j.provider, j.model, j.usage, sector); }catch(_){}
+        let content=j.content;
+        if(j.truncated) content=String(content).replace(/\s+$/,"")+"\n\n> ⚠️ *Réponse tronquée (limite de longueur atteinte). Demande « continue » ou pose la question en la découpant pour obtenir la suite.*";
+        return content;
+      }
+      if(!aiProvidersList().length) throw new Error((j&&j.error)||"Proxy IA du serveur indisponible.");
+    }catch(err){ if(!aiProvidersList().length) throw err; } // repli sur d'éventuelles clés locales (mode en ligne / secours)
+  }
+  // 2) VOIE DIRECTE (secours) : clés locales du navigateur — utilisée seulement sans serveur (site en ligne / fichier local).
   const providers=aiProvidersList();
-  if(!providers.length) throw new Error("Aucune clé API IA configurée — ouvre ⚙ Paramètres (Mammouth ou Mistral).");
+  if(!providers.length) throw new Error(serverEnabled&&_srvAI.checked
+    ? "Aucune clé IA configurée sur le serveur — ouvre ⚙ Paramètres et enregistre ta clé (stockage sécurisé côté serveur)."
+    : "Aucune clé API IA configurée — ouvre ⚙ Paramètres (Claude, Mammouth ou Mistral).");
   let lastErr=null;
   for(let i=0;i<providers.length;i++){ const p=providers[i];
     const model=(p.name==="mammouth" && modelOverride) ? modelOverride : p.model; // routage par assistant : Mammouth uniquement (multi-modèles)
