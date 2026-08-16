@@ -524,7 +524,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.5.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.6.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -1288,6 +1288,7 @@ async function serverSyncInit(){
     }
     aiServerInit();                          // proxy IA : détecte les clés serveur + migre les clés locales hors du navigateur
     docsMigrateToServer();                   // pièces jointes : migration douce vers le disque du PC serveur (quota navigateur libéré)
+    kbOffloadBig();                          // base de connaissances : texte intégral des gros documents → disque serveur (base 4× plus légère)
   }catch(e){ /* pas de serveur : on reste en local, sans afficher d'erreur */ }
 }
 /* ---- Proxy IA serveur : le navigateur ne stocke plus les clés API ; il sait seulement quels fournisseurs sont prêts. ---- */
@@ -1532,6 +1533,31 @@ function renderScreen(name){
     carto:renderCarto, recos:renderRecos, rh:renderRH, audit:renderAudit, "a1fleet":renderA1Fleet, "a1genset":renderA1Genset,
     commercial:renderCommercial, documentation:renderDocumentation, fiches:renderFiches, glossaire:renderGlossaire, clientfiche:renderClientFiche, analyses:renderAnalyses,
     "admin-users":renderAdminUsers, "admin-log":renderAdminLog, "admin-sante":renderAdminSante}[name]||(()=>{}))();
+  setTimeout(paginateBigTables, 0);   // P4 : pagination douce des grands tableaux après rendu
+}
+/* P4 — pagination douce : tout tableau de plus de 150 lignes n'en affiche que 100 au départ,
+   avec « Afficher plus » / « Tout afficher ». Aucun écran à modifier : appliqué après chaque rendu. */
+function paginateBigTables(){
+  document.querySelectorAll(".screen.active table tbody").forEach(tb=>{
+    if(tb.dataset.paged) return;
+    const rows=Array.prototype.slice.call(tb.rows);
+    if(rows.length<=150) return;
+    tb.dataset.paged="1"; tb.dataset.shown="100";
+    const cols=(rows[0]&&rows[0].cells.length)||1;
+    const more=document.createElement("tr");
+    more.innerHTML='<td colspan="'+cols+'" style="text-align:center;padding:10px;border-bottom:none"><button class="cta ghost sm"></button> <button class="cta ghost sm">Tout afficher ('+rows.length+')</button></td>';
+    tb.appendChild(more);
+    const btns=more.querySelectorAll("button");
+    const apply=()=>{ const shown=+tb.dataset.shown;
+      rows.forEach((r,i)=>{ r.style.display=(i<shown)?"":"none"; });
+      const rest=rows.length-shown;
+      if(rest<=0){ more.style.display="none"; }
+      else { more.style.display=""; btns[0].textContent="▼ Afficher "+Math.min(100,rest)+" de plus ("+rest+" restants)"; }
+    };
+    btns[0].onclick=()=>{ tb.dataset.shown=String(+tb.dataset.shown+100); apply(); };
+    btns[1].onclick=()=>{ tb.dataset.shown=String(rows.length); apply(); };
+    apply();
+  });
 }
 function refreshAll(){
   const active = document.querySelector(".screen.active").id.replace("scr-","");
@@ -2850,7 +2876,7 @@ function knowledgeCard(){
         <td><b>${esc(d.title||"—")}</b>${d.source?`<div style="font-size:10.5px;color:var(--muted)">${esc(d.source)}</div>`:""}</td>
         <td><span class="badge b-grey">${kbCatLabel(d.category)}</span></td>
         <td>${classifBadge(d.classification||"interne")}</td>
-        <td style="font-size:11.5px">${Math.round((d.content||"").length/1000)}k</td>
+        <td style="font-size:11.5px">${Math.round((d.fullSize||(d.content||"").length)/1000)}k${d.fullOnServer?' <span title="Texte intégral sur le disque serveur">💽</span>':""}</td>
         <td style="font-size:11.5px">${esc(d.updatedAt||"—")}</td>
         <td style="text-align:center"><input type="checkbox" ${d.includeInAI!==false?"checked":""} onchange="toggleKnowledgeAI('${d.id}')" ${gen?"":"disabled"} title="Utilisé par les assistants IA"></td>
         <td style="text-align:right;white-space:nowrap"><button class="iconbtn" title="Voir / modifier" onclick="openKnowledgeForm('${d.id}')">${gen?"✎":"👁"}</button>${gen?`<button class="iconbtn del" title="Supprimer" onclick="deleteKnowledge('${d.id}')">🗑</button>`:""}</td>
@@ -2858,8 +2884,33 @@ function knowledgeCard(){
       :`<div class="empty" style="margin-top:10px">Aucun document. Importe tes documents officiels (PDF/Word) ou colle du texte — les assistants IA s'appuieront dessus.</div>`}
   </div>`;
 }
-function openKnowledgeForm(id){
+/* ---- Allègement (P4) : le texte INTÉGRAL des gros documents vit sur le disque du PC serveur ;
+   la base ne garde qu'un extrait (largement suffisant pour l'IA, qui ne lit que ~3 800 caractères par appel).
+   → base 4× plus légère = chaque enregistrement/synchro serveur/cloud 4× plus rapide. ---- */
+const KB_EXCERPT=9000, KB_OFFLOAD_MIN=20000;
+async function kbOffloadBig(){
+  if(!serverEnabled) return;
+  let n=0;
+  for(const d of kbList()){
+    if((d.content||"").length>KB_OFFLOAD_MIN && !d.fullOnServer){
+      if(await fileServerPut("kb_"+d.id, d.title||"", "text/plain", "kbtext:"+d.content)){
+        d.fullSize=d.content.length;
+        d.content=d.content.slice(0,KB_EXCERPT)+"\n\n[… extrait — texte intégral ("+Math.round(d.fullSize/1000)+"k caractères) conservé sur le PC serveur …]";
+        d.fullOnServer=true; n++;
+      }
+    }
+  }
+  if(n){ save(); toast("📚 "+n+" document(s) volumineux allégé(s) — texte intégral conservé sur le disque serveur."); }
+}
+async function kbFullContent(d){
+  if(!d||!d.fullOnServer) return (d&&d.content)||"";
+  try{ const r=await fetch("/api/file?id="+encodeURIComponent("kb_"+d.id)); if(!r.ok) throw 0;
+    const f=await r.json(); return String(f.data||"").replace(/^kbtext:/,""); }
+  catch(e){ toast("⚠️ Texte intégral indisponible (serveur) — extrait affiché."); return d.content||""; }
+}
+async function openKnowledgeForm(id){
   const gen=can("documentation"); const d=id?kbList().find(x=>x.id===id):null;
+  const fullContent=d?await kbFullContent(d):"";
   const cats=Object.keys(KB_CATEGORIES).map(k=>`<option value="${k}" ${d&&d.category===k?"selected":""}>${KB_CATEGORIES[k]}</option>`).join("");
   openModal(`<span class="close" onclick="closeModal()">✕</span>
     <h2>${d?(gen?"Modifier":"Document"):"Ajouter"} un document de référence</h2>
@@ -2869,19 +2920,30 @@ function openKnowledgeForm(id){
       <label style="flex:1">Catégorie<select id="kb-cat" ${gen?"":"disabled"}>${cats}</select></label>
       <label style="flex:1">Confidentialité<select id="kb-classif" ${gen?"":"disabled"}>${classifOptions(d?(d.classification||"interne"):"interne")}</select></label>
     </div>
-    <div class="frow"><label>Contenu (texte lu par l'IA)<textarea id="kb-content" rows="14" style="font-family:inherit;font-size:12.5px" ${gen?"":"disabled"}>${d?esc(d.content):""}</textarea></label></div>
+    <div class="frow"><label>Contenu (texte lu par l'IA)${d&&d.fullOnServer?' <span class="badge b-blue" title="Texte intégral stocké sur le disque du PC serveur — affiché ici en entier">💽 intégral serveur</span>':""}<textarea id="kb-content" rows="14" style="font-family:inherit;font-size:12.5px" ${gen?"":"disabled"}>${d?esc(fullContent):""}</textarea></label></div>
     <label style="display:flex;gap:6px;align-items:center;font-size:12.5px"><input type="checkbox" id="kb-ai" ${!d||d.includeInAI!==false?"checked":""} ${gen?"":"disabled"}> Utilisé par les assistants IA</label>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button>${gen?`<button class="cta" onclick="saveKnowledge('${d?d.id:""}')">Enregistrer</button>`:""}</div>`);
 }
-function saveKnowledge(id){
+async function saveKnowledge(id){
   const title=(kbv("kb-title")||"").trim(); if(!title){ toast("Titre requis."); return; }
   const now=todayISO(); const list=kbList(); let d=id?list.find(x=>x.id===id):null;
+  const content=kbv("kb-content")||"";
   const data={ title, category:kbv("kb-cat")||"autre", classification:kbv("kb-classif")||"interne",
-    content:kbv("kb-content")||"", includeInAI:!!(document.getElementById("kb-ai")&&document.getElementById("kb-ai").checked), updatedAt:now };
-  if(d){ Object.assign(d,data); } else { list.push(Object.assign({id:"kb-"+uid(),active:true,createdAt:now,source:"saisie"},data)); }
-  save(); closeModal(); renderDocumentation(); toast("Document enregistré.");
+    includeInAI:!!(document.getElementById("kb-ai")&&document.getElementById("kb-ai").checked), updatedAt:now };
+  if(d){ Object.assign(d,data); } else { d=Object.assign({id:"kb-"+uid(),active:true,createdAt:now,source:"saisie"},data); list.push(d); }
+  // Gros contenu + serveur présent → texte intégral sur le disque serveur, extrait dans la base (base légère, synchro rapide)
+  if(serverEnabled && content.length>KB_OFFLOAD_MIN && await fileServerPut("kb_"+d.id, title, "text/plain", "kbtext:"+content)){
+    d.fullSize=content.length; d.fullOnServer=true;
+    d.content=content.slice(0,KB_EXCERPT)+"\n\n[… extrait — texte intégral ("+Math.round(d.fullSize/1000)+"k caractères) conservé sur le PC serveur …]";
+  } else {
+    d.content=content; d.fullOnServer=false; delete d.fullSize;
+  }
+  save(); closeModal(); renderDocumentation(); toast("Document enregistré"+(d.fullOnServer?" (intégral 💽 serveur)":"")+".");
 }
-function deleteKnowledge(id){ confirmModal("Supprimer ce document ?","Il ne sera plus lu par les assistants IA.",()=>{ DB.knowledge=kbList().filter(x=>x.id!==id); save(); renderDocumentation(); toast("Supprimé."); }); }
+function deleteKnowledge(id){ confirmModal("Supprimer ce document ?","Il ne sera plus lu par les assistants IA.",()=>{
+  const d=kbList().find(x=>x.id===id);
+  if(d&&d.fullOnServer&&serverEnabled) fetch("/api/file-del",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:"kb_"+id})}).catch(()=>{});
+  DB.knowledge=kbList().filter(x=>x.id!==id); save(); renderDocumentation(); toast("Supprimé."); }); }
 function toggleKnowledgeAI(id){ const d=kbList().find(x=>x.id===id); if(!d) return; d.includeInAI=!(d.includeInAI!==false); save(); renderDocumentation(); }
 function importKnowledgeJSON(inp){
   const f=inp.files&&inp.files[0]; if(!f) return;
