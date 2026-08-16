@@ -399,6 +399,7 @@
     <div class="navgroup admin-only" style="display:none">ADMINISTRATION</div>
     <div class="navitem admin-only" data-scr="admin-users" onclick="setScreen('admin-users')" style="display:none"><span class="ic">🔐</span><span class="lbl">Utilisateurs & accès</span></div>
     <div class="navitem admin-only" data-scr="admin-log" onclick="setScreen('admin-log')" style="display:none"><span class="ic">📋</span><span class="lbl">Connexions & activité</span></div>
+    <div class="navitem admin-only" data-scr="admin-sante" onclick="setScreen('admin-sante')" style="display:none"><span class="ic">🧰</span><span class="lbl">Santé & sauvegardes</span></div>
   </div>
 
   <div class="main">
@@ -429,6 +430,7 @@
     <div class="screen" id="scr-analyses"></div>
     <div class="screen" id="scr-admin-users"></div>
     <div class="screen" id="scr-admin-log"></div>
+    <div class="screen" id="scr-admin-sante"></div>
   </div>
 </div>
 
@@ -472,6 +474,8 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
+const APP_VERSION = "5.0.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
 let _encKey=null, _encSaltB64=null, _encLocked=false, _encBlob=null, _pendingRaw=null, _lockTimer=null;
@@ -1456,7 +1460,7 @@ function renderScreen(name){
     budget:renderBudget, ca:renderCA, resultat:renderResultat, roi:renderROI, aireport:renderAireport, aiassist:renderAiassist, reports:renderReports, monitoring:renderMonitoring, missions:renderMissions, risks:renderRisks,
     carto:renderCarto, recos:renderRecos, rh:renderRH, audit:renderAudit, "a1fleet":renderA1Fleet, "a1genset":renderA1Genset,
     commercial:renderCommercial, documentation:renderDocumentation, fiches:renderFiches, glossaire:renderGlossaire, clientfiche:renderClientFiche, analyses:renderAnalyses,
-    "admin-users":renderAdminUsers, "admin-log":renderAdminLog}[name]||(()=>{}))();
+    "admin-users":renderAdminUsers, "admin-log":renderAdminLog, "admin-sante":renderAdminSante}[name]||(()=>{}))();
 }
 function refreshAll(){
   const active = document.querySelector(".screen.active").id.replace("scr-","");
@@ -9237,6 +9241,75 @@ let currentUser=null, currentScreen="dashboard", _logTimer=null;
 const SESSION_KEY="bsm_session";
 
 /* Catalogue des modules (= écrans) soumis à permission. fin:true = contient des données financières/sensibles. */
+/* ================== SANTÉ & SAUVEGARDES (admin) — l'état du Cockpit en un coup d'œil ================== */
+function fmtKo(bytes){ if(!(bytes>=0)) return "—"; if(bytes<1024) return bytes+" o"; if(bytes<1048576) return (bytes/1024).toFixed(0)+" Ko"; return (bytes/1048576).toFixed(1)+" Mo"; }
+function localStorageBytes(){ let t=0; try{ for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); t+=(k.length+(localStorage.getItem(k)||"").length)*2; } }catch(e){} return t; }
+function renderAdminSante(){
+  const host=document.getElementById("scr-admin-sante"); if(!host) return;
+  if(!isAdmin()){ host.innerHTML=""; return; }
+  const dbBytes=JSON.stringify(DB).length, lsBytes=localStorageBytes(), lsPct=Math.min(100,Math.round(lsBytes/(5*1048576)*100));
+  const m=envMode();
+  const counts=[["👥 Clients",(DB.clients||[]).length],["🎯 Missions",(DB.missions||[]).length],["⚠️ Risques",(DB.risks||[]).length],["✅ Recommandations",(DB.recommendations||[]).length],["💶 Transactions",(DB.transactions||[]).length],["⛽ Relevés A1 (flotte + groupes)",((DB.a1logs||[]).length+(DB.a1genlogs||[]).length)],["🧑‍💼 Salariés",(DB.employees||[]).length],["🔐 Utilisateurs",(DB.users||[]).length]];
+  host.innerHTML=`
+  <div class="pagetitle"><div><h1>🧰 Santé & sauvegardes</h1><div class="sub">L'état du Cockpit en un coup d'œil — version, stockage, sauvegardes, connexions.</div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="cta ghost sm" onclick="exportData()">⬇ Sauvegarde fichier</button>
+      <button class="cta sm" onclick="save();renderAdminSante();toast('Enregistré — serveur & cloud notifiés.')">💾 Enregistrer maintenant</button>
+    </div></div>
+  <div class="kpis">
+    <div class="kpi"><div class="v">v${APP_VERSION}</div><div class="l">Version (${APP_VERSION_DATE})</div></div>
+    <div class="kpi"><div class="v">${m==="local"?"🖥️ Local":(m==="online"?"🌐 En ligne":"📄 Fichier seul")}</div><div class="l">Environnement</div></div>
+    <div class="kpi"><div class="v">${fmtKo(dbBytes)}</div><div class="l">Taille de la base</div></div>
+    <div class="kpi"><div class="v ${lsPct>=60?"danger":""}">${lsPct}%</div><div class="l">Stockage navigateur (~5 Mo)</div></div>
+  </div>
+  ${lsPct>=60?`<div class="card" style="border-left:3px solid var(--red);margin-bottom:12px"><b>⚠️ Stockage navigateur élevé (${fmtKo(lsBytes)}).</b> Les pièces jointes volumineuses (documents intégrés en base) approchent le quota — au-delà, l'enregistrement échoue. Archive ou supprime les plus lourdes, et vérifie que le serveur local tourne (il garde la copie de référence).</div>`:""}
+  <div class="grid2">
+    <div class="card"><h3 style="margin:0 0 8px">🖥️ Serveur local & sauvegardes</h3><div id="sante-server" class="hint" style="line-height:1.8">⏳ Interrogation du serveur…</div></div>
+    <div class="card"><h3 style="margin:0 0 8px">🤖 Intelligence artificielle</h3><div id="sante-ai" style="font-size:12.5px;line-height:1.8">${santeAiHtml()}</div>
+      <div style="margin-top:8px"><button class="cta ghost sm" onclick="santeTestAI()">🔌 Tester l'IA</button> <span id="sante-ai-test" class="hint"></span></div></div>
+    <div class="card"><h3 style="margin:0 0 8px">☁️ Cloud & synchronisation</h3><div class="hint" style="line-height:1.8">${santeCloudHtml()}</div></div>
+    <div class="card"><h3 style="margin:0 0 8px">📊 Contenu de la base</h3><table style="width:100%;font-size:12.5px;border-collapse:collapse">${counts.map(c=>`<tr><td style="padding:3px 0">${c[0]}</td><td style="text-align:right"><b>${c[1]}</b></td></tr>`).join("")}</table></div>
+  </div>`;
+  santeFillServer();
+}
+function santeAiHtml(){
+  const srv=[_srvAI.claude&&"Claude",_srvAI.mammouth&&"Mammouth",_srvAI.mistral&&"Mistral"].filter(Boolean);
+  const loc=aiProvidersList().map(p=>p.name);
+  let h="";
+  if(serverEnabled&&_srvAI.checked) h+=srv.length?`<div>🔐 Clés sur le <b>serveur</b> : ${srv.join(" · ")} <span class="badge b-green">sécurisé</span></div>`:`<div>⚠️ Aucune clé IA sur le serveur — enregistre ta clé dans ⚙ Paramètres.</div>`;
+  if(loc.length) h+=`<div>${serverEnabled?"⚠️ Clés encore dans le navigateur (migration au prochain démarrage)":"🔑 Clés locales (navigateur)"} : ${loc.map(p=>esc(p)).join(" · ")}</div>`;
+  if(!h) h=`<div>Aucune clé IA configurée — ⚙ Paramètres.</div>`;
+  h+=`<div class="hint">Modèle Claude : ${esc(DB.meta.claudeModel||"claude-sonnet-5")} · usage compté dans Reporting IA</div>`;
+  return h;
+}
+async function santeTestAI(){
+  const out=document.getElementById("sante-ai-test"); if(out) out.textContent="⏳ test en cours…";
+  const t0=Date.now();
+  try{ const r=await aiChat("Tu es un test technique. Réponds exactement : OK","Ping",8,"autre");
+    if(out) out.textContent="✅ Réponse en "+((Date.now()-t0)/1000).toFixed(1)+" s — "+String(r).trim().slice(0,24); }
+  catch(e){ if(out) out.textContent="❌ "+((e&&e.message)||"échec"); }
+}
+function santeCloudHtml(){
+  const parts=[];
+  parts.push((typeof cloudPrimary!=="undefined"&&cloudPrimary)?"☁️ Supabase : <b>actif</b> (source principale multi-postes)":"☁️ Supabase : configuré en veille / secours");
+  const ls=DB.meta&&DB.meta.lastSyncAt; parts.push("🔄 Dernière synchro local ⇄ en ligne : "+(ls?fmtDateTime(ls):"jamais"));
+  const be=DB.meta&&DB.meta.lastBackupExport; parts.push("⬇ Dernier export fichier : "+(be?frDate(be):"<b style='color:var(--orange)'>jamais — pense à exporter</b>"));
+  parts.push("🔒 Chiffrement local : "+(bsmEncOn()?"✅ activé (coffre)":"— désactivé"));
+  return parts.map(p=>`<div>${p}</div>`).join("");
+}
+async function santeFillServer(){
+  const el=document.getElementById("sante-server"); if(!el) return;
+  if(!serverEnabled){ el.innerHTML="⚠️ <b>Serveur local non détecté.</b> Démarre-le (Demarrer_serveur.bat) puis ouvre le Cockpit via "+esc(envLocalUrl())+" — sans lui : pas de sauvegarde automatique sur le PC, pas d'envoi de rapports, pas de proxy IA sécurisé."; return; }
+  try{
+    const st=await (await fetch("/api/status",{cache:"no-store"})).json();
+    el.innerHTML=[
+      "✅ <b>Serveur connecté</b> — copie de référence sur le PC ("+fmtKo(st.size||0)+")",
+      "🗓 Sauvegardes quotidiennes sur le PC : <b>"+(st.backups||0)+"</b> fichiers (60 jours conservés)",
+      "💽 Disque dur externe : "+(st.externalConfigured?(st.externalConnected?"✅ branché (hebdo + miroir « latest »)":"<b style='color:var(--orange)'>⚠️ configuré mais non branché</b>"):"— non configuré (config.json)"),
+      "🌍 Hors-site Backblaze B2 : "+(st.b2Configured?"✅ configuré (réplication 1×/jour)":"— non configuré")
+    ].map(x=>`<div>${x}</div>`).join("");
+  }catch(e){ el.innerHTML="⚠️ Serveur injoignable ("+((e&&e.message)||"erreur")+")."; }
+}
 const PERMSCREENS=[
   {key:"dashboard",label:"Tableau de bord",grp:"PILOTAGE",fin:true},
   {key:"clients",  label:"Clients",grp:"PILOTAGE"},
