@@ -413,6 +413,7 @@
     <div class="navgroup">PILOTAGE</div>
     <div class="navitem active" data-scr="dashboard" onclick="setScreen('dashboard')"><span class="ic">▦</span><span class="lbl">Tableau de bord</span></div>
     <div class="navitem" data-scr="monitoring" onclick="setScreen('monitoring')"><span class="ic">🩺</span><span class="lbl">Monitoring & suivi</span></div>
+    <div class="navitem" data-scr="a1suivi" onclick="setScreen('a1suivi')"><span class="ic">📆</span><span class="lbl">Suivi du mois</span></div>
     <div class="navitem" data-scr="clients" onclick="setScreen('clients')"><span class="ic">👥</span><span class="lbl">Clients</span></div>
     <div class="navitem" data-scr="agenda" onclick="setScreen('agenda')"><span class="ic">📅</span><span class="lbl">Agenda</span></div>
     <div class="navgroup">FINANCES</div>
@@ -456,6 +457,7 @@
     <div class="screen" id="scr-aiassist"></div>
     <div class="screen" id="scr-reports"></div>
     <div class="screen" id="scr-monitoring"></div>
+    <div class="screen" id="scr-a1suivi"></div>
     <div class="screen" id="scr-missions"></div>
     <div class="screen" id="scr-risks"></div>
     <div class="screen" id="scr-carto"></div>
@@ -524,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.9.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.10.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -670,6 +672,12 @@ function load(){
   if(!Array.isArray(DB.trash)) DB.trash=[];   // corbeille 30 jours (P4)
   if(!DB.a1targets) DB.a1targets={};                       // objectifs par client (Lot D)
   if(!Array.isArray(DB.a1execreports)) DB.a1execreports=[]; // archivage numéroté des rapports exécutifs (Lot D)
+  if(!Array.isArray(DB.a1relances)) DB.a1relances=[];       // relances de collecte tracées (Lot E)
+  // Lot E : l'écran « Suivi du mois » est soumis aux permissions → on l'accorde aux comptes direction existants (l'admin a déjà tout).
+  if(!DB.meta.a1suiviPermV1){
+    try{ (DB.users||[]).forEach(u=>{ if(Array.isArray(u.allowed) && u.allowed.indexOf("a1suivi")<0 && (u.role==="admin"||u.role==="direction")) u.allowed.push("a1suivi"); }); }catch(e){}
+    DB.meta.a1suiviPermV1=true;
+  }
   // Correction tarifaire 08/2026 : les anciens défauts Claude étaient faux (Opus 5 à 15/75 au lieu de 5/25…) → purge des overrides Claude + recalcul de tout l'historique de coûts.
   if(!DB.meta.aiPriceFixV1){
     try{
@@ -1534,7 +1542,7 @@ function setScreen(name){
 function renderScreen(name){
   ({dashboard:renderDashboard, clients:renderClients, agenda:renderAgenda,
     budget:renderBudget, ca:renderCA, resultat:renderResultat, roi:renderROI, aireport:renderAireport, aiassist:renderAiassist, reports:renderReports, monitoring:renderMonitoring, missions:renderMissions, risks:renderRisks,
-    carto:renderCarto, recos:renderRecos, rh:renderRH, audit:renderAudit, "a1fleet":renderA1Fleet, "a1genset":renderA1Genset,
+    carto:renderCarto, recos:renderRecos, rh:renderRH, audit:renderAudit, "a1fleet":renderA1Fleet, "a1genset":renderA1Genset, "a1suivi":renderA1Suivi,
     commercial:renderCommercial, documentation:renderDocumentation, fiches:renderFiches, glossaire:renderGlossaire, clientfiche:renderClientFiche, analyses:renderAnalyses,
     "admin-users":renderAdminUsers, "admin-log":renderAdminLog, "admin-sante":renderAdminSante}[name]||(()=>{}))();
   setTimeout(paginateBigTables, 0);   // P4 : pagination douce des grands tableaux après rendu
@@ -5030,7 +5038,7 @@ function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;"
 function cap(s){ return s?s.charAt(0).toUpperCase()+s.slice(1):s; }
 function statusBadge(s){ return {actif:"b-actif",prospect:"b-prospect",archive:"b-archive"}[s]||"b-grey"; }
 function evBadge(t){ return {audit:"b-blue",prospect:"b-prospect",rdv:"b-green",autre:"b-grey"}[t]||"b-grey"; }
-function frDate(iso){ if(!iso) return "—"; const [y,m,d]=iso.split("-"); return `${d}/${m}/${y}`; }
+function frDate(iso){ if(!iso) return "—"; const [y,m,d]=String(iso).slice(0,10).split("-"); return `${d}/${m}/${y}`; }   // tolère un horodatage ISO complet (2026-08-16T15:22:10Z → 16/08/2026)
 function isoOffset(n){ const d=new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
 function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(window.__tt); window.__tt=setTimeout(()=>t.classList.remove("show"),2600); }
 
@@ -6394,17 +6402,19 @@ function a1Compute(clientId){
 }
 /* ================== LOT A — FIABILITÉ DES DONNÉES, BANDEAU EXÉCUTIF & RAPPORT EXÉCUTIF ================== */
 /* Complétude des données : ce qui crédibilise l'analyse face au client (et guide ce qu'il reste à collecter). */
-function a1DataQuality(kind){
+function a1DataQuality(kind, clientId){
   const checks=[];
+  // clientId optionnel (Lot E : le Suivi du mois évalue chaque client sans toucher la sélection des écrans A1) ; défaut = client sélectionné.
+  const cid=(clientId===undefined)?(kind==="gen"?a1genClient:a1Client):clientId;
   if(kind==="gen"){
-    const {arr}=a1GenCompute(a1genClient);
+    const {arr}=a1GenCompute(cid);
     checks.push({ok:arr.some(p=>p.hours>0||p.kwh>0||p.liters>0), label:"Relevés d'exploitation", poids:30, action:"⇊ Importer le tableau de bord"});
     checks.push({ok:arr.length>0&&arr.every(p=>p.kwNominal>0), label:"Fiches techniques constructeur", poids:25, action:"Importer le .xlsx complet (feuille Fiche_Technique)"});
     checks.push({ok:+DB.meta.jiramaKwhPrice>0, label:"Tarif réseau JIRAMA", poids:15, action:"Saisir le tarif (facture JIRAMA)"});
     checks.push({ok:!!(DB.meta.fuelPrices&&+DB.meta.fuelPrices.gasoil>0), label:"Prix du gasoil", poids:15, action:"⛽ Prix carburant"});
-    checks.push({ok:(DB.a1outages||[]).some(o=>(o.clientId||"")===(a1genClient||"")), label:"Heures de coupure déclarées", poids:15, action:"Colonne « Durée coupures (h) »"});
+    checks.push({ok:(DB.a1outages||[]).some(o=>(o.clientId||"")===(cid||"")), label:"Heures de coupure déclarées", poids:15, action:"Colonne « Durée coupures (h) »"});
   } else {
-    const {arr}=a1Compute(a1Client);
+    const {arr}=a1Compute(cid);
     checks.push({ok:arr.some(p=>p.km>0), label:"Relevés kilométriques", poids:30, action:"⇊ Importer les relevés"});
     checks.push({ok:arr.length>0&&arr.every(p=>p.consoTheo>0), label:"Conso constructeur des véhicules", poids:25, action:"Compléter les fiches véhicules"});
     checks.push({ok:!!(DB.meta.fuelPrices&&+DB.meta.fuelPrices.gasoil>0), label:"Prix du carburant", poids:15, action:"⛽ Prix carburant"});
@@ -6538,9 +6548,10 @@ function openA1ExecHistory(kind){
   const list=(DB.a1execreports||[]).filter(r=>r.kind===kind&&(!clientId||r.clientId===clientId)).slice().reverse();
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📚 Historique des rapports${clientId?" — "+esc(clientName(clientId)):""}</h2>
     <div class="msub">Chaque rapport exécutif est archivé et numéroté — la preuve du suivi, consultable en réunion.</div>
-    ${list.length?`<table><thead><tr><th>Référence</th><th>Date</th><th style="text-align:right">Coût période</th><th style="text-align:right">Fiabilité</th><th style="text-align:right">Alertes</th><th></th></tr></thead><tbody>
+    ${list.length?`<table><thead><tr><th>Référence</th><th>Date</th><th style="text-align:right">Coût période</th><th style="text-align:right">Fiabilité</th><th style="text-align:right">Alertes</th><th>Envoyé</th><th></th></tr></thead><tbody>
       ${list.map(r=>`<tr><td><b>${esc(r.ref)}</b></td><td>${frDate(r.ts)}</td><td style="text-align:right">${r.cost!=null?fmtD(r.cost):"—"}</td><td style="text-align:right">${r.fiab!=null?r.fiab+" %":"—"}</td><td style="text-align:right">${r.alerts!=null?r.alerts:"—"}</td>
-        <td style="text-align:right">${r.onServer?`<button class="cta ghost sm" onclick="a1ViewExecReport('${r.id}')">👁 Revoir</button>`:'<span class="hint">—</span>'}</td></tr>`).join("")}
+        <td>${r.sentAt?`<span style="color:var(--green);font-weight:600">✓ ${frDate(r.sentAt)}</span><div style="font-size:10px;color:var(--muted)">${esc(r.sentTo||"")}</div>`:'<span class="hint">—</span>'}</td>
+        <td style="text-align:right;white-space:nowrap">${r.onServer?`<button class="cta ghost sm" onclick="a1ViewExecReport('${r.id}')">👁 Revoir</button> <button class="cta ghost sm" title="${r.sentAt?"Renvoyer":"Envoyer"} au client (PDF joint, tracé)" onclick="closeModal();openA1ExecSend('${r.id}')">✉️ ${r.sentAt?"Renvoyer":"Envoyer"}</button>`:'<span class="hint">—</span>'}</td></tr>`).join("")}
     </tbody></table>`:`<div class="empty">Aucun rapport archivé pour l'instant — génère un 📕 Rapport exécutif.</div>`}
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`);
 }
@@ -6645,6 +6656,177 @@ async function a1ExecReport(kind){
   const html=docChrome(body,{ title:"Rapport exécutif "+ref+" — "+cName, typeLabel:isGen?"Optimisation énergétique":"Optimisation flotte & carburant", date:period, clientName:cName, objet:isGen?"Analyse des groupes électrogènes et du coût de l'énergie":"Analyse de la flotte et du poste carburant" });
   openPrintable(html);
   a1ArchiveExecReport({ref, clientId:clientId||"", kind, cost:totals.cost, fiab:q.pct, alerts:alerts.length}, html);   // archivage numéroté (preuve du suivi)
+}
+/* ================== LOT E — PIPELINE DE PRODUCTION : Suivi du mois, relances de collecte, envoi des rapports ================== */
+/* L'outil interne pour tenir 10 abonnements sans rien oublier : pour chaque client A1 et chaque mois,
+   où en est le cycle relevés → analyse → rapport → envoi, avec relance et envoi en un clic. */
+function a1MonthLabel(ym){ if(!ym) return ""; const p=String(ym).split("-"); const d=new Date(Date.UTC(+p[0],+p[1]-1,1)); return d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}); }
+function a1SuiviShift(delta){ const p=(window.a1SuiviMonth||todayISO().slice(0,7)).split("-"); const d=new Date(Date.UTC(+p[0],+p[1]-1+delta,1)); window.a1SuiviMonth=d.toISOString().slice(0,7); renderA1Suivi(); }
+/* Une ligne du pipeline = un client × un module (groupes ou flotte). */
+function a1PipelineRows(month){
+  const rows=[], seen={};
+  const add=(clientId, kind)=>{
+    const key=clientId+"|"+kind; if(!clientId||seen[key]) return; seen[key]=1;
+    const isGen=kind==="gen";
+    const machines=(isGen?DB.a1gensets:DB.a1vehicles).filter(m=>m.clientId===clientId);
+    if(!machines.length) return;
+    const ids=machines.map(m=>m.id);
+    const logs=isGen?(DB.a1genlogs||[]).filter(l=>ids.indexOf(l.gensetId)>=0):(DB.a1logs||[]).filter(l=>ids.indexOf(l.vehicleId)>=0);
+    const monthLogs=logs.filter(l=>String(l.date||"").slice(0,7)===month);
+    const lastDate=logs.reduce((m2,l)=>(l.date&&l.date>m2)?l.date:m2,"");
+    const rep=(DB.a1execreports||[]).filter(r=>r.clientId===clientId&&r.kind===kind&&String(r.ts||"").slice(0,7)===month).slice(-1)[0]||null;
+    const rel=(DB.a1relances||[]).filter(r=>r.clientId===clientId&&r.kind===kind&&r.month===month).slice(-1)[0]||null;
+    rows.push({clientId, kind, machines:machines.length, monthLogs:monthLogs.length, lastDate, rep, rel});
+  };
+  (DB.a1gensets||[]).forEach(g=>add(g.clientId,"gen"));
+  (DB.a1vehicles||[]).forEach(v=>add(v.clientId,"fleet"));
+  rows.sort((a,b)=>clientName(a.clientId).localeCompare(clientName(b.clientId))||a.kind.localeCompare(b.kind));
+  return rows;
+}
+function a1SuiviOpen(clientId, kind){ if(kind==="gen") a1GoEnergy(clientId); else a1GoFleet(clientId); }
+async function a1SuiviGenerate(clientId, kind){
+  if(kind==="gen") a1genClient=clientId||""; else a1Client=clientId||"";
+  await a1ExecReport(kind);
+  if(currentScreen==="a1suivi") renderA1Suivi();
+}
+function renderA1Suivi(){
+  const host=document.getElementById("scr-a1suivi"); if(!host) return;
+  if(!window.a1SuiviMonth) window.a1SuiviMonth=todayISO().slice(0,7);
+  const month=window.a1SuiviMonth, curMonth=todayISO().slice(0,7);
+  const rows=a1PipelineRows(month);
+  const nCli=(function(){const s={}; rows.forEach(r=>s[r.clientId]=1); return Object.keys(s).length;})();
+  const nRel=rows.filter(r=>r.monthLogs>0).length;
+  const nRap=rows.filter(r=>r.rep).length;
+  const nEnv=rows.filter(r=>r.rep&&r.rep.sentAt).length;
+  // Chips d'étape : ok (fait) / warn (prochaine action) / off (pas encore là)
+  const chip=(state,lbl)=>`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;border-radius:20px;padding:2px 9px;white-space:nowrap;background:${state==="ok"?"#E6F4EA":state==="warn"?"#FDF1E3":"var(--cream)"};color:${state==="ok"?"#2F855A":state==="warn"?"#A6641A":"var(--muted)"}">${state==="ok"?"✓":state==="warn"?"⏳":"·"} ${lbl}</span>`;
+  const trs=rows.map(r=>{
+    const isGen=r.kind==="gen";
+    const q=a1DataQuality(r.kind, r.clientId);
+    const fiaColor=q.pct>=80?"var(--green)":q.pct>=50?"var(--orange)":"var(--red)";
+    const steps=[
+      chip(r.monthLogs>0?"ok":(r.rel?"warn":"off"),"Relevés"),
+      chip(r.monthLogs>0?"ok":"off","Analyse"),
+      chip(r.rep?"ok":(r.monthLogs>0?"warn":"off"),"Rapport"),
+      chip(r.rep&&r.rep.sentAt?"ok":(r.rep?"warn":"off"),"Envoyé")
+    ].join(" ");
+    return `<tr>
+      <td><b class="clink" style="cursor:pointer" onclick="openClientFiche('${r.clientId}')">${esc(clientName(r.clientId))}</b>
+        <div style="font-size:11px;color:var(--muted)">${isGen?"🔌 Groupes électrogènes":"🚗 Flotte & carburant"} · ${r.machines} machine(s)</div></td>
+      <td>${steps}</td>
+      <td>${r.monthLogs>0
+        ?`<b style="color:var(--green)">${r.monthLogs} relevé(s)</b><div style="font-size:10.5px;color:var(--muted)">dernier : ${frDate(r.lastDate)}</div>`
+        :`<span style="color:var(--red);font-weight:600">aucun ce mois</span>${r.lastDate?`<div style="font-size:10.5px;color:var(--muted)">dernier reçu : ${frDate(r.lastDate)}</div>`:""}${r.rel?`<div style="font-size:10.5px;color:#A6641A">📨 relancé le ${frDate(r.rel.at)}</div>`:""}`}</td>
+      <td style="text-align:right"><b style="color:${fiaColor}">${q.pct} %</b></td>
+      <td>${r.rep?`<b>${esc(r.rep.ref)}</b><div style="font-size:10.5px;color:var(--muted)">généré le ${frDate(r.rep.ts)}</div>`:"—"}</td>
+      <td>${r.rep&&r.rep.sentAt?`<span style="color:var(--green);font-weight:600">✓ ${frDate(r.rep.sentAt)}</span><div style="font-size:10.5px;color:var(--muted)">${esc(r.rep.sentTo||"")}</div>`:(r.rep?`<span style="color:#A6641A;font-weight:600">à envoyer</span>`:"—")}</td>
+      <td><div class="rowact">
+        <button class="iconbtn" title="Relancer la collecte (mail + fiche de relevé jointe)" onclick="openA1Relance('${r.clientId}','${r.kind}')">📨</button>
+        ${r.rep
+          ?`${r.rep.onServer?`<button class="iconbtn" title="Revoir le rapport ${esc(r.rep.ref)}" onclick="a1ViewExecReport('${r.rep.id}')">👁</button>`:""}<button class="iconbtn" title="${r.rep.sentAt?"Renvoyer":"Envoyer"} le rapport au client" onclick="openA1ExecSend('${r.rep.id}')">✉️</button>`
+          :`<button class="iconbtn" title="Générer le rapport exécutif du mois" onclick="a1SuiviGenerate('${r.clientId}','${r.kind}')">📕</button>`}
+        <button class="iconbtn" title="Ouvrir le module ${isGen?"Groupes":"Flotte"} sur ce client" onclick="a1SuiviOpen('${r.clientId}','${r.kind}')">→</button>
+      </div></td>
+    </tr>`;
+  }).join("");
+  host.innerHTML=`
+    <div class="pagetitle"><div><h1>📆 Suivi du mois — production A1</h1><div class="sub">Le cycle de chaque abonnement : relevés reçus → analyse → rapport → envoi. Relance et envoi en un clic.</div></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="cta ghost sm" onclick="a1SuiviShift(-1)" title="Mois précédent">◀</button>
+        <b style="min-width:130px;text-align:center;text-transform:capitalize">${esc(a1MonthLabel(month))}</b>
+        <button class="cta ghost sm" onclick="a1SuiviShift(1)" title="Mois suivant">▶</button>
+        ${month!==curMonth?`<button class="cta sm" onclick="window.a1SuiviMonth='${curMonth}';renderA1Suivi()">Ce mois</button>`:""}
+      </div></div>
+    <div class="kpis">
+      <div class="kpi" style="border-top:3px solid var(--navy)"><div class="v">${nCli}</div><div class="l">Client(s) en suivi A1</div></div>
+      <div class="kpi" style="border-top:3px solid ${nRel<rows.length?'var(--orange)':'var(--green)'}"><div class="v">${nRel} / ${rows.length}</div><div class="l">Relevés du mois reçus</div></div>
+      <div class="kpi" style="border-top:3px solid ${nRap<rows.length?'var(--orange)':'var(--green)'}"><div class="v">${nRap} / ${rows.length}</div><div class="l">Rapports générés</div></div>
+      <div class="kpi" style="border-top:3px solid ${nEnv<nRap?'var(--orange)':'var(--green)'}"><div class="v">${nEnv} / ${rows.length}</div><div class="l">Rapports envoyés</div></div>
+    </div>
+    ${rows.length?`<div class="card"><h2>Cycle de production — ${esc(a1MonthLabel(month))}</h2>
+      <table><thead><tr><th>Client</th><th>Cycle du mois</th><th>Relevés</th><th style="text-align:right">Fiabilité</th><th>Rapport</th><th>Envoi</th><th></th></tr></thead><tbody>${trs}</tbody></table>
+      <div class="hint" style="margin-top:8px">📨 = relance de collecte (mail type + fiche de relevé vierge en PDF) · 📕 = générer le rapport exécutif · ✉️ = envoyer le rapport au client (PDF joint, tracé).</div></div>`
+    :`<div class="card"><div class="empty">Aucun client en suivi A1 pour l'instant.<br>Lance une <b>🧭 Nouvelle analyse</b> depuis les modules ⚡ Groupes ou 🚗 Flotte : chaque client importé apparaîtra ici automatiquement.</div>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:6px"><button class="cta" onclick="setScreen('a1genset')">🔌 Groupes électrogènes →</button><button class="cta" onclick="setScreen('a1fleet')">🚗 Flotte & carburant →</button></div></div>`}`;
+}
+/* ---- Lot E-7 : relance de collecte — mail type + fiche de relevé vierge jointe, tracée par mois ---- */
+function printA1CollectSheetFor(kind, clientId){ openPrintable(a1CollectSheetHtml(kind, clientId)); }
+function openA1Relance(clientId, kind){
+  const c=DB.clients.find(x=>x.id===clientId); if(!c){ toast("Client introuvable."); return; }
+  const isGen=kind==="gen";
+  const month=window.a1SuiviMonth||todayISO().slice(0,7);
+  const lbl=a1MonthLabel(month);
+  const to=(c.contactEmail||"").trim();
+  const prev=(DB.a1relances||[]).filter(r=>r.clientId===clientId&&r.kind===kind&&r.month===month);
+  const deLbl=(/^[aàâeéèêiîoôuû]/i.test(lbl)?"d’":"de ")+lbl;   // élision : « d’août », « de janvier »
+  const defMsg="Bonjour,\n\nDans le cadre de votre programme de suivi "+(isGen?"énergétique (groupes électrogènes)":"flotte & carburant")+", pourriez-vous nous retourner la fiche de relevé du mois "+deLbl+", complétée par vos équipes ? Une photo ou un scan par simple retour de mail suffit.\n\nVous trouverez en pièce jointe la fiche vierge, prête à imprimer.\n\nNous restons à votre disposition,\n"+(DB.meta.cabinetName||"BSM Advisory & Consulting");
+  openModal(`<span class="close" onclick="closeModal()">✕</span>
+    <h2>📨 Relance de collecte — ${esc(c.company)}</h2>
+    <div class="msub">Mois <b>${esc(deLbl)}</b> · module ${isGen?"🔌 Groupes électrogènes":"🚗 Flotte"}. La <b>fiche de relevé vierge</b> part en PDF joint.</div>
+    ${prev.length?`<div class="hint" style="color:#A6641A;margin-bottom:6px">Déjà relancé ${prev.length} fois ce mois-ci — dernière fois le ${frDate(prev[prev.length-1].at)}${prev[prev.length-1].to?" ("+esc(prev[prev.length-1].to)+")":""}.</div>`:""}
+    <div class="field"><label>Destinataire (e-mail client)</label><input id="rl-to" value="${esc(to)}" placeholder="client@exemple.com"></div>
+    <div class="field"><label>Objet</label><input id="rl-subject" value="[BSM] Fiche de relevé — ${esc(lbl)}"></div>
+    <div class="field"><label>Message</label><textarea id="rl-msg" rows="8" style="width:100%;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px">${esc(defMsg)}</textarea></div>
+    ${to?"":'<div class="hint" style="color:var(--orange)">⚠ Aucune adresse sur la fiche client — saisis-la ci-dessus (elle sera mémorisée sur la fiche client).</div>'}
+    ${!serverEnabled?`<div class="hint" style="color:#A6641A;background:#FDF1E3;border:1px solid #F3D8B4;border-radius:8px;padding:9px;margin-top:6px">🖥️ L'<b>envoi e-mail</b> se fait depuis le <b>Cockpit local</b> (serveur). Ici, tu peux imprimer la fiche et l'envoyer manuellement.</div>`:''}
+    <div class="modal-actions"><button class="cta ghost" onclick="printA1CollectSheetFor('${kind}','${clientId}')">🖨 Fiche seule</button><button class="cta ghost" onclick="closeModal()">Annuler</button>${serverEnabled?`<button class="cta" onclick="a1RelanceSend('${clientId}','${kind}')">📨 Envoyer la relance</button>`:''}</div>`);
+}
+async function a1RelanceSend(clientId, kind){
+  const c=DB.clients.find(x=>x.id===clientId); if(!c) return;
+  if(!serverEnabled){ toast("Envoi indisponible ici — ouvre le Cockpit local."); return; }
+  const to=(val("rl-to")||"").trim(); if(!to){ toast("Renseigne l'adresse e-mail du client."); return; }
+  const month=window.a1SuiviMonth||todayISO().slice(0,7);
+  const subject=(val("rl-subject")||("[BSM] Fiche de relevé — "+a1MonthLabel(month))).trim();
+  const msg=(val("rl-msg")||"").trim();
+  const fiche=a1CollectSheetHtml(kind, clientId);
+  toast("📨 Envoi en cours…");
+  try{
+    await googleCall("mail",{ to, subject, html:'<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7">'+esc(msg).replace(/\n/g,"<br>")+'</p>', pdfHtml:fiche, pdfName:"Fiche_de_releve_"+month });
+    DB.a1relances=DB.a1relances||[];
+    DB.a1relances.push({id:uid(), clientId, kind, month, to, at:new Date().toISOString(), by:(currentUser&&currentUser.name)||""});
+    if(!c.contactEmail) c.contactEmail=to;   // mémorise l'adresse saisie sur la fiche client
+    save(); closeModal(); if(currentScreen==="a1suivi") renderA1Suivi(); toast("📨 Relance envoyée à "+to+" ✅");
+  }catch(e){ toast("Échec de l'envoi : "+(e.message||e)); }
+}
+/* ---- Lot E-8 : envoi du rapport exécutif archivé — contrôlé (validation), PDF joint, tracé ---- */
+function openA1ExecSend(id){
+  const r=(DB.a1execreports||[]).find(x=>x.id===id); if(!r) return;
+  const c=DB.clients.find(x=>x.id===r.clientId)||{};
+  const to=(c.contactEmail||"").trim();
+  const defMsg="Bonjour,\n\nVeuillez trouver ci-joint votre rapport de suivi mensuel "+(r.ref||"")+" ("+(r.kind==="gen"?"optimisation énergétique — groupes électrogènes":"optimisation flotte & carburant")+").\n\nNous restons à votre disposition pour vous le présenter et répondre à vos questions.\n\nBien cordialement,\n"+(DB.meta.cabinetName||"BSM Advisory & Consulting");
+  openModal(`<span class="close" onclick="closeModal()">✕</span>
+    <h2>✉️ Envoyer au client — ${esc(r.ref||"rapport")}</h2>
+    <div class="msub">Contrôle du destinataire et du message : c'est l'étape de <b>validation</b> avant l'envoi réel. Le rapport part en <b>PDF joint</b>, l'envoi est tracé.</div>
+    <div class="mini-list" style="margin:8px 0 10px">
+      <div class="li"><span>Client</span><b>${esc(r.clientId?clientName(r.clientId):"—")}</b></div>
+      <div class="li"><span>Généré le</span><b>${frDate(r.ts)}</b></div>
+      <div class="li"><span>Coût période · fiabilité</span><b>${r.cost!=null?fmtD(r.cost):"—"} · ${r.fiab!=null?r.fiab+" %":"—"}</b></div>
+      ${r.sentAt?`<div class="li"><span>Déjà envoyé</span><b>le ${frDate(r.sentAt)} à ${esc(r.sentTo||"")}</b></div>`:""}
+    </div>
+    <div class="field"><label>Destinataire (e-mail client)</label><input id="xs-to" value="${esc(to)}" placeholder="client@exemple.com"></div>
+    <div class="field"><label>Objet</label><input id="xs-subject" value="[BSM] Rapport de suivi ${esc(r.ref||"")}${r.clientId?" — "+esc(clientName(r.clientId)):""}"></div>
+    <div class="field"><label>Message d'accompagnement</label><textarea id="xs-msg" rows="7" style="width:100%;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px">${esc(defMsg)}</textarea></div>
+    ${to?"":'<div class="hint" style="color:var(--orange)">⚠ Aucune adresse sur la fiche client — saisis-la ci-dessus.</div>'}
+    ${r.onServer?"":'<div class="hint" style="color:var(--orange)">⚠ Le contenu de ce rapport n’est pas archivé sur le serveur — regénère-le (📕) pour pouvoir l’envoyer.</div>'}
+    ${!serverEnabled?`<div class="hint" style="color:#A6641A;background:#FDF1E3;border:1px solid #F3D8B4;border-radius:8px;padding:9px;margin-top:6px">🖥️ L'<b>envoi e-mail</b> se fait depuis le <b>Cockpit local</b> (serveur). Bascule en local pour envoyer.</div>`:''}
+    <div class="modal-actions">${r.onServer&&serverEnabled?`<button class="cta ghost" onclick="a1ViewExecReport('${r.id}')">👁 Relire</button>`:""}<button class="cta ghost" onclick="closeModal()">Annuler</button>${serverEnabled&&r.onServer?`<button class="cta" onclick="a1ExecSendGo('${r.id}')">${r.sentAt?"Renvoyer":"Envoyer"} au client</button>`:''}</div>`);
+}
+async function a1ExecSendGo(id){
+  const r=(DB.a1execreports||[]).find(x=>x.id===id); if(!r) return;
+  if(!serverEnabled){ toast("Envoi indisponible ici — ouvre le Cockpit local."); return; }
+  const to=(val("xs-to")||"").trim(); if(!to){ toast("Renseigne l'adresse e-mail du client."); return; }
+  const subject=(val("xs-subject")||("[BSM] Rapport "+(r.ref||""))).trim();
+  const msg=(val("xs-msg")||"").trim();
+  toast("✉️ Envoi en cours…");
+  try{
+    const f=await (await fetch("/api/file?id="+encodeURIComponent("a1rep_"+r.id))).json();
+    const doc=String(f.data||"").replace(/^kbtext:/,"");
+    if(!doc) throw new Error("rapport introuvable sur le serveur");
+    await googleCall("mail",{ to, subject, html:'<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7">'+esc(msg).replace(/\n/g,"<br>")+'</p>', pdfHtml:doc, pdfName:String(r.ref||"rapport").replace(/[^A-Za-z0-9._-]+/g,"_") });
+    r.sentAt=new Date().toISOString(); r.sentTo=to; r.sentBy=(currentUser&&currentUser.name)||"";
+    const c=DB.clients.find(x=>x.id===r.clientId); if(c&&!c.contactEmail) c.contactEmail=to;
+    save(); closeModal(); if(currentScreen==="a1suivi") renderA1Suivi(); toast("✉️ Rapport "+(r.ref||"")+" envoyé à "+to+" ✅");
+  }catch(e){ toast("Échec de l'envoi : "+(e.message||e)); }
 }
 /* ================== LOT B — PARCOURS GUIDÉ « NOUVELLE ANALYSE » (client → fichier → vérification → analyse) ================== */
 let _a1wiz={};
@@ -7767,8 +7949,9 @@ async function a1ChatExport(kind){ const qa=_a1ChatLog.filter(m=>!m.pending && m
   openPrintable(docChrome(body, { title:"Analyses ciblées — "+(kind==="fleet"?"Flotte & carburant":"Groupes électrogènes"), typeLabel:"Analyse d'expertise", date:frLong(todayISO()), clientName: client?clientName(client):"Tous clients", objet:"Synthèse d'analyses ciblées — programme A1" }));
 }
 /* ================== FICHE DE RELEVÉ (collecte terrain — cadrage neutre, discret) ================== */
-function printA1CollectSheet(kind){
-  const isGen=kind==="gen"; const client=(isGen?a1genClient:a1Client);
+/* Le HTML de la fiche est séparé de l'impression : le Lot E le joint aussi en PDF aux relances de collecte. */
+function a1CollectSheetHtml(kind, clientId){
+  const isGen=kind==="gen"; const client=(clientId===undefined)?(isGen?a1genClient:a1Client):clientId;
   const headCols=isGen
     ? ["Date","Compteur horaire (début → fin)","Compteur kWh (début → fin)","Carburant approvisionné (L)","Niveau réservoir avant (L)","Niveau réservoir après (L)","Opérateur","Observations"]
     : ["Date","Compteur km (début → fin)","Carburant pris (L)","Niveau jauge avant (L)","Niveau jauge après (L)","Chauffeur / véhicule","Station","Observations"];
@@ -7783,14 +7966,15 @@ function printA1CollectSheet(kind){
     <h2 class="docsec">Relevés d'exploitation</h2>
     <table style="width:100%;border-collapse:collapse;font-size:10.5px"><thead><tr style="background:#102A43;color:#fff">${headCols.map(c=>`<th style="padding:5px;border:1px solid #cbd2da;text-align:left">${c}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>
     <p style="font-size:11px;color:#6B7280;margin-top:10px">Relevé effectué par : ________________________ &nbsp;·&nbsp; Fonction : ______________ &nbsp;·&nbsp; Signature : ______________ &nbsp;·&nbsp; Date : ____________</p>`;
-  openPrintable(docChrome(body, { title:(isGen?"Fiche de relevé — Groupe électrogène":"Fiche de relevé — Flotte véhicules"), typeLabel:"Suivi d'exploitation", date:frLong(todayISO()), clientName: client?clientName(client):"____________________", objet:(isGen?"Suivi d'exploitation & d'approvisionnement — groupe électrogène":"Suivi d'exploitation & d'approvisionnement — flotte") }));
+  return docChrome(body, { title:(isGen?"Fiche de relevé — Groupe électrogène":"Fiche de relevé — Flotte véhicules"), typeLabel:"Suivi d'exploitation", date:frLong(todayISO()), clientName: client?clientName(client):"____________________", objet:(isGen?"Suivi d'exploitation & d'approvisionnement — groupe électrogène":"Suivi d'exploitation & d'approvisionnement — flotte") });
 }
+function printA1CollectSheet(kind){ openPrintable(a1CollectSheetHtml(kind)); }
 /* ================== BARRE D'ACTIONS UNIQUE (déclutter la barre du haut) ================== */
 function openA1Actions(kind){ const isGen=kind==="gen";
   const G=(title,items)=>`<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);letter-spacing:.05em;font-weight:600;margin-bottom:5px">${title}</div><div style="display:flex;gap:7px;flex-wrap:wrap">${items.filter(Boolean).map(b=>`<button class="cta ${b[2]||'ghost'} sm" onclick="closeModal();${b[1]}">${b[0]}</button>`).join("")}</div></div>`;
   const html=`<span class="close" onclick="closeModal()">✕</span><h2>☰ Actions — ${isGen?"Groupes & JIRAMA":"Véhicules & GPS"}</h2>
     <div class="msub">Toutes les actions du programme, regroupées. Choisis ce dont tu as besoin.</div>
-    ${G("Analyse",[["🧭 Nouvelle analyse (guidé)","openA1Wizard('"+(isGen?"gen":"fleet")+"')","gold"],["🤖 Analyse IA",isGen?"a1GenAnalyze()":"a1Analyze()"],["💬 Chat IA","openA1Chat('"+(isGen?"gen":"fleet")+"')"],["📕 Rapport exécutif","a1ExecReport('"+(isGen?"gen":"fleet")+"')"],["🎯 Données & fiabilité","openA1DataPanel('"+(isGen?"gen":"fleet")+"')"],["🥅 Objectif client","openA1Target('"+(isGen?"gen":"fleet")+"')"],["📚 Historique des rapports","openA1ExecHistory('"+(isGen?"gen":"fleet")+"')"],["🎬 Mode démo client","a1DemoMode('"+(isGen?"gen":"fleet")+"')"],["📊 Tableau de bord",isGen?"a1GenDashboard()":"a1FleetDashboard()"],["🖨 Rapport technique",isGen?"printA1GenReport()":"printA1Report()"]])}
+    ${G("Analyse",[["🧭 Nouvelle analyse (guidé)","openA1Wizard('"+(isGen?"gen":"fleet")+"')","gold"],["🤖 Analyse IA",isGen?"a1GenAnalyze()":"a1Analyze()"],["💬 Chat IA","openA1Chat('"+(isGen?"gen":"fleet")+"')"],["📕 Rapport exécutif","a1ExecReport('"+(isGen?"gen":"fleet")+"')"],["🎯 Données & fiabilité","openA1DataPanel('"+(isGen?"gen":"fleet")+"')"],["🥅 Objectif client","openA1Target('"+(isGen?"gen":"fleet")+"')"],["📚 Historique des rapports","openA1ExecHistory('"+(isGen?"gen":"fleet")+"')"],["📆 Suivi du mois (tous clients)","setScreen('a1suivi')"],["🎬 Mode démo client","a1DemoMode('"+(isGen?"gen":"fleet")+"')"],["📊 Tableau de bord",isGen?"a1GenDashboard()":"a1FleetDashboard()"],["🖨 Rapport technique",isGen?"printA1GenReport()":"printA1Report()"]])}
     ${G("Saisie & données",[[isGen?"+ Relevé":"+ Relevé",isGen?"openA1GenLog()":"openA1Log()","gold"],[isGen?"+ Groupe":"+ Véhicule",isGen?"openA1Genset()":"openA1Vehicle()"],["⇊ Importer CSV",isGen?"openA1GenImport()":"openA1Import()"],!isGen&&["📍 Importer GPS","openA1GpsImport()"],["📋 Parc complet","openA1Roster('"+(isGen?"gen":"fleet")+"')"],["📚 Fiches techniques","openA1SpecLibrary('"+(isGen?"gen":"fleet")+"')"]])}
     ${G("Factures & contrôle",[["🧾 Facture","openA1InvoiceImport('"+(isGen?"jirama":"fuel")+"')"],["📚 Registre","openA1InvoiceRegister('"+(isGen?"jirama":"fuel")+"')"],["🔎 Contrôle & écarts","openA1Control('"+(isGen?"jirama":"fuel")+"')"]])}
     ${G("Documents & terrain",[["📎 Documents client","openA1Docs('"+(isGen?"gen":"fleet")+"')"],["📋 Fiche de relevé (imprimer)","printA1CollectSheet('"+(isGen?"gen":"fleet")+"')"]])}
@@ -10142,6 +10326,7 @@ const PERMSCREENS=[
   {key:"resultat", label:"Compte de résultat",grp:"PILOTAGE",fin:true},
   {key:"roi",      label:"ROI & Investissements",grp:"PILOTAGE",fin:true},
   {key:"monitoring",label:"Monitoring & suivi",grp:"PILOTAGE"},
+  {key:"a1suivi",  label:"Suivi du mois (production A1)",grp:"PILOTAGE"},
   {key:"aireport", label:"Usage & coûts IA",grp:"PILOTAGE",fin:true},
   {key:"aiassist", label:"Assistants IA",grp:"PILOTAGE",fin:true},
   {key:"reports",  label:"Rapports ZEUS",grp:"PILOTAGE",fin:true},
@@ -10161,7 +10346,7 @@ function permAll(){ return PERMSCREENS.map(p=>p.key); }
 /* Modèles de rôle = accès par défaut (élargissables ensuite, par utilisateur). clientFinance = voir CA/contrats/devis dans la fiche client. */
 const ROLE_TEMPLATES={
   admin:       { label:"Administrateur", allowed:"*", clientFinance:true },
-  direction:   { label:"Direction",      allowed:["dashboard","clients","agenda","budget","ca","resultat","roi","aireport","aiassist","reports","monitoring","missions","risks","carto","recos","commercial","rh","audit","documentation","fiches","glossaire","analyses"], clientFinance:true },
+  direction:   { label:"Direction",      allowed:["dashboard","clients","agenda","budget","ca","resultat","roi","aireport","aiassist","reports","monitoring","a1suivi","missions","risks","carto","recos","commercial","rh","audit","documentation","fiches","glossaire","analyses"], clientFinance:true },
   analyste:    { label:"Analyste R5",     allowed:["clients","monitoring","missions","risks","carto","recos","audit","documentation","fiches","glossaire"], clientFinance:false },
   commercial:  { label:"Commercial",      allowed:["clients","agenda","monitoring","commercial","documentation","fiches","glossaire"], clientFinance:true },
   rh:          { label:"RH",              allowed:["rh","agenda","monitoring","documentation","fiches","glossaire"], clientFinance:false },
