@@ -656,7 +656,9 @@ function load(){
   if(!DB.meta.aiExpertV1){ DB.assistants=defaultAssistants(); const st=(DB.aiSettings&&DB.aiSettings[0]); if(st){ st.routing=defaultAiRouting(); } else { DB.aiSettings=[{id:"main",basePrompt:defaultAiBasePrompt(),routing:defaultAiRouting()}]; } DB.meta.aiExpertV1=true; }
   // Consolidation DÉFINITIVE des assistants (demande JB 2026-08-16) : les anciens agents (ZEUS/ORION/ATLAS/HERMÈS/HÉPHAÏSTOS…)
   // revenaient par la synchro serveur/cloud → on force UN SEUL agent expert « Bras droit », qui répond avec Claude (modèle des ⚙ Paramètres).
-  if(!DB.meta.aiExpertV2){
+  // AUTO-RÉPARATRICE (pas seulement un drapeau) : la synchro serveur/cloud peut ramener les anciens agents — on revérifie à CHAQUE démarrage.
+  const _actifs=(DB.assistants||[]).filter(a=>a&&a.active!==false);
+  if(!DB.meta.aiExpertV2 || _actifs.length!==1 || _actifs[0].id!=="a-expert" || !/^claude/.test(_actifs[0].model||"")){
     try{
       const expert=defaultAssistants()[0]; expert.model=DB.meta.claudeModel||"claude-opus-5";
       DB.assistants=[expert];
