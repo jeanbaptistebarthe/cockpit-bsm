@@ -524,7 +524,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.7.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.8.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -6429,7 +6429,7 @@ function a1ExecBannerHtml(kind){
     <div class="kpi" style="border-top:3px solid var(--navy)"><div class="v">${fmtD(totals.cost)}</div><div class="l">${isGen?"Coût énergie":"Coût carburant"} (période)</div></div>
     <div class="kpi" style="border-top:3px solid var(--gold)"><div class="v">${k2v}</div><div class="l">${k2l}</div></div>
     <div class="kpi" style="border-top:3px solid ${eco>0?'var(--orange)':'var(--line)'}"><div class="v ${eco>0?'warn':''}">${eco>0?fmtD(eco):"—"}</div><div class="l">Économies identifiées${alertes?" · "+alertes+" point(s) d'attention":""}</div></div>
-    <div class="kpi" style="border-top:3px solid ${fiaColor}" title="${esc(missing.length?("Pour fiabiliser : "+missing.map(c=>c.action||c.label).join(" · ")):"Toutes les données clés sont présentes")}">
+    <div class="kpi clk" style="border-top:3px solid ${fiaColor};cursor:pointer" onclick="openA1DataPanel('${kind}')" title="${esc(missing.length?("Pour fiabiliser : "+missing.map(c=>c.action||c.label).join(" · ")):"Toutes les données clés sont présentes")} — clic : détail">
       <div style="display:flex;justify-content:space-between;align-items:flex-start"><div class="v" style="color:${fiaColor}">${q.pct}%</div><span class="kpi-ic">🎯</span></div>
       <div class="l">Fiabilité de l'analyse${missing.length?" · manque : "+esc(missing[0].label)+(missing.length>1?" +"+(missing.length-1):""):" ✓"}</div></div>
   </div>
@@ -6491,6 +6491,127 @@ async function a1ExecReport(kind){
     <p style="font-size:12px;color:#374151;line-height:1.7">Analyse conduite selon la méthode R5® de ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}, à partir des relevés d'exploitation fournis par le client${isGen?", des fiches techniques constructeur et des heures de coupure réseau déclarées":" et des données constructeur des véhicules"}. Les coûts sont valorisés aux prix renseignés à la date du rapport. Toute mention d'un risque de détournement reposerait exclusivement sur des preuves physiques convergentes (écarts jauge/compteur, contrôles de stock) — jamais sur la seule consommation. Complétude des données : ${q.pct} %${missing.length?" — éléments à compléter : "+missing.map(c=>c.label).join(", ")+".":"."}</p>`;
   openPrintable(docChrome(body,{ title:"Rapport exécutif — "+cName, typeLabel:isGen?"Optimisation énergétique":"Optimisation flotte & carburant", date:period, clientName:cName, objet:isGen?"Analyse des groupes électrogènes et du coût de l'énergie":"Analyse de la flotte et du poste carburant" }));
 }
+/* ================== LOT B — PARCOURS GUIDÉ « NOUVELLE ANALYSE » (client → fichier → vérification → analyse) ================== */
+let _a1wiz={};
+function openA1Wizard(kind){
+  _a1wiz={kind:kind||"gen", clientId:(kind==="fleet"?a1Client:a1genClient)||"", file:null, text:"", mode:"", scan:null};
+  a1WizRender(1);
+}
+function a1WizRender(step){
+  const isGen=_a1wiz.kind==="gen";
+  const steps=["Client","Fichier","Vérification","Analyse"];
+  const bar=steps.map((s,i)=>`<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:${i+1<=step?'var(--navy)':'var(--muted)'}"><span style="width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:${i+1<step?'var(--green)':(i+1===step?'var(--gold)':'var(--line)')};color:#fff;font-size:11px">${i+1<step?"✓":i+1}</span>${s}</span>`).join('<span style="color:var(--line);margin:0 8px">──</span>');
+  let inner="";
+  if(step===1){
+    inner=`<div class="field"><label>Pour quel client ? <span style="color:var(--muted);font-weight:400">(toutes les données seront cloisonnées sur lui)</span></label>
+      <select id="wz-client"><option value="">— Choisir —</option>${DB.clients.map(c=>`<option value="${c.id}" ${_a1wiz.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+      <div class="field"><label>… ou créer un nouveau client (nom de l'entreprise)</label><input id="wz-newclient" placeholder="Ex : Société XYZ"></div>
+      <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="a1WizStep1()">Continuer →</button></div>`;
+  }
+  if(step===2){
+    inner=`<div id="wz-drop" style="border:2px dashed var(--gold);border-radius:14px;padding:36px 20px;text-align:center;background:var(--cream);cursor:pointer" onclick="document.getElementById('wz-file').click()"
+        ondragover="event.preventDefault();this.style.borderColor='var(--navy)'" ondragleave="this.style.borderColor='var(--gold)'"
+        ondrop="event.preventDefault();this.style.borderColor='var(--gold)';a1WizFile(event.dataTransfer.files[0])">
+        <div style="font-size:30px">📂</div><b>Glisse ton fichier ici</b>
+        <div class="hint" style="margin-top:4px">${isGen?"Classeur .xlsx complet (tableau de bord, fiche technique, coupures, bâtiments) ou CSV":"Fichier CSV des relevés (véhicule, date, km, litres, coût…)"}</div>
+        <div class="hint">ou clique pour choisir un fichier</div></div>
+      <input type="file" id="wz-file" accept="${isGen?'.xlsx,.csv':'.csv'}" style="display:none" onchange="a1WizFile(this.files[0])">
+      ${isGen?`<div class="field row2" style="margin-top:12px"><label>Prix gasoil (Ar/L) & tarif JIRAMA (Ar/kWh) — depuis les factures</label>
+        <input id="wz-price" type="number" value="${(DB.meta.fuelPrices&&DB.meta.fuelPrices.gasoil)||''}" placeholder="ex : 4860">
+        <input id="wz-jirama" type="number" value="${DB.meta.jiramaKwhPrice||''}" placeholder="ex : 612"></div>`
+      :`<div class="field" style="margin-top:12px"><label>Prix carburant (Ar/L)</label><input id="wz-price" type="number" value="${(DB.meta.fuelPrices&&DB.meta.fuelPrices.gasoil)||''}" placeholder="ex : 4860"></div>`}
+      <div class="modal-actions"><button class="cta ghost" onclick="a1WizRender(1)">← Retour</button></div>`;
+  }
+  if(step===3){
+    const s=_a1wiz.scan||{items:[],ok:false};
+    inner=`<div class="hint" style="margin-bottom:8px">Fichier : <b>${esc((_a1wiz.file&&_a1wiz.file.name)||"—")}</b></div>
+      ${s.items.length?`<div class="card" style="background:var(--cream);margin-bottom:12px">${s.items.map(i=>`<div style="padding:3px 0;font-size:13px">${i}</div>`).join("")}</div>`:""}
+      ${s.ok?`<div class="hint" style="color:var(--green)">✓ Fichier reconnu — l'import remplace les mois identiques (aucun doublon), puis l'analyse IA se lance automatiquement.</div>`
+            :`<div class="card" style="border-left:3px solid var(--red)">⚠️ <b>Fichier non reconnu.</b> Vérifie les colonnes attendues, ou passe par l'import avancé (☰ Actions).</div>`}
+      <div class="modal-actions"><button class="cta ghost" onclick="a1WizRender(2)">← Autre fichier</button>${s.ok?`<button class="cta gold" onclick="a1WizImport()">✓ Importer puis analyser</button>`:""}</div>`;
+  }
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🧭 Nouvelle analyse — ${isGen?"Groupes électrogènes":"Flotte & carburant"}</h2>
+    <div class="msub" style="margin-bottom:14px">${bar}</div>${inner}`);
+}
+function a1WizStep1(){
+  const nc=(val("wz-newclient")||"").trim();
+  if(nc){ const c={id:uid(),company:nc,status:"prospect",sector:"",createdAt:todayISO()}; DB.clients.push(c); save(); _a1wiz.clientId=c.id; toast("Client « "+nc+" » créé."); }
+  else _a1wiz.clientId=val("wz-client")||"";
+  if(!_a1wiz.clientId){ toast("Choisis ou crée un client."); return; }
+  if(_a1wiz.kind==="fleet"){ a1Client=_a1wiz.clientId; } else { a1genClient=_a1wiz.clientId; }
+  a1WizRender(2);
+}
+async function a1WizFile(f){
+  if(!f) return;
+  _a1wiz.file=f; _a1wiz.price=val("wz-price")||""; _a1wiz.jirama=val("wz-jirama")||"";
+  toast("🔍 Lecture du fichier…");
+  const items=[]; let ok=false; _a1wiz.mode=""; _a1wiz.text="";
+  try{
+    if(/\.xlsx$/i.test(f.name)){
+      const sheets=await a1ReadXlsx(await f.arrayBuffer()); const names=Object.keys(sheets);
+      const tbKey=names.find(k=>/tableau.*bord|bord.*mensuel/i.test(k))||names.find(k=>sheets[k].some(r=>r.some(c=>/conso.*reel/i.test(norm(c)))));
+      if(tbKey){ const res=a1GenImportRows(sheets[tbKey]);
+        if(res.gensets.length){ ok=true;
+          items.push("✅ <b>"+res.gensets.length+" groupe(s)</b> : "+res.gensets.map(g=>esc(g.name)).join(", "));
+          items.push("✅ <b>"+res.gensets.reduce((s,g)=>s+g.logs.length,0)+" relevé(s) mensuel(s)</b>");
+          items.push((res.outages||[]).length?"✅ "+res.outages.length+" mois de coupures JIRAMA":"⚠️ Colonne « Durée coupures (h) » absente — heures hors coupure non calculables");
+        } }
+      const ftKey=names.find(k=>/fiche.*tech|technique|constructeur/i.test(k));
+      items.push(ftKey?"✅ Fiche technique constructeur → calcul de charge réel":"⚠️ Feuille Fiche_Technique absente — taux de charge non calculable");
+      const baKey=names.find(k=>/batiment|installation/i.test(k))||names.find(k=>a1IsBatimentsRows(sheets[k]));
+      if(baKey) items.push("✅ Bâtiments / installations (contexte d'analyse IA)");
+      _a1wiz.mode="xlsx";
+    } else {
+      const text=await f.text(); _a1wiz.text=text;
+      if(_a1wiz.kind==="gen"){
+        const res=a1GenImportRows(a1csvRows(text));
+        if(res.gensets.length){ ok=true; _a1wiz.mode="csv"; items.push("✅ "+res.gensets.length+" groupe(s), "+res.gensets.reduce((s,g)=>s+g.logs.length,0)+" relevé(s)"); }
+        else if(a1IsBatimentsRows(a1csvRows(text))){ ok=true; _a1wiz.mode="csv"; items.push("✅ Feuille BATIMENTS — contexte d'installations pour l'analyse"); }
+      } else {
+        const rows=a1ParseCSV(text);
+        if(rows.length){ ok=true; _a1wiz.mode="csv"; const vs=new Set(rows.map(r=>String(r.veh||"").toLowerCase()));
+          items.push("✅ "+vs.size+" véhicule(s), "+rows.length+" relevé(s)"); }
+      }
+    }
+    if(!ok && !items.length) items.push("⚠️ Aucune donnée exploitable détectée dans ce fichier.");
+  }catch(e){ items.push("⚠️ Lecture impossible : "+esc(e.message||String(e))); }
+  _a1wiz.scan={items, ok};
+  a1WizRender(3);
+}
+async function a1WizImport(){
+  const w=_a1wiz; const isGen=w.kind==="gen";
+  // Champs cachés attendus par les imports existants → réutilisation totale, zéro duplication de logique.
+  const hid=document.createElement("div"); hid.style.display="none";
+  hid.innerHTML=isGen
+    ?`<select id="gi-client"><option value="${w.clientId}" selected></option></select><select id="gi-cur"><option value="${DB.meta.defaultCurrency}" selected></option></select><input id="gi-price" value="${esc(w.price||'')}"><input id="gi-jirama" value="${esc(w.jirama||'')}"><input type="checkbox" id="gi-replace"><textarea id="gi-csv"></textarea><div id="gi-xlsx-status"></div>`
+    :`<textarea id="a1-csv"></textarea><select id="a1-impclient"><option value="${w.clientId}" selected></option></select><select id="a1-cur"><option value="${DB.meta.defaultCurrency}" selected></option></select>`;
+  document.body.appendChild(hid);
+  try{
+    if(isGen){ document.getElementById("gi-csv").value=w.text||"";
+      if(w.mode==="xlsx") await a1ImportXlsxFile(w.file); else runA1GenImport();
+    } else { document.getElementById("a1-csv").value=w.text||"";
+      if(w.price){ DB.meta.fuelPrices=DB.meta.fuelPrices||{}; const p=parseFloat(String(w.price).replace(",",".")); if(p>0) DB.meta.fuelPrices.gasoil=p; }
+      runA1Import();
+    }
+  } finally { hid.remove(); }
+  setTimeout(()=>{ if(isGen) a1GenAnalyze(); else a1Analyze(); }, 700);   // enchaînement automatique : l'analyse s'ouvre seule
+}
+/* ================== LOT B — PANNEAU « DONNÉES & FIABILITÉ » ================== */
+function openA1DataPanel(kind){
+  const q=a1DataQuality(kind);
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🎯 Données & fiabilité — ${q.pct} %</h2>
+    <div class="msub">Ce qui alimente l'analyse de ce client. Complète les ⚠️ pour fiabiliser à 100 % (argument fort face au client).</div>
+    <table><tbody>${q.checks.map(c=>`<tr><td style="font-size:13px">${c.ok?"✅":"⚠️"} ${esc(c.label)}</td><td style="text-align:right;font-size:12px;color:var(--muted)">${c.ok?"OK":"→ "+esc(c.action||"à compléter")}</td></tr>`).join("")}</tbody></table>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="closeModal();openA1Wizard('${kind}')">🧭 Importer des données</button></div>`);
+}
+/* ================== LOT C — MODE DÉMONSTRATION COMMERCIALE ================== */
+async function a1DemoMode(kind){
+  const sim=DB.clients.find(c=>/simulation|d[ée]mo/i.test(c.company||""));
+  if(!sim){ toast("Aucun client « SIMULATION » trouvé — crée-le avec un jeu de données de démonstration."); return; }
+  if(kind==="fleet"){ a1Client=sim.id; renderA1Fleet(); } else { a1genClient=sim.id; renderA1Genset(); }
+  toast("🎬 Mode démo — client "+esc(sim.company)+" · génération du rapport exemple…");
+  a1ExecReport(kind);
+}
 function renderA1Fleet(){
   if(typeof focusClient!=="undefined" && focusClient && !a1Client) a1Client=focusClient; // cohérence : adopte le client en focus de l'app
   const {arr, fleetConso, totals}=a1Compute(a1Client);
@@ -6512,9 +6633,9 @@ function renderA1Fleet(){
     ${a1ModuleTabs('fleet')}
     <div class="pagetitle"><div><h1>🚗 A1 — Flotte & carburant + GPS</h1><div class="sub">Programme d'analyse — conso, coût au km, GPS, détection d'anomalies (prestation client)</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="cta gold" onclick="a1Analyze()">🤖 Analyse IA</button>
+        <button class="cta gold" onclick="openA1Wizard('fleet')" title="Parcours guidé : client → fichier → vérification → analyse">🧭 Nouvelle analyse</button>
+        <button class="cta ghost" onclick="a1Analyze()">🤖 Analyse IA</button>
         <button class="cta ghost" onclick="openA1Chat('fleet')">💬 Chat IA</button>
-        <button class="cta ghost" onclick="openA1Log()">+ Relevé</button>
         <button class="cta" onclick="openA1Actions('fleet')" title="Toutes les actions du programme">☰ Actions</button></div></div>
     ${a1BackupReminderCard()}
     <div class="filters">${a1ClientPicker()}<span style="font-size:12px;color:var(--muted)">${a1Client?"Données de "+esc(clientName(a1Client)):"Vue toutes flottes confondues"}</span></div>
@@ -7505,7 +7626,7 @@ function openA1Actions(kind){ const isGen=kind==="gen";
   const G=(title,items)=>`<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);letter-spacing:.05em;font-weight:600;margin-bottom:5px">${title}</div><div style="display:flex;gap:7px;flex-wrap:wrap">${items.filter(Boolean).map(b=>`<button class="cta ${b[2]||'ghost'} sm" onclick="closeModal();${b[1]}">${b[0]}</button>`).join("")}</div></div>`;
   const html=`<span class="close" onclick="closeModal()">✕</span><h2>☰ Actions — ${isGen?"Groupes & JIRAMA":"Véhicules & GPS"}</h2>
     <div class="msub">Toutes les actions du programme, regroupées. Choisis ce dont tu as besoin.</div>
-    ${G("Analyse",[["🤖 Analyse IA",isGen?"a1GenAnalyze()":"a1Analyze()","gold"],["💬 Chat IA","openA1Chat('"+(isGen?"gen":"fleet")+"')"],["📊 Tableau de bord",isGen?"a1GenDashboard()":"a1FleetDashboard()"],["🖨 Rapport",isGen?"printA1GenReport()":"printA1Report()"]])}
+    ${G("Analyse",[["🧭 Nouvelle analyse (guidé)","openA1Wizard('"+(isGen?"gen":"fleet")+"')","gold"],["🤖 Analyse IA",isGen?"a1GenAnalyze()":"a1Analyze()"],["💬 Chat IA","openA1Chat('"+(isGen?"gen":"fleet")+"')"],["📕 Rapport exécutif","a1ExecReport('"+(isGen?"gen":"fleet")+"')"],["🎯 Données & fiabilité","openA1DataPanel('"+(isGen?"gen":"fleet")+"')"],["🎬 Mode démo client","a1DemoMode('"+(isGen?"gen":"fleet")+"')"],["📊 Tableau de bord",isGen?"a1GenDashboard()":"a1FleetDashboard()"],["🖨 Rapport technique",isGen?"printA1GenReport()":"printA1Report()"]])}
     ${G("Saisie & données",[[isGen?"+ Relevé":"+ Relevé",isGen?"openA1GenLog()":"openA1Log()","gold"],[isGen?"+ Groupe":"+ Véhicule",isGen?"openA1Genset()":"openA1Vehicle()"],["⇊ Importer CSV",isGen?"openA1GenImport()":"openA1Import()"],!isGen&&["📍 Importer GPS","openA1GpsImport()"],["📋 Parc complet","openA1Roster('"+(isGen?"gen":"fleet")+"')"],["📚 Fiches techniques","openA1SpecLibrary('"+(isGen?"gen":"fleet")+"')"]])}
     ${G("Factures & contrôle",[["🧾 Facture","openA1InvoiceImport('"+(isGen?"jirama":"fuel")+"')"],["📚 Registre","openA1InvoiceRegister('"+(isGen?"jirama":"fuel")+"')"],["🔎 Contrôle & écarts","openA1Control('"+(isGen?"jirama":"fuel")+"')"]])}
     ${G("Documents & terrain",[["📎 Documents client","openA1Docs('"+(isGen?"gen":"fleet")+"')"],["📋 Fiche de relevé (imprimer)","printA1CollectSheet('"+(isGen?"gen":"fleet")+"')"]])}
@@ -7917,9 +8038,9 @@ function renderA1Genset(){
     ${a1ModuleTabs('gen')}
     <div class="pagetitle"><div><h1>🔌 A1 — Groupes électrogènes / JIRAMA</h1><div class="sub">Rendement, coût du kWh vs réseau, dérives & anomalies — prestation d'optimisation énergétique</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="cta gold" onclick="a1GenAnalyze()">🤖 Analyse IA</button>
+        <button class="cta gold" onclick="openA1Wizard('gen')" title="Parcours guidé : client → fichier → vérification → analyse">🧭 Nouvelle analyse</button>
+        <button class="cta ghost" onclick="a1GenAnalyze()">🤖 Analyse IA</button>
         <button class="cta ghost" onclick="openA1Chat('gen')">💬 Chat IA</button>
-        <button class="cta ghost" onclick="openA1GenLog()">+ Relevé</button>
         <button class="cta" onclick="openA1Actions('gen')" title="Toutes les actions du programme">☰ Actions</button></div></div>
     ${a1BackupReminderCard()}
     <div class="filters">${a1GenClientPicker()}<span style="font-size:12px;color:var(--muted)">${a1genClient?"Données de "+esc(clientName(a1genClient)):"Vue tous groupes confondus"}</span></div>
