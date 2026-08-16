@@ -524,7 +524,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.8.1";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.9.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -668,6 +668,8 @@ function load(){
     DB.meta.aiExpertV2=true;
   }
   if(!Array.isArray(DB.trash)) DB.trash=[];   // corbeille 30 jours (P4)
+  if(!DB.a1targets) DB.a1targets={};                       // objectifs par client (Lot D)
+  if(!Array.isArray(DB.a1execreports)) DB.a1execreports=[]; // archivage numéroté des rapports exécutifs (Lot D)
   // Correction tarifaire 08/2026 : les anciens défauts Claude étaient faux (Opus 5 à 15/75 au lieu de 5/25…) → purge des overrides Claude + recalcul de tout l'historique de coûts.
   if(!DB.meta.aiPriceFixV1){
     try{
@@ -6435,8 +6437,118 @@ function a1ExecBannerHtml(kind){
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:-6px 0 16px">
     <button class="cta gold sm" onclick="a1ExecReport('${kind}')">📕 Rapport exécutif (client)</button>
+    ${(function(){ const cid=isGen?a1genClient:a1Client; const tgt=cid?a1TargetGet(kind,cid):null;
+      return `<button class="cta ghost sm" onclick="openA1Target('${kind}')">🎯 ${tgt?("Objectif : "+(isGen?fmtD(tgt.value)+"/kWh":tgt.value+" L/100")):"Fixer un objectif"}</button>
+        <button class="cta ghost sm" onclick="openA1ExecHistory('${kind}')">📚 Rapports${(DB.a1execreports||[]).filter(r=>r.kind===kind&&(!cid||r.clientId===cid)).length?" ("+(DB.a1execreports||[]).filter(r=>r.kind===kind&&(!cid||r.clientId===cid)).length+")":""}</button>`; })()}
     ${missing.length?`<span class="hint">Pour monter à 100 % : ${missing.slice(0,2).map(c=>esc(c.action||c.label)).join(" · ")}${missing.length>2?" …":""}</span>`:`<span class="hint" style="color:var(--green)">Données complètes — analyse pleinement fiable ✓</span>`}
   </div>`;
+}
+/* ================== LOT D — SUIVI RÉCURRENT : séries mensuelles, courbes, objectifs, archivage numéroté ================== */
+/* Série mensuelle (12 mois glissants) par client et par module — la matière première du suivi. */
+function a1MonthlySeries(kind, clientId){
+  const map={};
+  if(kind==="gen"){
+    const gids=DB.a1gensets.filter(g=>!clientId||g.clientId===clientId).map(g=>g.id);
+    (DB.a1genlogs||[]).filter(l=>gids.includes(l.gensetId)).forEach(l=>{
+      const m=(l.date||"").slice(0,7); if(!m) return;
+      const o=map[m]=map[m]||{m,cost:0,liters:0,kwh:0,hours:0,expected:0};
+      o.cost+=(+l.cost||0); o.liters+=(+l.liters||0); o.kwh+=(+l.kwh||0); o.hours+=(+l.hours||0); o.expected+=(+l.expectedLiters||0);
+    });
+    (DB.a1outages||[]).filter(o=>(o.clientId||"")===(clientId||"")).forEach(o=>{
+      const m=(o.period||"").slice(0,7); if(map[m]) map[m].outageH=+o.hours||0;
+    });
+  } else {
+    const vids=DB.a1vehicles.filter(v=>!clientId||v.clientId===clientId).map(v=>v.id);
+    (DB.a1logs||[]).filter(l=>vids.includes(l.vehicleId)).forEach(l=>{
+      const m=(l.date||"").slice(0,7); if(!m) return;
+      const o=map[m]=map[m]||{m,cost:0,liters:0,km:0};
+      o.cost+=(+l.cost||0); o.liters+=(+l.liters||0); o.km+=(+l.km||0);
+    });
+  }
+  const price=(DB.meta.fuelPrices&&+DB.meta.fuelPrices.gasoil)||0;
+  const arr=Object.values(map).sort((a,b)=>a.m<b.m?-1:1).slice(-12);
+  arr.forEach(o=>{
+    if(!o.cost&&price&&o.liters) o.cost=o.liters*price;
+    if(kind==="gen"){ o.costPerKwh=o.kwh?o.cost/o.kwh:null; o.rendement=o.liters?o.kwh/o.liters:null; o.hcH=(o.outageH!=null)?Math.max(0,o.hours-o.outageH):null; }
+    else { o.consoL100=o.km?o.liters/o.km*100:null; o.costPerKm=o.km?o.cost/o.km:null; }
+  });
+  return arr;
+}
+function a1FmtCompact(v){ v=+v||0; if(Math.abs(v)>=1e6) return (v/1e6).toFixed(1).replace(".",",")+" M"; if(Math.abs(v)>=1e3) return Math.round(v/1e3)+" k"; return (Math.round(v*10)/10).toString().replace(".",","); }
+/* Courbe d'évolution PRINT-SAFE (couleurs fixes, pas de variables CSS) pour les rapports PDF. */
+function a1TrendSvg(months, seriesList, opt){
+  opt=opt||{};
+  const W=660,H=190,padL=58,padB=24,padT=12,padR=10;
+  const all=seriesList.flatMap(s=>s.values).filter(v=>v!=null).concat(opt.target!=null?[opt.target]:[]);
+  if(!all.length||months.length<2) return "";
+  const max=(Math.max(...all)*1.12)||1, min=0;
+  const X=i=>padL+(i/(months.length-1))*(W-padL-padR);
+  const Y=v=>H-padB-((v-min)/(max-min))*(H-padB-padT);
+  const fmt=opt.fmt||a1FmtCompact;
+  let g="";
+  for(let i=0;i<=3;i++){ const v=min+(max-min)*i/3, y=Y(v);
+    g+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="#E5E7EB"/><text x="${padL-6}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="9" fill="#6B7280">${fmt(v)}</text>`; }
+  const lbl=Math.max(1,Math.ceil(months.length/8));
+  months.forEach((m,i)=>{ if(i%lbl===0) g+=`<text x="${X(i).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="9" fill="#6B7280">${m.slice(5,7)}/${m.slice(2,4)}</text>`; });
+  if(opt.target!=null){ const y=Y(opt.target);
+    g+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="#B5923A" stroke-width="1.6" stroke-dasharray="6 4"/><text x="${W-padR}" y="${(y-4).toFixed(1)}" text-anchor="end" font-size="9" fill="#B5923A">Objectif ${fmt(opt.target)}</text>`; }
+  seriesList.forEach(s=>{
+    const pts=s.values.map((v,i)=>v!=null?(X(i).toFixed(1)+","+Y(v).toFixed(1)):null).filter(Boolean).join(" ");
+    g+=`<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2"${s.dash?' stroke-dasharray="4 3"':''}/>`;
+    s.values.forEach((v,i)=>{ if(v!=null) g+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.2" fill="${s.color}"/>`; });
+  });
+  const legend=seriesList.map(s=>`<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:10.5px;color:#374151"><span style="width:14px;height:2.5px;background:${s.color};display:inline-block"></span>${s.name}</span>`).join("");
+  return `<div style="page-break-inside:avoid;margin:8px 0"><svg width="100%" viewBox="0 0 ${W} ${H}" style="border:1px solid #E5E7EB;background:#fff">${g}</svg><div style="margin-top:3px">${legend}</div></div>`;
+}
+/* Objectif par client (cible co-définie, tracée dans chaque rapport). */
+function a1TargetGet(kind, clientId){ return (DB.a1targets||{})[(clientId||"")+"|"+kind]||null; }
+function openA1Target(kind){
+  const clientId=kind==="fleet"?a1Client:a1genClient;
+  if(!clientId){ toast("Sélectionne d'abord un client."); return; }
+  const t=a1TargetGet(kind,clientId);
+  const lbl=kind==="gen"?"Coût du kWh cible (Ar/kWh)":"Consommation cible (L/100 km)";
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🎯 Objectif — ${esc(clientName(clientId))}</h2>
+    <div class="msub">Cible co-définie avec le client. Elle apparaît en pointillés or sur les courbes de chaque rapport mensuel — le client voit sa trajectoire.</div>
+    <div class="field"><label>${lbl}</label><input id="tg-val" type="number" step="0.1" value="${t?t.value:""}" placeholder="vide = pas d'objectif"></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="a1TargetSave('${kind}')">Enregistrer</button></div>`);
+}
+function a1TargetSave(kind){
+  const clientId=kind==="fleet"?a1Client:a1genClient;
+  const v=parseFloat((val("tg-val")||"").replace(",","."));
+  DB.a1targets=DB.a1targets||{};
+  if(v>0) DB.a1targets[(clientId||"")+"|"+kind]={value:v, setAt:todayISO()};
+  else delete DB.a1targets[(clientId||"")+"|"+kind];
+  save(); closeModal(); if(kind==="fleet") renderA1Fleet(); else renderA1Genset(); toast(v>0?"🎯 Objectif enregistré — tracé dans les prochains rapports.":"Objectif retiré.");
+}
+/* Archivage numéroté des rapports exécutifs : référence RAP-AAAA-MM-CLI-NNN, HTML conservé sur le disque serveur. */
+function a1ClientCode(id){ const c=DB.clients.find(x=>x.id===id); return ((c&&c.company||"BSM").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,3))||"BSM"; }
+function a1NextRef(clientId, kind){
+  const n=(DB.a1execreports||[]).filter(r=>r.clientId===(clientId||"")&&r.kind===kind).length+1;
+  const d=new Date();
+  return "RAP-"+d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+a1ClientCode(clientId)+"-"+String(n).padStart(3,"0");
+}
+async function a1ArchiveExecReport(meta, html){
+  DB.a1execreports=DB.a1execreports||[];
+  const rec=Object.assign({id:uid(), ts:new Date().toISOString()}, meta);
+  if(serverEnabled && await fileServerPut("a1rep_"+rec.id, rec.ref, "text/html", "kbtext:"+html)) rec.onServer=true;
+  DB.a1execreports.push(rec); save();
+}
+function openA1ExecHistory(kind){
+  const clientId=kind==="fleet"?a1Client:a1genClient;
+  const list=(DB.a1execreports||[]).filter(r=>r.kind===kind&&(!clientId||r.clientId===clientId)).slice().reverse();
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📚 Historique des rapports${clientId?" — "+esc(clientName(clientId)):""}</h2>
+    <div class="msub">Chaque rapport exécutif est archivé et numéroté — la preuve du suivi, consultable en réunion.</div>
+    ${list.length?`<table><thead><tr><th>Référence</th><th>Date</th><th style="text-align:right">Coût période</th><th style="text-align:right">Fiabilité</th><th style="text-align:right">Alertes</th><th></th></tr></thead><tbody>
+      ${list.map(r=>`<tr><td><b>${esc(r.ref)}</b></td><td>${frDate(r.ts)}</td><td style="text-align:right">${r.cost!=null?fmtD(r.cost):"—"}</td><td style="text-align:right">${r.fiab!=null?r.fiab+" %":"—"}</td><td style="text-align:right">${r.alerts!=null?r.alerts:"—"}</td>
+        <td style="text-align:right">${r.onServer?`<button class="cta ghost sm" onclick="a1ViewExecReport('${r.id}')">👁 Revoir</button>`:'<span class="hint">—</span>'}</td></tr>`).join("")}
+    </tbody></table>`:`<div class="empty">Aucun rapport archivé pour l'instant — génère un 📕 Rapport exécutif.</div>`}
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`);
+}
+async function a1ViewExecReport(id){
+  const r=(DB.a1execreports||[]).find(x=>x.id===id); if(!r) return;
+  if(!r.onServer||!serverEnabled){ toast("Rapport archivé sur le PC serveur — ouvre le Cockpit en local."); return; }
+  try{ const f=await (await fetch("/api/file?id="+encodeURIComponent("a1rep_"+r.id))).json(); openPrintable(String(f.data||"").replace(/^kbtext:/,"")); }
+  catch(e){ toast("⚠️ Rapport introuvable sur le serveur."); }
 }
 /* RAPPORT EXÉCUTIF (Lot A) : le livrable vendable — couverture BSM, synthèse dirigeant, KPI, constats, recommandations chiffrées, méthodologie. */
 async function a1ExecReport(kind){
@@ -6448,6 +6560,45 @@ async function a1ExecReport(kind){
   const eco=arr.reduce((s,p)=>s+((p.diag&&p.diag.loss)||0),0);
   const synth=isGen?buildGensetSynthesisMd():buildFleetSynthesisMd();
   toast("📕 Rédaction du rapport exécutif…");
+  // ---- Lot D : suivi récurrent — série mensuelle, comparatif, courbes, alertes, objectif, référence ----
+  const series=a1MonthlySeries(kind, clientId);
+  const tgt=clientId?a1TargetGet(kind, clientId):null;
+  const ref=a1NextRef(clientId, kind);
+  const alerts=arr.filter(p=>p.anomaly||(isGen?p.lowLoad:p.idleFlag)||(p.diag&&p.diag.fraudScore>=35));
+  const alertsHtml=alerts.length
+    ?`<p style="font-size:12.5px;margin-top:8px"><b style="color:#C0392B">Alertes de la période (${alerts.length})</b> : ${alerts.map(p=>esc(isGen?p.g.name:p.v.name)+(p.anomaly?" — surconsommation":"")+((isGen?p.lowLoad:p.idleFlag)?(isGen?" — sous-charge":" — ralenti excessif"):"")+((p.diag&&p.diag.fraudScore>=35)?" — risque à investiguer (preuves physiques)":"")).join(" · ")}.</p>`
+    :`<p style="font-size:12.5px;margin-top:8px;color:#2F855A">Aucune alerte sur la période — exploitation conforme aux seuils.</p>`;
+  let evoHtml="";
+  if(series.length>=2){
+    const L=series[series.length-1], P=series[series.length-2];
+    const avg=k=>{const v=series.map(x=>x[k]).filter(x=>x!=null); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;};
+    const rows=isGen
+      ?[["Coût énergie","cost","ar",true],["Coût du kWh","costPerKwh","ar",true],["Rendement (kWh/L)","rendement","n2",false],["Heures hors coupure","hcH","n0",true]]
+      :[["Coût carburant","cost","ar",true],["Conso (L/100 km)","consoL100","n1",true],["Coût au km","costPerKm","ar",true]];
+    const F=(v,t)=>v==null?"—":(t==="ar"?fmtD(v):(t==="n2"?v.toFixed(2):(t==="n1"?v.toFixed(1):Math.round(v).toLocaleString("fr-FR"))));
+    const better=[], worse=[];
+    const trHtml=rows.map(r=>{
+      const lab=r[0],k=r[1],t=r[2],goodDown=r[3]; const lv=L[k], pv=P[k], av=avg(k);
+      let d=(lv!=null&&pv!=null&&pv!==0)?(lv-pv)/Math.abs(pv)*100:null;
+      let fl="→ stable", col="#6B7280";
+      if(d!=null&&Math.abs(d)>=3){ const good=goodDown? d<0 : d>0; fl=(d<0?"▼ ":"▲ ")+Math.abs(d).toFixed(0)+" %"; col=good?"#2F855A":"#C0392B"; (good?better:worse).push(lab+" ("+fl.trim()+")"); }
+      return `<tr><td style="padding:6px 10px;border-bottom:1px solid #F3F4F6">${lab}</td><td style="text-align:right;padding:6px 10px;color:#6B7280;border-bottom:1px solid #F3F4F6">${F(pv,t)}</td><td style="text-align:right;padding:6px 10px;font-weight:700;border-bottom:1px solid #F3F4F6">${F(lv,t)}</td><td style="text-align:right;padding:6px 10px;color:#6B7280;border-bottom:1px solid #F3F4F6">${F(av,t)}</td><td style="text-align:right;padding:6px 10px;color:${col};font-weight:600;border-bottom:1px solid #F3F4F6">${fl}</td></tr>`;
+    }).join("");
+    const months=series.map(s=>s.m);
+    const chart1=isGen
+      ? a1TrendSvg(months,[{name:"Coût du kWh (Ar)",color:"#102A43",values:series.map(s=>s.costPerKwh)}],{target:tgt?tgt.value:null})
+      : a1TrendSvg(months,[{name:"Conso moyenne (L/100 km)",color:"#102A43",values:series.map(s=>s.consoL100)}],{target:tgt?tgt.value:null});
+    const chart2=isGen
+      ? a1TrendSvg(months,[{name:"Conso réelle (L)",color:"#102A43",values:series.map(s=>s.liters)},{name:"Conso attendue (L)",color:"#9CA3AF",dash:true,values:series.map(s=>s.expected||null)}],{})
+      : a1TrendSvg(months,[{name:"Coût carburant mensuel (Ar)",color:"#102A43",values:series.map(s=>s.cost)}],{});
+    evoHtml=`<h2 class="docsec">2. Évolution sur ${series.length} mois & comparatif mensuel</h2>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;margin-bottom:8px"><thead><tr style="background:#F9FAFB">
+        <th style="text-align:left;padding:6px 10px;font-size:11px;color:#6B7280">Indicateur</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#6B7280">Mois précédent</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#6B7280">Dernier mois</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#6B7280">Moyenne ${series.length} mois</th><th style="text-align:right;padding:6px 10px;font-size:11px;color:#6B7280">Tendance</th></tr></thead><tbody>${trHtml}</tbody></table>
+      ${better.length?`<p style="font-size:12.5px;margin:6px 0"><b style="color:#2F855A">En amélioration :</b> ${better.join(" · ")}</p>`:""}
+      ${worse.length?`<p style="font-size:12.5px;margin:6px 0"><b style="color:#C0392B">En dégradation :</b> ${worse.join(" · ")}</p>`:""}
+      ${tgt?`<p style="font-size:12.5px;margin:6px 0"><b style="color:#B5923A">🎯 Objectif co-défini :</b> ${isGen?fmtD(tgt.value)+" / kWh":tgt.value+" L/100 km"} — dernier mois : ${isGen?(L.costPerKwh!=null?fmtD(L.costPerKwh):"—"):(L.consoL100!=null?L.consoL100.toFixed(1)+" L/100 km":"—")}.</p>`:""}
+      ${chart1}${chart2}`;
+  }
   let ia={verdict:"",recos:[]};
   try{
     const rep=await aiChat(
@@ -6468,7 +6619,7 @@ async function a1ExecReport(kind){
       <div style="font-size:12px;letter-spacing:.25em;color:#B5923A;text-transform:uppercase">Rapport exécutif</div>
       <h1 style="font-family:'Cormorant Garamond',serif;font-size:34px;margin:14px 0 6px;color:#111827">${isGen?"Optimisation énergétique — groupes électrogènes":"Optimisation flotte & carburant"}</h1>
       <div style="font-size:16px;color:#374151;margin-bottom:30px">${esc(cName)}</div>
-      <div style="font-size:12px;color:#6B7280;line-height:1.8">${period}<br>Document confidentiel — établi par ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}<br>Méthode R5® · Reveal · Connect · Respond · Strengthen · Review</div>
+      <div style="font-size:12px;color:#6B7280;line-height:1.8">${period}<br>Référence : <b>${ref}</b><br>Document confidentiel — établi par ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}<br>Méthode R5® · Reveal · Connect · Respond · Strengthen · Review</div>
     </div>
     <h2 class="docsec">1. Synthèse exécutive</h2>
     <table style="width:100%;border-collapse:collapse;margin:8px 0 12px;background:#F9FAFB;border:1px solid #E5E7EB"><tbody>
@@ -6477,19 +6628,23 @@ async function a1ExecReport(kind){
       ${kpiRow("Fiabilité de l'analyse (complétude des données)", q.pct+" %")}
     </tbody></table>
     ${ia.verdict?`<p style="font-size:13.5px;line-height:1.75">${esc(ia.verdict)}</p>`:""}
-    <h2 class="docsec">2. Indicateurs clés de la période</h2>
+    ${alertsHtml}
+    ${evoHtml}
+    <h2 class="docsec">${evoHtml?"3":"2"}. Indicateurs clés de la période</h2>
     <table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB"><tbody>${kpis.map(k=>kpiRow(k[0],k[1])).join("")}</tbody></table>
-    <h2 class="docsec">3. Constats détaillés</h2>
+    <h2 class="docsec">${evoHtml?"4":"3"}. Constats détaillés</h2>
     <div class="ai-md">${mdToHtml(synth.replace(/^# .*\n/,""))}</div>
-    <h2 class="docsec">4. Recommandations prioritaires</h2>
+    <h2 class="docsec">${evoHtml?"5":"4"}. Recommandations prioritaires</h2>
     ${recos.map((r,i)=>`
       <div style="border:1px solid #E5E7EB;border-left:3px solid #B5923A;padding:11px 14px;margin:9px 0;page-break-inside:avoid;background:#FDFCFA">
         <b>${i+1}. ${esc(r.titre||"")}</b><div style="font-size:12.5px;margin-top:4px;line-height:1.6">${esc(r.detail||"")}</div>
         ${r.impact?`<div style="font-size:12px;color:#6B7280;margin-top:4px"><b>Impact attendu :</b> ${esc(r.impact)}</div>`:""}
       </div>`).join("")}
-    <h2 class="docsec">5. Méthodologie & limites</h2>
-    <p style="font-size:12px;color:#374151;line-height:1.7">Analyse conduite selon la méthode R5® de ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}, à partir des relevés d'exploitation fournis par le client${isGen?", des fiches techniques constructeur et des heures de coupure réseau déclarées":" et des données constructeur des véhicules"}. Les coûts sont valorisés aux prix renseignés à la date du rapport. Toute mention d'un risque de détournement reposerait exclusivement sur des preuves physiques convergentes (écarts jauge/compteur, contrôles de stock) — jamais sur la seule consommation. Complétude des données : ${q.pct} %${missing.length?" — éléments à compléter : "+missing.map(c=>c.label).join(", ")+".":"."}</p>`;
-  openPrintable(docChrome(body,{ title:"Rapport exécutif — "+cName, typeLabel:isGen?"Optimisation énergétique":"Optimisation flotte & carburant", date:period, clientName:cName, objet:isGen?"Analyse des groupes électrogènes et du coût de l'énergie":"Analyse de la flotte et du poste carburant" }));
+    <h2 class="docsec">${evoHtml?"6":"5"}. Méthodologie & limites</h2>
+    <p style="font-size:12px;color:#374151;line-height:1.7">Analyse conduite selon la méthode R5® de ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}, à partir des relevés d'exploitation fournis par le client${isGen?", des fiches techniques constructeur et des heures de coupure réseau déclarées":" et des données constructeur des véhicules"}. Les coûts sont valorisés aux prix renseignés à la date du rapport. Toute mention d'un risque de détournement reposerait exclusivement sur des preuves physiques convergentes (écarts jauge/compteur, contrôles de stock) — jamais sur la seule consommation. Complétude des données : ${q.pct} %${missing.length?" — éléments à compléter : "+missing.map(c=>c.label).join(", ")+".":"."} Référence du rapport : ${ref}.</p>`;
+  const html=docChrome(body,{ title:"Rapport exécutif "+ref+" — "+cName, typeLabel:isGen?"Optimisation énergétique":"Optimisation flotte & carburant", date:period, clientName:cName, objet:isGen?"Analyse des groupes électrogènes et du coût de l'énergie":"Analyse de la flotte et du poste carburant" });
+  openPrintable(html);
+  a1ArchiveExecReport({ref, clientId:clientId||"", kind, cost:totals.cost, fiab:q.pct, alerts:alerts.length}, html);   // archivage numéroté (preuve du suivi)
 }
 /* ================== LOT B — PARCOURS GUIDÉ « NOUVELLE ANALYSE » (client → fichier → vérification → analyse) ================== */
 let _a1wiz={};
@@ -7635,7 +7790,7 @@ function openA1Actions(kind){ const isGen=kind==="gen";
   const G=(title,items)=>`<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);letter-spacing:.05em;font-weight:600;margin-bottom:5px">${title}</div><div style="display:flex;gap:7px;flex-wrap:wrap">${items.filter(Boolean).map(b=>`<button class="cta ${b[2]||'ghost'} sm" onclick="closeModal();${b[1]}">${b[0]}</button>`).join("")}</div></div>`;
   const html=`<span class="close" onclick="closeModal()">✕</span><h2>☰ Actions — ${isGen?"Groupes & JIRAMA":"Véhicules & GPS"}</h2>
     <div class="msub">Toutes les actions du programme, regroupées. Choisis ce dont tu as besoin.</div>
-    ${G("Analyse",[["🧭 Nouvelle analyse (guidé)","openA1Wizard('"+(isGen?"gen":"fleet")+"')","gold"],["🤖 Analyse IA",isGen?"a1GenAnalyze()":"a1Analyze()"],["💬 Chat IA","openA1Chat('"+(isGen?"gen":"fleet")+"')"],["📕 Rapport exécutif","a1ExecReport('"+(isGen?"gen":"fleet")+"')"],["🎯 Données & fiabilité","openA1DataPanel('"+(isGen?"gen":"fleet")+"')"],["🎬 Mode démo client","a1DemoMode('"+(isGen?"gen":"fleet")+"')"],["📊 Tableau de bord",isGen?"a1GenDashboard()":"a1FleetDashboard()"],["🖨 Rapport technique",isGen?"printA1GenReport()":"printA1Report()"]])}
+    ${G("Analyse",[["🧭 Nouvelle analyse (guidé)","openA1Wizard('"+(isGen?"gen":"fleet")+"')","gold"],["🤖 Analyse IA",isGen?"a1GenAnalyze()":"a1Analyze()"],["💬 Chat IA","openA1Chat('"+(isGen?"gen":"fleet")+"')"],["📕 Rapport exécutif","a1ExecReport('"+(isGen?"gen":"fleet")+"')"],["🎯 Données & fiabilité","openA1DataPanel('"+(isGen?"gen":"fleet")+"')"],["🥅 Objectif client","openA1Target('"+(isGen?"gen":"fleet")+"')"],["📚 Historique des rapports","openA1ExecHistory('"+(isGen?"gen":"fleet")+"')"],["🎬 Mode démo client","a1DemoMode('"+(isGen?"gen":"fleet")+"')"],["📊 Tableau de bord",isGen?"a1GenDashboard()":"a1FleetDashboard()"],["🖨 Rapport technique",isGen?"printA1GenReport()":"printA1Report()"]])}
     ${G("Saisie & données",[[isGen?"+ Relevé":"+ Relevé",isGen?"openA1GenLog()":"openA1Log()","gold"],[isGen?"+ Groupe":"+ Véhicule",isGen?"openA1Genset()":"openA1Vehicle()"],["⇊ Importer CSV",isGen?"openA1GenImport()":"openA1Import()"],!isGen&&["📍 Importer GPS","openA1GpsImport()"],["📋 Parc complet","openA1Roster('"+(isGen?"gen":"fleet")+"')"],["📚 Fiches techniques","openA1SpecLibrary('"+(isGen?"gen":"fleet")+"')"]])}
     ${G("Factures & contrôle",[["🧾 Facture","openA1InvoiceImport('"+(isGen?"jirama":"fuel")+"')"],["📚 Registre","openA1InvoiceRegister('"+(isGen?"jirama":"fuel")+"')"],["🔎 Contrôle & écarts","openA1Control('"+(isGen?"jirama":"fuel")+"')"]])}
     ${G("Documents & terrain",[["📎 Documents client","openA1Docs('"+(isGen?"gen":"fleet")+"')"],["📋 Fiche de relevé (imprimer)","printA1CollectSheet('"+(isGen?"gen":"fleet")+"')"]])}
