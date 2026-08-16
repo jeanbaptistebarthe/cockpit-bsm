@@ -524,7 +524,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.3.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.4.0";               // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -1275,6 +1275,7 @@ async function serverSyncInit(){
       serverPush();                          // 1er démarrage : on envoie les données locales actuelles au serveur
     }
     aiServerInit();                          // proxy IA : détecte les clés serveur + migre les clés locales hors du navigateur
+    docsMigrateToServer();                   // pièces jointes : migration douce vers le disque du PC serveur (quota navigateur libéré)
   }catch(e){ /* pas de serveur : on reste en local, sans afficher d'erreur */ }
 }
 /* ---- Proxy IA serveur : le navigateur ne stocke plus les clés API ; il sait seulement quels fournisseurs sont prêts. ---- */
@@ -3402,29 +3403,64 @@ function renderCommercial(){
     <div class="hint" style="margin-top:-8px">Quand vous <b>générez un devis ou une proposition</b> ici, il est <b>automatiquement envoyé au Cockpit</b> : il se rattache au bon client (ou vous choisissez lequel) et vous êtes redirigé vers sa fiche. Un seul devis validé par client. Depuis la fiche, un clic crée la mission et son échéancier.</div>`;
 }
 
-/* ----------------------------- Documents client (devis, NDA, contrats…) ----------------------------- */
+/* ----------------------------- Documents client (devis, NDA, contrats…) -----------------------------
+   Stockage : quand le serveur BSM est présent, la pièce vit sur le DISQUE du PC serveur (data/files/)
+   → plus de quota navigateur, fichiers plus lourds acceptés. Sans serveur (site en ligne), repli dataURL. */
+async function fileServerPut(id, name, type, dataURL){
+  try{ const r=await fetch("/api/file",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,name,type,data:dataURL})});
+    const j=await r.json().catch(()=>null); return !!(j&&j.ok); }catch(e){ return false; }
+}
+async function docDownload(id){
+  const d=DB.documents.find(x=>x.id===id); if(!d) return;
+  if(d.dataURL){ const a=document.createElement("a"); a.href=d.dataURL; a.download=d.name||"document"; a.click(); return; }
+  if(!serverEnabled){ toast("📁 Cette pièce est stockée sur le PC serveur — ouvre le Cockpit en local pour la télécharger."); return; }
+  try{
+    const r=await fetch("/api/file?id="+encodeURIComponent(id)); if(!r.ok) throw 0;
+    const f=await r.json();
+    const a=document.createElement("a"); a.href=f.data; a.download=d.name||f.name||"document"; a.click();
+  }catch(e){ toast("⚠️ Pièce introuvable sur le serveur."); }
+}
 function docsList(id){
   const docs=DB.documents.filter(d=>d.clientId===id);
   if(!docs.length) return `<div class="hint" style="margin-top:8px">Aucun document. Importe un devis, une NDA, un contrat…</div>`;
   return `<table style="margin-top:10px"><tbody>`+docs.map(d=>`<tr>
-    <td><span class="badge b-blue">${esc(d.category)}</span> ${esc(d.name)}</td>
+    <td><span class="badge b-blue">${esc(d.category)}</span> ${esc(d.name)}${d.onServer?' <span title="Stockée sur le disque du PC serveur" style="font-size:10px">💽</span>':''}</td>
     <td style="font-size:11.5px;color:var(--muted)">${frDate(d.date)}${d.size?' · '+Math.round(d.size/1024)+' Ko':''}</td>
-    <td style="text-align:right"><a class="clink" href="${d.dataURL}" download="${esc(d.name)}">Télécharger</a> &nbsp;<button class="iconbtn del" onclick="deleteDoc('${d.id}')">🗑</button></td></tr>`).join("")+`</tbody></table>`;
+    <td style="text-align:right"><a class="clink" href="#" onclick="docDownload('${d.id}');return false">Télécharger</a> &nbsp;<button class="iconbtn del" onclick="deleteDoc('${d.id}')">🗑</button></td></tr>`).join("")+`</tbody></table>`;
 }
 function uploadClientDoc(clientId, category){
   const inp=document.createElement("input");
   inp.type="file"; inp.accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xlsx,.csv,image/*,application/pdf";
   inp.onchange=()=>{ const f=inp.files[0]; if(!f) return;
-    if(f.size>1.5*1024*1024){ toast("Fichier trop lourd (max 1,5 Mo en stockage local)."); return; }
+    const maxMo=serverEnabled?15:1.5;
+    if(f.size>maxMo*1024*1024){ toast("Fichier trop lourd (max "+maxMo+" Mo"+(serverEnabled?"":" sans serveur")+")."); return; }
     const rd=new FileReader();
-    rd.onload=()=>{ DB.documents.push({id:uid(),clientId,category,name:f.name,dataURL:rd.result,size:f.size,date:todayISO()}); save(); renderClientFiche(); toast(category+" importé."); };
+    rd.onload=async ()=>{
+      const doc={id:uid(),clientId,category,name:f.name,size:f.size,date:todayISO()};
+      if(serverEnabled && await fileServerPut(doc.id, f.name, f.type, rd.result)){ doc.onServer=true; }
+      else { doc.dataURL=rd.result; }   // repli : stockage navigateur (site en ligne / serveur absent)
+      DB.documents.push(doc); save(); renderClientFiche(); toast(category+" importé"+(doc.onServer?" (disque serveur 💽)":"")+".");
+    };
     rd.readAsDataURL(f);
   };
   inp.click();
 }
 function deleteDoc(id){
   const d=DB.documents.find(x=>x.id===id);
-  confirmModal("Supprimer ce document ?", d?esc(d.name):"", ()=>{ DB.documents=DB.documents.filter(x=>x.id!==id); save(); renderClientFiche(); toast("Document supprimé."); });
+  confirmModal("Supprimer ce document ?", d?esc(d.name):"", ()=>{
+    if(d&&d.onServer&&serverEnabled) fetch("/api/file-del",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})}).catch(()=>{});
+    DB.documents=DB.documents.filter(x=>x.id!==id); save(); renderClientFiche(); toast("Document supprimé."); });
+}
+/* Migration au démarrage (serveur présent) : chaque pièce encore en dataURL part sur le disque serveur, puis est retirée de la base → quota navigateur libéré. */
+async function docsMigrateToServer(){
+  if(!serverEnabled) return;
+  const pending=(DB.documents||[]).filter(d=>d.dataURL);
+  if(!pending.length) return;
+  let n=0;
+  for(const d of pending){
+    if(await fileServerPut(d.id, d.name||"", "", d.dataURL)){ d.onServer=true; delete d.dataURL; n++; }
+  }
+  if(n){ save(); toast("💽 "+n+" pièce(s) jointe(s) déplacée(s) vers le disque du PC serveur — stockage navigateur allégé."); }
 }
 
 /* ----------------------------- Devis (1 par client, reçu du simulateur ou manuel) ----------------------------- */
@@ -9550,6 +9586,7 @@ async function santeFillServer(){
     const st=await (await fetch("/api/status",{cache:"no-store"})).json();
     el.innerHTML=[
       "✅ <b>Serveur connecté</b> — copie de référence sur le PC ("+fmtKo(st.size||0)+")",
+      "💽 Pièces jointes sur le disque serveur : <b>"+((st.files&&st.files.count)||0)+"</b> fichier(s) ("+fmtKo((st.files&&st.files.size)||0)+")",
       "🗓 Sauvegardes quotidiennes sur le PC : <b>"+(st.backups||0)+"</b> fichiers (60 jours conservés)",
       "💽 Disque dur externe : "+(st.externalConfigured?(st.externalConnected?"✅ branché (hebdo + miroir « latest »)":"<b style='color:var(--orange)'>⚠️ configuré mais non branché</b>"):"— non configuré (config.json)"),
       "🌍 Hors-site Backblaze B2 : "+(st.b2Configured?"✅ configuré (réplication 1×/jour)":"— non configuré")
