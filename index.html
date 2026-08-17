@@ -674,6 +674,21 @@ function load(){
   if(!Array.isArray(DB.a1execreports)) DB.a1execreports=[]; // archivage numéroté des rapports exécutifs (Lot D)
   if(!Array.isArray(DB.a1relances)) DB.a1relances=[];       // relances de collecte tracées (Lot E)
   if(!Array.isArray(DB.a1imports)) DB.a1imports=[];         // journal des fichiers importés (banque de données)
+  // Assainissement tarif JIRAMA (2026-08-17) : une facture mal saisie (21,653 kWh au lieu de 21 653) avait produit
+  // un « tarif » de 2,6 M Ar/kWh adopté silencieusement → chiffres absurdes dans les rapports. Un tarif > 20 000 Ar/kWh
+  // est physiquement impossible : on l'écarte et on reprend le dernier tarif plausible de l'historique.
+  if(!DB.meta.jiramaSaneV1){
+    try{
+      const hist=DB.meta.jiramaHistory||{};
+      Object.keys(hist).forEach(k=>{ if(+hist[k]>20000||+hist[k]<50) delete hist[k]; });
+      if(+DB.meta.jiramaKwhPrice>20000||(+DB.meta.jiramaKwhPrice>0&&+DB.meta.jiramaKwhPrice<50)){
+        DB.meta.jiramaKwhPriceSuspect=DB.meta.jiramaKwhPrice;
+        const ks=Object.keys(hist).sort();
+        DB.meta.jiramaKwhPrice=ks.length?+hist[ks[ks.length-1]]:0;
+      }
+    }catch(e){}
+    DB.meta.jiramaSaneV1=true;
+  }
   if(DB.meta.mailCopyTo===undefined) DB.meta.mailCopyTo="jeanbaptiste.barthe@bsmconseils.com"; // copie pro de tout mail client (réglable dans ⚙)
   // Lot E : l'écran « Suivi du mois » est soumis aux permissions → on l'accorde aux comptes direction existants (l'admin a déjà tout).
   if(!DB.meta.a1suiviPermV1){
@@ -6577,7 +6592,7 @@ function a1DataQuality(kind, clientId){
     const {arr}=a1GenCompute(cid);
     checks.push({ok:arr.some(p=>p.hours>0||p.kwh>0||p.liters>0), label:"Relevés d'exploitation", poids:30, action:"⇊ Importer le tableau de bord"});
     checks.push({ok:arr.length>0&&arr.every(p=>p.kwNominal>0), label:"Fiches techniques constructeur", poids:25, action:"Importer le .xlsx complet (feuille Fiche_Technique)"});
-    checks.push({ok:+DB.meta.jiramaKwhPrice>0, label:"Tarif réseau JIRAMA", poids:15, action:"Saisir le tarif (facture JIRAMA)"});
+    checks.push({ok:+DB.meta.jiramaKwhPrice>=50&&+DB.meta.jiramaKwhPrice<=20000, label:"Tarif réseau JIRAMA plausible", poids:15, action:DB.meta.jiramaKwhPrice>20000?"Tarif saisi invraisemblable — corriger (Ar par kWh, pas le montant)":"Saisir le tarif (facture JIRAMA)"});
     checks.push({ok:!!(DB.meta.fuelPrices&&+DB.meta.fuelPrices.gasoil>0), label:"Prix du gasoil", poids:15, action:"⛽ Prix carburant"});
     checks.push({ok:(DB.a1outages||[]).some(o=>(o.clientId||"")===(cid||"")), label:"Heures de coupure déclarées", poids:15, action:"Colonne « Durée coupures (h) »"});
   } else {
@@ -6832,7 +6847,48 @@ async function a1ExecReport(kind){
     ?[["Énergie produite",Math.round(totals.kwh).toLocaleString("fr-FR")+" kWh"],["Heures de marche",Math.round(totals.hours).toLocaleString("fr-FR")+" h"],["Gasoil consommé",Math.round(totals.liters).toLocaleString("fr-FR")+" L"],["Coût énergie total",fmtD(totals.cost)],["Coût du kWh produit",totals.costPerKwh?fmtD(totals.costPerKwh):"—"],["Rendement moyen",totals.rendement?totals.rendement.toFixed(2)+" kWh/L":"—"]]
     :[["Distance parcourue",totals.km.toLocaleString("fr-FR")+" km"],["Carburant consommé",Math.round(totals.liters).toLocaleString("fr-FR")+" L"],["Coût carburant total",fmtD(totals.cost)],["Conso moyenne flotte",comp.fleetConso?comp.fleetConso.toFixed(1)+" L/100 km":"—"],["Coût moyen au km",totals.costPerKm?fmtD(totals.costPerKm):"—"]];
   const missing=q.checks.filter(c=>!c.ok);
-  const recos=(ia.recos&&ia.recos.length)?ia.recos:[{titre:"Compléter les données de suivi",detail:(missing.map(c=>c.label).join(", ")||"Poursuivre la collecte mensuelle des relevés."),impact:"Fiabilise l'analyse et les décisions d'optimisation"}];
+  // Verdict de repli DÉTERMINISTE et chiffré : un rapport ne part JAMAIS sans verdict, IA ou pas.
+  if(!ia.verdict){
+    ia.verdict=(isGen
+      ? "Coût de l'énergie autoproduite sur la période : "+fmtD(totals.cost)+(totals.costPerKwh?", soit "+fmtD(totals.costPerKwh)+" par kWh produit":"")+"."
+      : "Coût carburant sur la période : "+fmtD(totals.cost)+(comp.fleetConso?" ; consommation moyenne de la flotte : "+comp.fleetConso.toFixed(1)+" L/100 km":"")+".")
+      +(alerts.length?" "+alerts.length+" point(s) d'attention identifié(s) — détaillés dans les sections suivantes.":" Exploitation conforme aux seuils sur la période.");
+  }
+  // Recommandations de repli DÉTERMINISTES, tirées des données : jamais une section vide ou générique.
+  const fallbackRecos=(function(){
+    const out=[];
+    if(isGen){
+      const low=arr.filter(p=>p.chargePct>0&&p.chargePct<30);
+      if(low.length) out.push({titre:"Remonter le taux de charge des groupes",
+        detail:low.map(p=>p.g.name+" tourne à "+p.chargePct.toFixed(0)+" % de sa capacité").join(" ; ")+". Pistes : regrouper les circuits sur un seul groupe aux heures creuses, étudier une permutation ou un redimensionnement.",
+        impact:"À 25 % de charge, chaque kWh coûte ≈ 0,42 L de gasoil contre ≈ 0,25 L à 75 % — le gisement principal"});
+      const badRend=arr.filter(p=>p.rendement>0&&p.rendement<2.8);
+      if(badRend.length) out.push({titre:"Contrôler l'entretien des groupes à faible rendement",
+        detail:badRend.map(p=>p.g.name+" : "+p.rendement.toFixed(2)+" kWh par litre").join(" ; ")+". Filtres, injection, réglages : un diesel en bon état délivre 3 à 3,5 kWh/L à charge correcte.",
+        impact:"Chaque +0,3 kWh/L ≈ −10 % sur la facture gasoil"});
+      out.push({titre:"Mesurer la puissance de pointe réelle de chaque site",
+        detail:"Campagne de 7 à 14 jours à la pince ampèremétrique enregistreuse sur les tableaux généraux, heures chargées incluses — la donnée qui sécurise toute décision d'équipement.",
+        impact:"Redimensionnement et permutation décidés sur mesure, sans risque de sous-motorisation"});
+    } else {
+      const over=arr.filter(p=>p.driftTheo!=null&&p.driftTheo>15);
+      if(over.length) out.push({titre:"Traiter les surconsommations identifiées",
+        detail:over.map(p=>p.v.name+" : +"+p.driftTheo.toFixed(0)+" % vs constructeur").join(" ; ")+". Vérifier dans l'ordre : entretien (filtres, pneus, injection), conduite, puis contrôle du carburant.",
+        impact:"Retour vers la consommation constructeur = économie directe et mesurable"});
+      const idle=arr.filter(p=>p.idleFlag);
+      if(idle.length) out.push({titre:"Réduire le ralenti moteur",
+        detail:idle.map(p=>p.v.name).join(", ")+" : moteur allumé à l'arrêt — consigne de coupure, sensibilisation des conducteurs, suivi mensuel par chauffeur.",
+        impact:"Du gasoil brûlé sans un kilomètre : gain immédiat, sans investissement"});
+      out.push({titre:"Sécuriser le circuit carburant",
+        detail:"Cartes carburant nominatives (1 carte = 1 véhicule), rapprochement systématique bons ↔ relevés compteur, recoupement GPS.",
+        impact:"Prévention des pertes et détournements — la conformité qui protège la trésorerie"});
+    }
+    if(!tgt&&out.length<3) out.push({titre:"Fixer l'objectif du suivi",
+      detail:"Co-définir la cible "+(isGen?"de coût du kWh produit":"de consommation en L/100 km")+" — elle apparaîtra en pointillés sur les courbes de chaque rapport mensuel.",
+      impact:"Un cap chiffré, suivi mois après mois"});
+    if(missing.length&&out.length<3) out.push({titre:"Compléter les données de suivi",detail:missing.map(c=>c.label).join(", ")+".",impact:"Fiabilité de l'analyse portée à 100 %"});
+    return out.slice(0,3);
+  })();
+  const recos=(ia.recos&&ia.recos.length)?ia.recos:fallbackRecos;
   // ---- Lot F : benchmark anonymisé, conducteurs (flotte), contexte délestages (groupes) ----
   const bench=clientId?a1Benchmark(kind, clientId):null;
   const benchHtml=(bench&&bench.n>=2)?(function(){ const unit=isGen?" Ar/kWh":" L/100 km"; const F=v=>isGen?Math.round(v).toLocaleString("fr-FR"):v.toFixed(1); const good=bench.mine<=bench.median;
@@ -6939,14 +6995,14 @@ async function a1ExecReport(kind){
       const cell=(t,s,v,b)=>`<td width="33%" style="border:1.5px solid ${b};border-radius:8px;padding:8px 4px;text-align:center;font-family:Arial,sans-serif"><div style="font-size:8px;color:#6B7280;text-transform:uppercase">${t}</div><div style="font-size:8.5px;color:#9CA3AF;text-transform:capitalize">${s}</div><div style="font-family:Georgia,serif;font-size:15px;font-weight:bold;color:#102A43">${v}</div></td>`;
       traj=`<table role="presentation" width="100%" cellpadding="0" cellspacing="4" style="margin-top:8px"><tr>
         ${cell("Début du suivi",a1MonthLabel(fpt.m),FT(fpt[mkey]),"#D6D0C2")}
-        ${cell("Ce mois-ci",a1MonthLabel(lpt.m),FT(lpt[mkey])+(Math.abs(dd)>=1?` <span style="font-size:10px;color:${dd<=0?"#2F855A":"#C0392B"}">${dd<0?"▼":"▲"}${Math.abs(dd).toFixed(0)}%</span>`:""),"#102A43")}
+        ${cell(lpt.m===todayISO().slice(0,7)?"Ce mois-ci":"Dernier mois suivi",a1MonthLabel(lpt.m),FT(lpt[mkey])+(Math.abs(dd)>=1?` <span style="font-size:10px;color:${dd<=0?"#2F855A":"#C0392B"}">${dd<0?"▼":"▲"}${Math.abs(dd).toFixed(0)}%</span>`:""),"#102A43")}
         ${tgt?cell("Objectif co-défini","cible",FT(tgt.value),"#B5923A"):cell("Objectif","à co-définir","🎯","#D1D5DB")}
       </tr></table>`; }
     return `<div style="max-width:640px;font-family:Arial,Helvetica,sans-serif">
       <div style="border:2px solid ${vCol};border-radius:10px;padding:10px 14px;margin:10px 0"><div style="font-size:13px;line-height:1.6;color:#1F2937">${esc(verdictTxt)}</div></div>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="5"><tr>
         ${chip(fmtD(totals.cost),isGen?"Coût énergie":"Coût carburant")}
-        ${chip(eco>0?fmtD(eco):"—","Économies identifiées",eco>0?"#B5923A":"#102A43")}
+        ${chip(eco>0?fmtD(eco):"non chiffrées","Économies identifiées",eco>0?"#B5923A":"#6B7280")}
         ${chip(q.pct+" %","Fiabilité des données",q.pct>=80?"#2F855A":"#B5923A")}
         ${chip(String(alerts.length),"Points d'attention",alerts.length?"#C0392B":"#2F855A")}
       </tr></table>
@@ -7357,11 +7413,12 @@ function a1TrajectoryHtml(kind, series, tgt){
   const tgtBox=tgt
     ?box("Objectif co-défini","cible",F(tgt.value),(last[key]>tgt.value?("reste "+Math.round((last[key]-tgt.value)/tgt.value*100)+" % à gagner"):"✔ objectif atteint"),(last[key]>tgt.value?"#B5923A":"#2F855A"),"#B5923A","#FDFCF7")
     :box("Objectif","à définir","🎯","à co-définir avec BSM","#6B7280","#D1D5DB","#F9FAFB");
+  const lastLbl=(last.m===todayISO().slice(0,7))?"Ce mois-ci":"Dernier mois suivi";   // honnêteté : ne jamais dire « ce mois-ci » si les données s'arrêtent avant
   return `<div style="margin:10px 0;page-break-inside:avoid">
     <div style="font-size:10px;font-weight:700;color:#102A43;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px">Votre trajectoire — ${isGen?"coût du kWh produit":"consommation moyenne flotte"}</div>
     <div style="display:flex;gap:8px">
       ${box("Début du suivi",a1MonthLabel(first.m),F(first[key]),"","","#D6D0C2","#fff")}${arrow}
-      ${box("Ce mois-ci",a1MonthLabel(last.m),F(last[key]),(d<=-1?"▼ "+Math.abs(d).toFixed(0)+" % depuis le début":d>=1?"▲ +"+d.toFixed(0)+" % depuis le début":"stable depuis le début"),(d<=0?"#2F855A":"#C0392B"),"#102A43","#fff")}${arrow}
+      ${box(lastLbl,a1MonthLabel(last.m),F(last[key]),(d<=-1?"▼ "+Math.abs(d).toFixed(0)+" % depuis le début":d>=1?"▲ +"+d.toFixed(0)+" % depuis le début":"stable depuis le début"),(d<=0?"#2F855A":"#C0392B"),"#102A43","#fff")}${arrow}
       ${tgtBox}</div></div>`;
 }
 /* Page 2 du rapport exécutif : « L'essentiel en une page » — lisible en 60 secondes, suffisante à elle seule. */
@@ -7384,7 +7441,7 @@ function a1EssentialPageHtml(o){
     ${(o.isGen&&o.totals.jiramaKwh>0&&o.totals.jiramaEquiv>0)?`<div style="border:1px solid #E4E0D6;border-left:3px solid #102A43;border-radius:8px;padding:8px 12px;margin-bottom:9px;font-size:11.5px;line-height:1.6;color:#374151">⚡ <b>Le prix de la continuité :</b> produire ${Math.round(o.totals.kwh).toLocaleString("fr-FR")} kWh au groupe a coûté <b>${fmtD(o.totals.cost)}</b> ; la même énergie au tarif réseau JIRAMA (${fmtD(o.totals.jiramaKwh)}/kWh) aurait coûté <b>${fmtD(o.totals.jiramaEquiv)}</b> — ${o.totals.cost>o.totals.jiramaEquiv?`soit un surcoût d'autonomie de <b>${fmtD(o.totals.cost-o.totals.jiramaEquiv)}</b> : le prix payé pour ne jamais subir les délestages. L'optimiser, c'est l'objet de ce suivi.`:`soit une <b>économie de ${fmtD(o.totals.jiramaEquiv-o.totals.cost)}</b> par rapport au réseau.`}</div>`:""}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       ${chip(o.isGen?"Coût énergie (période)":"Coût carburant (période)", fmtD(o.totals.cost))}
-      ${chip("Économies identifiées", o.eco>0?fmtD(o.eco):"—", o.eco>0?"#B5923A":"#102A43")}
+      ${chip("Économies identifiées", o.eco>0?fmtD(o.eco):"non chiffrées", o.eco>0?"#B5923A":"#6B7280")}
       ${chip("Fiabilité des données", o.q.pct+" %", fiaCol)}
       ${chip("Points d'attention", String(o.alerts.length), o.alerts.length?"#C0392B":"#2F855A")}
       ${(o.bench&&o.bench.n>=2)?chip("Vs sites comparables BSM",(o.bench.deltaPct>0?"+":"")+Math.round(o.bench.deltaPct)+" %",(o.bench.mine<=o.bench.median?"#2F855A":"#B5923A")):""}
@@ -8128,6 +8185,12 @@ async function saveA1Invoice(kind){
   if(!unit && qty>0 && amount>0) unit=amount/qty;
   if(!period){ toast("Renseigne la période (mois)."); return; }
   if(qty<=0 && amount<=0){ toast("Renseigne au moins les "+(isJ?"kWh":"litres")+" ou le montant."); return; }
+  // GARDE-FOU véracité : un prix unitaire invraisemblable = quasi toujours une erreur de saisie des quantités
+  // (ex. « 21,653 » kWh au lieu de 21 653 — séparateur de milliers lu comme décimale). On BLOQUE, on n'enregistre pas un chiffre faux.
+  if(unit>0){
+    if(isJ && unit>20000){ toast("⛔ Prix calculé : "+Math.round(unit).toLocaleString("fr-FR")+" Ar/kWh — impossible (tarif JIRAMA attendu : 300 à 5 000 Ar/kWh). Vérifie les kWh : probablement "+Math.round(qty*1000).toLocaleString("fr-FR")+" et non "+qty+"."); return; }
+    if(!isJ && unit>50000){ toast("⛔ Prix calculé : "+Math.round(unit).toLocaleString("fr-FR")+" Ar/L — impossible (gasoil attendu : 3 000 à 8 000 Ar/L). Vérifie les litres saisis."); return; }
+  }
   const target=val("inv-target")||""; const [tk,tid]=target.split(":");
   const inv={ id:uid(), kind, clientId:cid, period, date, ref:(val("inv-ref")||"").trim(), supplier:(val("inv-supplier")||"").trim()||(isJ?"JIRAMA":""),
     amount, currency:DB.meta.defaultCurrency, unit, fuelType:isJ?"":(val("inv-fuel")||"Gasoil"),
