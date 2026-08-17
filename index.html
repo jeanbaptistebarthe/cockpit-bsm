@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.19.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.20.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -6889,6 +6889,35 @@ async function a1ExecReport(kind){
     return out.slice(0,3);
   })();
   const recos=(ia.recos&&ia.recos.length)?ia.recos:fallbackRecos;
+  // ---- GISEMENTS D'ÉCONOMIE CHIFFRÉS : le rapport dit au dirigeant COMBIEN il gagne s'il actionne chaque levier.
+  //      Estimation PRUDENTE sur courbe diesel standard, clairement étiquetée — jamais un chiffre inventé. ----
+  const gPrice=(DB.meta.fuelPrices&&+DB.meta.fuelPrices.gasoil)||0;
+  const gMonths=Math.max(1,series.length);
+  let gisementRows=[], gisementAr=0;
+  if(isGen&&gPrice>0){
+    let volCharge=0;
+    arr.forEach(p=>{ if(p.kwh>0&&p.liters>0){ const target=p.kwh*0.30; if(p.liters>target) volCharge+=p.liters-target; } });
+    if(volCharge>=10){ gisementRows.push(["Charge & entretien alignés sur la zone idéale","Vos groupes consomment "+Math.round(totals.liters/Math.max(1,totals.kwh)*1000)/1000+" L par kWh produit ; un diesel bien chargé et entretenu descend à ≈ 0,30 L/kWh","≈ "+fmtD(volCharge*gPrice)+" sur la période · ≈ "+fmtD(volCharge*gPrice/gMonths)+" par mois"]); gisementAr+=volCharge*gPrice; }
+    if(totals.horsCoupureH>=2&&totals.hours>0){ const volHC=totals.horsCoupureH*(totals.liters/totals.hours);
+      if(volHC>=10){ gisementRows.push(["Marche hors coupure réseau supprimée",Math.round(totals.horsCoupureH)+" h de marche des groupes alors que le réseau semblait disponible","≈ "+fmtD(volHC*gPrice)+" sur la période"]); gisementAr+=volHC*gPrice; } }
+  } else if(!isGen&&gPrice>0){
+    const over=arr.reduce((s,p)=>s+((p.driftTheo!=null&&p.driftTheo>0&&p.v.consoTheo>0)?(p.km*(p.consoL100-p.v.consoTheo)/100):0),0);
+    if(over>=10){ gisementRows.push(["Flotte ramenée à la consommation constructeur",Math.round(over).toLocaleString("fr-FR")+" L d'écart cumulé vs référence constructeur sur la période","≈ "+fmtD(over*gPrice)+" sur la période · ≈ "+fmtD(over*gPrice/gMonths)+" par mois"]); gisementAr+=over*gPrice; }
+  }
+  const ecoShow=eco>0?eco:gisementAr;   // le chiffre « économies » des synthèses = pertes constatées, sinon potentiel estimé
+  const gisementHtml=gisementRows.length?`
+    <p style="font-size:12.5px;line-height:1.7">Ce que la mise en œuvre des recommandations rapporterait, aux prix actuels du gasoil (${fmtD(gPrice)}/L). Estimation <b>prudente</b> sur la courbe de consommation diesel standard — la mesure mensuelle de ce suivi confirmera les gains réels.</p>
+    <table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;margin:8px 0;page-break-inside:avoid"><thead><tr style="background:#F9FAFB">
+      <th style="text-align:left;padding:7px 10px;font-size:10px;color:#6B7280;text-transform:uppercase">Levier</th><th style="text-align:left;padding:7px 10px;font-size:10px;color:#6B7280;text-transform:uppercase">Constat chiffré</th><th style="text-align:right;padding:7px 10px;font-size:10px;color:#6B7280;text-transform:uppercase">Potentiel estimé</th></tr></thead><tbody>
+      ${gisementRows.map(r=>`<tr><td style="padding:8px 10px;border-bottom:1px solid #F3F4F6;font-weight:700;color:#102A43">${r[0]}</td><td style="padding:8px 10px;border-bottom:1px solid #F3F4F6;font-size:11.5px;line-height:1.55">${r[1]}</td><td style="padding:8px 10px;border-bottom:1px solid #F3F4F6;text-align:right;font-weight:700;white-space:nowrap">${r[2]}</td></tr>`).join("")}
+      <tr><td colspan="2" style="padding:9px 10px;font-weight:700;color:#102A43;background:#F6F1E8">POTENTIEL TOTAL ESTIMÉ</td><td style="padding:9px 10px;text-align:right;font-weight:700;font-size:14px;color:#B5923A;background:#F6F1E8;white-space:nowrap">≈ ${fmtD(gisementAr)}<div style="font-size:9.5px;font-weight:400;color:#6B7280">≈ ${fmtD(gisementAr/gMonths)} par mois</div></td></tr>
+    </tbody></table>`:"";
+  // ---- Le rapport client ne restitue JAMAIS des données brutes que le client connaît déjà :
+  //      bâtiments, sources internes et registres restent pour l'IA et l'archive Cockpit. ----
+  const synthReport=synth
+    .replace(/\n## Contexte des installations[\s\S]*?(?=\n## |$)/, "\n")
+    .replace(/\n## Sources & méthode[\s\S]*?(?=\n## |$)/, "\n")
+    .replace(/\n## Conducteurs \(class[\s\S]*?(?=\n## |$)/, "\n");
   // ---- Lot F : benchmark anonymisé, conducteurs (flotte), contexte délestages (groupes) ----
   const bench=clientId?a1Benchmark(kind, clientId):null;
   const benchHtml=(bench&&bench.n>=2)?(function(){ const unit=isGen?" Ar/kWh":" L/100 km"; const F=v=>isGen?Math.round(v).toLocaleString("fr-FR"):v.toFixed(1); const good=bench.mine<=bench.median;
@@ -6903,23 +6932,24 @@ async function a1ExecReport(kind){
   const season=(isGen&&clientId)?a1OutageSeason(clientId):null;
   const seasonHtml=season?`<p style="font-size:12.5px;margin-top:8px;color:${season.level==="intense"?"#B5923A":season.level==="faible"?"#102A43":"#374151"}"><b>🗓️ Contexte délestages :</b> ${esc(a1SeasonText(season))}</p>`:"";
   // ---- Page 2 « L'essentiel en une page » : verdict + jauges machines + trajectoire début → mois → objectif ----
-  const essential=a1EssentialPageHtml({ kind, isGen, arr, totals, comp, q, eco, ia, alerts, series, tgt, bench, season });
+  const essential=a1EssentialPageHtml({ kind, isGen, arr, totals, comp, q, eco:ecoShow, ia, alerts, series, tgt, bench, season });
   // ---- Assemblage : sections numérotées dynamiquement (seules les sections avec matière apparaissent) ----
   const secs=[];
   secs.push(["Synthèse exécutive",
     `<table style="width:100%;border-collapse:collapse;margin:8px 0 12px;background:#F9FAFB;border:1px solid #E5E7EB;page-break-inside:avoid"><tbody>
       ${kpiRow("Coût total de la période", fmtD(totals.cost))}
-      ${kpiRow("Économies potentielles identifiées", eco>0?fmtD(eco):"aucune quantifiée à ce stade")}
+      ${kpiRow("Potentiel d'économie "+(eco>0?"identifié":"estimé"), ecoShow>0?fmtD(ecoShow)+(eco>0?"":" (voir Gisements)"):"aucun quantifié à ce stade")}
       ${kpiRow("Fiabilité de l'analyse (complétude des données)", q.pct+" %")}
     </tbody></table>
     ${ia.verdict?`<p style="font-size:13.5px;line-height:1.75">${esc(ia.verdict)}</p>`:""}
     ${alertsHtml}
     ${seasonHtml}`]);
   if(evoHtml) secs.push([evoTitle, evoHtml]);
+  if(gisementHtml) secs.push(["Gisements d'économie estimés", gisementHtml]);
   if(benchHtml) secs.push(["Positionnement — sites comparables (anonymisé)", benchHtml]);
   secs.push(["Indicateurs clés de la période", `<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;page-break-inside:avoid"><tbody>${kpis.map(k=>kpiRow(k[0],k[1])).join("")}</tbody></table>`]);
   if(drvHtml) secs.push(["Conduite & conducteurs", drvHtml]);
-  secs.push(["Constats détaillés", `<div class="ai-md">${mdToHtml(synth.replace(/^# .*\n/,""))}</div>`]);
+  secs.push(["Analyse détaillée", `<div class="ai-md">${mdToHtml(synthReport.replace(/^# .*\n/,""))}</div>`]);
   secs.push(["Recommandations prioritaires", recos.map((r,i)=>`
       <div style="border:1px solid #E5E7EB;border-left:3px solid #B5923A;padding:11px 14px;margin:9px 0;page-break-inside:avoid;background:#FDFCFA">
         <b>${i+1}. ${esc(r.titre||"")}</b><div style="font-size:12.5px;margin-top:4px;line-height:1.6">${esc(r.detail||"")}</div>
@@ -6940,22 +6970,9 @@ async function a1ExecReport(kind){
   secs.push(["Lexique — pour parler le même langage",
     `<div style="display:grid;grid-template-columns:1fr 1fr;gap:7px 20px">${lexique.map(x=>`<div style="font-size:11px;line-height:1.55;page-break-inside:avoid"><b style="color:#102A43">${x[0]}</b> — <span style="color:#374151">${x[1]}</span></div>`).join("")}</div>`]);
   secs.push(["Méthodologie & limites",
-    `<p style="font-size:12px;color:#374151;line-height:1.7">Analyse conduite selon la méthode R5® de ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}, à partir des relevés d'exploitation fournis par le client${isGen?", des fiches techniques constructeur et des heures de coupure réseau déclarées":" et des données constructeur des véhicules"}. Les coûts sont valorisés aux prix renseignés à la date du rapport (factures archivées lorsqu'elles existent).${benchHtml?" Le positionnement inter-sites est calculé sur le portefeuille BSM, strictement anonymisé.":""} Toute mention d'un risque de détournement reposerait exclusivement sur des preuves physiques convergentes (écarts jauge/compteur, contrôles de stock) — jamais sur la seule consommation. Complétude des données : ${q.pct} %${missing.length?" — éléments à compléter : "+missing.map(c=>c.label).join(", ")+".":"."} Référence du rapport : ${ref}.</p>`]);
-  // Annexe : le registre des relevés — chaque chiffre du rapport remonte à un relevé daté (traçabilité, archivable).
-  const regLogs=(isGen?(DB.a1genlogs||[]).filter(l=>arr.some(p=>p.g.id===l.gensetId)):(DB.a1logs||[]).filter(l=>arr.some(p=>p.v.id===l.vehicleId))).slice().sort((a,b)=>String(a.date||"").localeCompare(String(b.date||"")));
-  if(regLogs.length){
-    const regHead=isGen?["Date","Groupe","Heures","kWh","Litres","Coût (Ar)","Source"]:["Date","Véhicule","Km","Litres","Coût (Ar)","Chauffeur","Source"];
-    const regRows=regLogs.slice(-60).map(l=>{
-      const m=isGen?arr.find(p=>p.g.id===l.gensetId):arr.find(p=>p.v.id===l.vehicleId);
-      const cells=isGen
-        ?[frDate(l.date), m?m.g.name:"—", Math.round(l.hours||0).toLocaleString("fr-FR"), Math.round(l.kwh||0).toLocaleString("fr-FR"), Math.round(l.liters||0).toLocaleString("fr-FR"), Math.round(l.cost||0).toLocaleString("fr-FR"), l.source==="facture"?"facture":"relevé"]
-        :[frDate(l.date), m?m.v.name:"—", Math.round(l.km||0).toLocaleString("fr-FR"), Math.round(l.liters||0).toLocaleString("fr-FR"), Math.round(l.cost||0).toLocaleString("fr-FR"), l.driver||"—", l.source==="facture"?"facture":"relevé"];
-      return `<tr>${cells.map((c,i)=>`<td style="padding:4px 8px;border:1px solid #F3F4F6;${i>=2&&i<=5?"text-align:right;":""}font-variant-numeric:tabular-nums">${esc(String(c))}</td>`).join("")}</tr>`;
-    }).join("");
-    secs.push(["Annexe — Registre des relevés analysés",
-      `<p style="font-size:11px;color:#6B7280">Chaque chiffre de ce rapport se rattache à un relevé daté ci-dessous — traçabilité complète de l'analyse (${regLogs.length} relevés au total${regLogs.length>60?", 60 derniers affichés, l'intégralité est conservée et consultable auprès de BSM":""}).</p>
-      <table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;font-size:9.5px"><thead><tr style="background:#F9FAFB">${regHead.map(h=>`<th style="text-align:left;padding:5px 8px;font-size:8.5px;color:#6B7280;border:1px solid #E5E7EB;text-transform:uppercase;letter-spacing:.03em">${h}</th>`).join("")}</tr></thead><tbody>${regRows}</tbody></table>`]);
-  }
+    `<p style="font-size:12px;color:#374151;line-height:1.7">Analyse conduite selon la méthode R5® de ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}, à partir des relevés d'exploitation fournis par le client${isGen?", des fiches techniques constructeur et des heures de coupure réseau déclarées":" et des données constructeur des véhicules"}. Les coûts sont valorisés aux prix renseignés à la date du rapport (factures archivées lorsqu'elles existent).${benchHtml?" Le positionnement inter-sites est calculé sur le portefeuille BSM, strictement anonymisé.":""} Toute mention d'un risque de détournement reposerait exclusivement sur des preuves physiques convergentes (écarts jauge/compteur, contrôles de stock) — jamais sur la seule consommation. Complétude des données : ${q.pct} %${missing.length?" — éléments à compléter : "+missing.map(c=>c.label).join(", ")+".":"."} L'intégralité des relevés sources est archivée par ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")} — traçabilité complète, consultable sur demande. Référence du rapport : ${ref}.</p>`]);
+  // Le registre brut des relevés NE figure PAS dans le rapport client (données que le client connaît) :
+  // la traçabilité complète reste dans le Cockpit, mentionnée en méthodologie et consultable sur demande.
   const isFirst=(DB.a1execreports||[]).filter(x=>x.clientId===(clientId||"")&&x.kind===kind).length===0;
   const body=`
     <div style="page-break-after:always;text-align:center;padding-top:90px">
@@ -7002,7 +7019,7 @@ async function a1ExecReport(kind){
       <div style="border:2px solid ${vCol};border-radius:10px;padding:10px 14px;margin:10px 0"><div style="font-size:13px;line-height:1.6;color:#1F2937">${esc(verdictTxt)}</div></div>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="5"><tr>
         ${chip(fmtD(totals.cost),isGen?"Coût énergie":"Coût carburant")}
-        ${chip(eco>0?fmtD(eco):"non chiffrées","Économies identifiées",eco>0?"#B5923A":"#6B7280")}
+        ${chip(ecoShow>0?fmtD(ecoShow):"non chiffré","Potentiel d'économie",ecoShow>0?"#B5923A":"#6B7280")}
         ${chip(q.pct+" %","Fiabilité des données",q.pct>=80?"#2F855A":"#B5923A")}
         ${chip(String(alerts.length),"Points d'attention",alerts.length?"#C0392B":"#2F855A")}
       </tr></table>
@@ -7441,7 +7458,7 @@ function a1EssentialPageHtml(o){
     ${(o.isGen&&o.totals.jiramaKwh>0&&o.totals.jiramaEquiv>0)?`<div style="border:1px solid #E4E0D6;border-left:3px solid #102A43;border-radius:8px;padding:8px 12px;margin-bottom:9px;font-size:11.5px;line-height:1.6;color:#374151">⚡ <b>Le prix de la continuité :</b> produire ${Math.round(o.totals.kwh).toLocaleString("fr-FR")} kWh au groupe a coûté <b>${fmtD(o.totals.cost)}</b> ; la même énergie au tarif réseau JIRAMA (${fmtD(o.totals.jiramaKwh)}/kWh) aurait coûté <b>${fmtD(o.totals.jiramaEquiv)}</b> — ${o.totals.cost>o.totals.jiramaEquiv?`soit un surcoût d'autonomie de <b>${fmtD(o.totals.cost-o.totals.jiramaEquiv)}</b> : le prix payé pour ne jamais subir les délestages. L'optimiser, c'est l'objet de ce suivi.`:`soit une <b>économie de ${fmtD(o.totals.jiramaEquiv-o.totals.cost)}</b> par rapport au réseau.`}</div>`:""}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       ${chip(o.isGen?"Coût énergie (période)":"Coût carburant (période)", fmtD(o.totals.cost))}
-      ${chip("Économies identifiées", o.eco>0?fmtD(o.eco):"non chiffrées", o.eco>0?"#B5923A":"#6B7280")}
+      ${chip("Potentiel d'économie", o.eco>0?fmtD(o.eco):"non chiffré", o.eco>0?"#B5923A":"#6B7280")}
       ${chip("Fiabilité des données", o.q.pct+" %", fiaCol)}
       ${chip("Points d'attention", String(o.alerts.length), o.alerts.length?"#C0392B":"#2F855A")}
       ${(o.bench&&o.bench.n>=2)?chip("Vs sites comparables BSM",(o.bench.deltaPct>0?"+":"")+Math.round(o.bench.deltaPct)+" %",(o.bench.mine<=o.bench.median?"#2F855A":"#B5923A")):""}
