@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.18.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.19.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -2740,9 +2740,9 @@ function docChrome(innerHtml, opt){
 h2.docsec{font-family:'Cormorant Garamond',serif;font-size:18px;color:${D};margin:18px 0 7px;padding-bottom:4px;border-bottom:1px solid #E5E7EB;break-after:avoid-page;page-break-after:avoid;break-inside:avoid;page-break-inside:avoid}
 p{margin:7px 0;line-height:1.65;orphans:3;widows:3}ul{margin:7px 0 7px 20px;line-height:1.65}li{orphans:3;widows:3}
 table{page-break-inside:auto}tr{page-break-inside:avoid;break-inside:avoid}thead{display:table-header-group}
-.ai-md table{width:100%;border-collapse:collapse;font-size:10.5px;margin:10px 0;font-variant-numeric:tabular-nums}
-.ai-md th{background:#F6F1E8;color:#102A43;font-weight:700;font-size:9px;letter-spacing:.04em;text-transform:uppercase;text-align:left;padding:6px 9px;border:1px solid #E4E0D6}
-.ai-md td{padding:6px 9px;border:1px solid #E4E0D6;vertical-align:top;line-height:1.5}
+.ai-md table{width:100%;border-collapse:collapse;font-size:10px;margin:10px 0;font-variant-numeric:tabular-nums}
+.ai-md th{background:#F6F1E8;color:#102A43;font-weight:700;font-size:8.5px;letter-spacing:.03em;text-transform:uppercase;text-align:left;padding:6px 8px;border:1px solid #E4E0D6;hyphens:none}
+.ai-md td{padding:6px 8px;border:1px solid #E4E0D6;vertical-align:top;line-height:1.5;hyphens:none;word-break:normal;overflow-wrap:normal}
 .ai-md tbody tr:nth-child(even){background:#FCFBF7}
 .ai-md h2{font-family:'Cormorant Garamond',serif;font-size:15.5px;color:#102A43;margin:14px 0 6px;break-after:avoid-page;page-break-after:avoid}
 .ai-md h3{font-size:11.5px;font-weight:700;color:#B5923A;text-transform:uppercase;letter-spacing:.04em;margin:11px 0 5px;break-after:avoid-page;page-break-after:avoid}
@@ -6716,10 +6716,11 @@ function a1NextRef(clientId, kind){
   const d=new Date();
   return "RAP-"+d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+a1ClientCode(clientId)+"-"+String(n).padStart(3,"0");
 }
-async function a1ArchiveExecReport(meta, html){
+async function a1ArchiveExecReport(meta, html, mailHtml){
   DB.a1execreports=DB.a1execreports||[];
   const rec=Object.assign({id:uid(), ts:new Date().toISOString(), status:"brouillon"}, meta);   // sécurité : tout rapport naît BROUILLON, l'envoi exige une validation
   if(serverEnabled && await fileServerPut("a1rep_"+rec.id, rec.ref, "text/html", "kbtext:"+html)) rec.onServer=true;
+  if(serverEnabled && mailHtml){ try{ await fileServerPut("a1mail_"+rec.id, (rec.ref||"rapport")+"-mail", "text/html", "kbtext:"+mailHtml); rec.hasMail=true; }catch(e){} }  // essentiel lisible DANS le mail d'envoi
   DB.a1execreports.push(rec); save();
   toast("📕 "+(rec.ref||"Rapport")+" archivé en BROUILLON — relis-le puis ✅ valide-le (📚 Historique) avant tout envoi client.");
 }
@@ -6745,7 +6746,7 @@ function a1ExecDelete(id){
     "Il sera retiré de l'historique (récupérable 30 jours via la corbeille). Sa copie archivée sur le serveur est supprimée définitivement — un rapport corrigé pourra reprendre la même référence.",
     ()=>{
       DB.a1execreports=DB.a1execreports.filter(x=>x.id!==id);
-      if(r.onServer&&serverEnabled){ try{ fetch("/api/file-del",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:"a1rep_"+r.id})}); }catch(e){} }
+      if(r.onServer&&serverEnabled){ try{ fetch("/api/file-del",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:"a1rep_"+r.id})}); fetch("/api/file-del",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:"a1mail_"+r.id})}); }catch(e){} }
       save(); closeModal(); openA1ExecHistory(r.kind); if(currentScreen==="a1suivi") renderA1Suivi(); toast("Rapport supprimé — regénère-le une fois les données corrigées.");
     });
 }
@@ -6835,7 +6836,7 @@ async function a1ExecReport(kind){
   // ---- Lot F : benchmark anonymisé, conducteurs (flotte), contexte délestages (groupes) ----
   const bench=clientId?a1Benchmark(kind, clientId):null;
   const benchHtml=(bench&&bench.n>=2)?(function(){ const unit=isGen?" Ar/kWh":" L/100 km"; const F=v=>isGen?Math.round(v).toLocaleString("fr-FR"):v.toFixed(1); const good=bench.mine<=bench.median;
-    return `<table style="width:100%;border-collapse:collapse;background:#F9FAFB;border:1px solid #E5E7EB;margin:8px 0"><tbody>
+    return `<table style="width:100%;border-collapse:collapse;background:#F9FAFB;border:1px solid #E5E7EB;margin:8px 0;page-break-inside:avoid"><tbody>
       <tr><td style="padding:7px 12px;color:#6B7280;border-bottom:1px solid #F3F4F6">${isGen?"Votre coût du kWh produit":"Votre consommation moyenne flotte"}</td><td style="padding:7px 12px;text-align:right;font-weight:700;border-bottom:1px solid #F3F4F6">${F(bench.mine)}${unit}</td></tr>
       <tr><td style="padding:7px 12px;color:#6B7280;border-bottom:1px solid #F3F4F6">Médiane des ${bench.n} sites comparables suivis par BSM</td><td style="padding:7px 12px;text-align:right;font-weight:700;border-bottom:1px solid #F3F4F6">${F(bench.median)}${unit}</td></tr>
       <tr><td style="padding:7px 12px;color:#6B7280">Position</td><td style="padding:7px 12px;text-align:right;font-weight:700;color:${good?"#2F855A":"#B5923A"}">${bench.deltaPct>0?"+":""}${Math.round(bench.deltaPct)} % vs médiane — mieux placé que ${bench.pct} % des sites</td></tr>
@@ -6850,7 +6851,7 @@ async function a1ExecReport(kind){
   // ---- Assemblage : sections numérotées dynamiquement (seules les sections avec matière apparaissent) ----
   const secs=[];
   secs.push(["Synthèse exécutive",
-    `<table style="width:100%;border-collapse:collapse;margin:8px 0 12px;background:#F9FAFB;border:1px solid #E5E7EB"><tbody>
+    `<table style="width:100%;border-collapse:collapse;margin:8px 0 12px;background:#F9FAFB;border:1px solid #E5E7EB;page-break-inside:avoid"><tbody>
       ${kpiRow("Coût total de la période", fmtD(totals.cost))}
       ${kpiRow("Économies potentielles identifiées", eco>0?fmtD(eco):"aucune quantifiée à ce stade")}
       ${kpiRow("Fiabilité de l'analyse (complétude des données)", q.pct+" %")}
@@ -6860,7 +6861,7 @@ async function a1ExecReport(kind){
     ${seasonHtml}`]);
   if(evoHtml) secs.push([evoTitle, evoHtml]);
   if(benchHtml) secs.push(["Positionnement — sites comparables (anonymisé)", benchHtml]);
-  secs.push(["Indicateurs clés de la période", `<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB"><tbody>${kpis.map(k=>kpiRow(k[0],k[1])).join("")}</tbody></table>`]);
+  secs.push(["Indicateurs clés de la période", `<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;page-break-inside:avoid"><tbody>${kpis.map(k=>kpiRow(k[0],k[1])).join("")}</tbody></table>`]);
   if(drvHtml) secs.push(["Conduite & conducteurs", drvHtml]);
   secs.push(["Constats détaillés", `<div class="ai-md">${mdToHtml(synth.replace(/^# .*\n/,""))}</div>`]);
   secs.push(["Recommandations prioritaires", recos.map((r,i)=>`
@@ -6912,10 +6913,50 @@ async function a1ExecReport(kind){
         <div style="font-size:10.5px;color:#374151;line-height:1.95"><b>L'essentiel en une page</b><br>${secs.map((s,i)=>`${i+1}. ${esc(s[0])}`).join("<br>")}</div>
       </div>
     </div>
-    `+essential+secs.map((s,i)=>`<h2 class="docsec">${i+1}. ${s[0]}</h2>`+s[1]).join("");
+    `+essential+secs.map((s,i)=>`<h2 class="docsec" style="${i>0?"page-break-before:always;break-before:page;":""}margin-top:0;padding-top:6px">${i+1}. ${s[0]}</h2>`+s[1]).join("");
+  // Calibrage déterministe : chaque section démarre sur une PAGE NEUVE (break-after:avoid est trop peu fiable
+  // dans Chrome à l'impression) — plus jamais de titre orphelin, et le document respire.
   const html=docChrome(body,{ title:"Rapport exécutif "+ref+" — "+cName, typeLabel:isGen?"Optimisation énergétique":"Optimisation flotte & carburant", date:period, clientName:cName, objet:isGen?"Analyse des groupes électrogènes et du coût de l'énergie":"Analyse de la flotte et du poste carburant", footRef:ref+" · Document confidentiel · "+(DB.meta.cabinetName||"BSM Advisory & Consulting") });
+  // ---- Corps de MAIL « essentiel » (mail-safe : tableaux + styles inline, SANS SVG — Gmail/Outlook) :
+  //      le dirigeant lit le résultat DANS le mail, sans rien télécharger ; le PDF joint reste l'archive complète. ----
+  const mailHtml=(function(){
+    const F0=v=>Math.round(v).toLocaleString("fr-FR");
+    const vCol=arr.some(p=>p.diag&&p.diag.fraudScore>=35)?"#C0392B":(alerts.length?"#B5923A":"#2F855A");
+    const verdictTxt=(ia&&ia.verdict)||(alerts.length?"Points d'attention sur la période — détail dans le rapport joint.":"Exploitation conforme aux seuils sur la période analysée.");
+    const chip=(v,l,c)=>`<td width="25%" style="background:#F6F1E8;border-radius:8px;padding:9px 6px;text-align:center"><div style="font-family:Georgia,serif;font-size:17px;font-weight:bold;color:${c||"#102A43"}">${v}</div><div style="font-family:Arial,sans-serif;font-size:8.5px;color:#6B7280;text-transform:uppercase;letter-spacing:.04em">${l}</div></td>`;
+    const bar=(pct,col)=>{ pct=Math.max(3,Math.min(100,Math.round(pct||0)));
+      return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td width="${pct}%" style="background:${col};height:9px;border-radius:4px;font-size:1px;line-height:1px">&nbsp;</td><td style="background:#EFEAD9;height:9px;border-radius:4px;font-size:1px;line-height:1px">&nbsp;</td></tr></table>`; };
+    const rows=(isGen?arr.slice().sort((a,b)=>(b.cost||0)-(a.cost||0)):arr.slice().sort((a,b)=>((b.driftTheo!=null?b.driftTheo:-999))-((a.driftTheo!=null?a.driftTheo:-999)))).slice(0,4).map(p=>{
+      if(isGen){ const st=a1GroupLoadStats(p.g); const c=st.charge; const col=c==null?"#9CA3AF":(c>=60&&c<=80)?"#2F855A":(c>85?"#C0392B":"#B5923A");
+        return `<tr><td style="padding:7px 0;font-family:Arial,sans-serif"><div style="font-size:12px;font-weight:bold;color:#102A43;padding-bottom:3px">${esc(p.g.name)} — <span style="color:${col}">${c!=null?Math.round(c)+" % de charge":"charge inconnue"}</span></div>${bar(c||0,col)}</td></tr>`; }
+      const d=p.driftTheo; const col=d==null?"#9CA3AF":(d>15?"#C0392B":(d>0?"#B5923A":"#2F855A"));
+      return `<tr><td style="padding:7px 0;font-family:Arial,sans-serif"><div style="font-size:12px;font-weight:bold;color:#102A43;padding-bottom:3px">${esc(p.v.name)} — <span style="color:${col}">${p.consoL100?p.consoL100.toFixed(1)+" L/100":"—"}${d!=null?" ("+(d>0?"+":"")+d.toFixed(0)+" % vs constructeur)":""}</span></div>${bar(d!=null?((Math.min(50,Math.max(-20,d))+20)/70*100):0,col)}</td></tr>`;
+    }).join("");
+    const mkey=isGen?"costPerKwh":"consoL100"; const pts=series.filter(s=>s[mkey]!=null);
+    const FT=v=>isGen?F0(v)+" Ar/kWh":(+v).toFixed(1)+" L/100";
+    let traj="";
+    if(pts.length>=2){ const fpt=pts[0], lpt=pts[pts.length-1]; const dd=fpt[mkey]?(lpt[mkey]-fpt[mkey])/fpt[mkey]*100:0;
+      const cell=(t,s,v,b)=>`<td width="33%" style="border:1.5px solid ${b};border-radius:8px;padding:8px 4px;text-align:center;font-family:Arial,sans-serif"><div style="font-size:8px;color:#6B7280;text-transform:uppercase">${t}</div><div style="font-size:8.5px;color:#9CA3AF;text-transform:capitalize">${s}</div><div style="font-family:Georgia,serif;font-size:15px;font-weight:bold;color:#102A43">${v}</div></td>`;
+      traj=`<table role="presentation" width="100%" cellpadding="0" cellspacing="4" style="margin-top:8px"><tr>
+        ${cell("Début du suivi",a1MonthLabel(fpt.m),FT(fpt[mkey]),"#D6D0C2")}
+        ${cell("Ce mois-ci",a1MonthLabel(lpt.m),FT(lpt[mkey])+(Math.abs(dd)>=1?` <span style="font-size:10px;color:${dd<=0?"#2F855A":"#C0392B"}">${dd<0?"▼":"▲"}${Math.abs(dd).toFixed(0)}%</span>`:""),"#102A43")}
+        ${tgt?cell("Objectif co-défini","cible",FT(tgt.value),"#B5923A"):cell("Objectif","à co-définir","🎯","#D1D5DB")}
+      </tr></table>`; }
+    return `<div style="max-width:640px;font-family:Arial,Helvetica,sans-serif">
+      <div style="border:2px solid ${vCol};border-radius:10px;padding:10px 14px;margin:10px 0"><div style="font-size:13px;line-height:1.6;color:#1F2937">${esc(verdictTxt)}</div></div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="5"><tr>
+        ${chip(fmtD(totals.cost),isGen?"Coût énergie":"Coût carburant")}
+        ${chip(eco>0?fmtD(eco):"—","Économies identifiées",eco>0?"#B5923A":"#102A43")}
+        ${chip(q.pct+" %","Fiabilité des données",q.pct>=80?"#2F855A":"#B5923A")}
+        ${chip(String(alerts.length),"Points d'attention",alerts.length?"#C0392B":"#2F855A")}
+      </tr></table>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px">${rows}</table>
+      ${traj}
+      <p style="font-family:Arial,sans-serif;font-size:11.5px;color:#6B7280;margin-top:12px">📎 Le rapport complet <b>${ref}</b> est joint en PDF — analyse détaillée, comparatif mensuel, recommandations, méthodologie et registre des relevés.</p>
+    </div>`;
+  })();
   openPrintable(html);
-  a1ArchiveExecReport({ref, clientId:clientId||"", kind, cost:totals.cost, fiab:q.pct, alerts:alerts.length}, html);   // archivage numéroté (preuve du suivi)
+  a1ArchiveExecReport({ref, clientId:clientId||"", kind, cost:totals.cost, fiab:q.pct, alerts:alerts.length}, html, mailHtml);   // archivage numéroté (preuve du suivi) + essentiel mail
 }
 /* ================== LOT E — PIPELINE DE PRODUCTION : Suivi du mois, relances de collecte, envoi des rapports ================== */
 /* L'outil interne pour tenir 10 abonnements sans rien oublier : pour chaque client A1 et chaque mois,
@@ -7085,7 +7126,11 @@ async function a1ExecSendGo(id){
     const f=await (await fetch("/api/file?id="+encodeURIComponent("a1rep_"+r.id))).json();
     const doc=String(f.data||"").replace(/^kbtext:/,"");
     if(!doc) throw new Error("rapport introuvable sur le serveur");
-    await bsmClientMail({ to, subject, html:'<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7">'+esc(msg).replace(/\n/g,"<br>")+'</p>', pdfHtml:doc, pdfName:String(r.ref||"rapport").replace(/[^A-Za-z0-9._-]+/g,"_") });
+    // l'essentiel du rapport DANS le corps du mail (lisible sans rien télécharger) — repli silencieux si absent
+    let essential="";
+    try{ const fm=await (await fetch("/api/file?id="+encodeURIComponent("a1mail_"+r.id))).json();
+      if(fm&&fm.data&&String(fm.data).indexOf("kbtext:")===0) essential=String(fm.data).slice(7); }catch(e){}
+    await bsmClientMail({ to, subject, html:'<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7">'+esc(msg).replace(/\n/g,"<br>")+'</p>'+essential, pdfHtml:doc, pdfName:String(r.ref||"rapport").replace(/[^A-Za-z0-9._-]+/g,"_") });
     r.sentAt=new Date().toISOString(); r.sentTo=to; r.sentBy=(currentUser&&currentUser.name)||""; r.status="envoye";
     const c=DB.clients.find(x=>x.id===r.clientId); if(c&&!c.contactEmail) c.contactEmail=to;
     save(); closeModal(); if(currentScreen==="a1suivi") renderA1Suivi(); toast("✉️ Rapport "+(r.ref||"")+" envoyé à "+to+" ✅");
@@ -8862,7 +8907,7 @@ function buildFleetSynthesisMd(){
   md+=`**Contexte** : suivi carburant de la flotte (méthode BSM). **Période analysée** : ${totals.km.toLocaleString('fr-FR')} km · ${Math.round(totals.liters).toLocaleString('fr-FR')} L · coût carburant ${fmtD(totals.cost)}. Conso moyenne flotte **${fleetConso.toFixed(1)} L/100 km**, coût **${fmtD(totals.costPerKm)}/km**.\n\n`;
   md+=`## Synthèse par véhicule\n\n| Véhicule | Type | km | Conso | vs constructeur | Coût/km | Ralenti | État |\n|---|---|---|---|---|---|---|---|\n`;
   arr.slice().sort((a,b)=>b.consoL100-a.consoL100).forEach(p=>{ const vs=(p.driftTheo!=null)?((p.driftTheo>0?"+":"")+p.driftTheo.toFixed(0)+"%"):(p.consoTheo>0?"—":"n/c");
-    md+=`| **${p.v.name}** | ${esc(p.v.type||"—")} | ${p.km.toLocaleString('fr-FR')} | ${p.consoL100?p.consoL100.toFixed(1)+" L/100":"—"} | ${vs} | ${p.costPerKm?fmtD(p.costPerKm):"—"} | ${p.idleRatio?p.idleRatio.toFixed(0)+"%":"—"} | ${a1FleetState(p)} |\n`; });
+    md+=`| **${p.v.name}** | ${esc(p.v.type||"—")} | ${p.km.toLocaleString('fr-FR')} | ${p.consoL100?p.consoL100.toFixed(1)+" L/100":"—"} | ${vs} | ${p.costPerKm?fmtD(p.costPerKm):"—"} | ${p.idleRatio?p.idleRatio.toFixed(0)+"%":"—"} | ${String(a1FleetState(p)).replace(/ /g," ")} |\n`; });
   md+=`\n## Constats\n\n`;
   const ano=arr.filter(p=>p.anomaly);
   if(ano.length) md+=`- **Surconsommation : ${ano.map(p=>p.v.name+" ("+p.consoL100.toFixed(1)+" L/100"+(p.driftTheo!=null?", +"+p.driftTheo.toFixed(0)+"% vs constructeur":"")+")").join(", ")}.** À vérifier : entretien (filtres, pneus, injection), conduite, ou détournement (cf. dépistage). ${arr.some(p=>p.consoTheo>0)?"":"⚠ Conso constructeur manquante pour certains véhicules → comparaison vs moyenne flotte (moins précise) ; la communication des consommations constructeur affinera l'analyse."}\n`;
@@ -9702,9 +9747,9 @@ function buildGensetSynthesisMd(){
   md+=`**Contexte** : Madagascar — production autonome sous délestages JIRAMA. **Période analysée** : ${Math.round(totals.hours)} h de marche · ${Math.round(totals.kwh).toLocaleString('fr-FR')} kWh produits · ${Math.round(totals.liters).toLocaleString('fr-FR')} L de gasoil · coût carburant ${fmtD(totals.cost)}${price>0?` (≈ ${fmtD(price)}/L)`:""}.\n\n`;
   const season=a1genClient?a1OutageSeason(a1genClient):null;   // Lot F : le contexte saisonnier cadre l'interprétation IA
   if(season) md+=`**Saisonnalité délestages** : ${a1SeasonText(season)}\n\n`;
-  md+=`## Synthèse par groupe\n\n| Groupe | Puissance | Marche | Énergie | Taux de charge | Conso | Rendement | Coût du kWh | État |\n|---|---|---|---|---|---|---|---|---|\n`;
+  md+=`## Synthèse par groupe\n\n| Groupe | Puissance | Marche | Énergie | Charge | Conso | Rendement | Coût kWh | État |\n|---|---|---|---|---|---|---|---|---|\n`;
   arr.forEach(p=>{ const puis=[p.g.puissanceKva?p.g.puissanceKva+" kVA":"",p.kwNominal?Math.round(p.kwNominal)+" kW":""].filter(Boolean).join(" / ")||"specs ?";
-    md+=`| **${p.g.name}** | ${puis} | ${Math.round(p.hours)} h | ${Math.round(p.kwh).toLocaleString('fr-FR')} kWh | ${p.chargePct>0?"**"+p.chargePct.toFixed(0)+"%**":"—"} | ${p.realLh?p.realLh.toFixed(1)+" L/h":"—"} | ${p.rendement?p.rendement.toFixed(2)+" kWh/L":"—"} | ${p.costPerKwh?fmtD(p.costPerKwh):"—"} | ${a1GensetState(p)} |\n`; });
+    md+=`| **${p.g.name}** | ${puis} | ${Math.round(p.hours)} h | ${Math.round(p.kwh).toLocaleString('fr-FR')} kWh | ${p.chargePct>0?"**"+p.chargePct.toFixed(0)+"%**":"—"} | ${p.realLh?p.realLh.toFixed(1)+" L/h":"—"} | ${p.rendement?p.rendement.toFixed(2)+" kWh/L":"—"} | ${p.costPerKwh?fmtD(p.costPerKwh):"—"} | ${String(a1GensetState(p)).replace(/ /g," ")} |\n`; });
   const noSpecs=arr.filter(p=>!(p.kwNominal>0));
   if(noSpecs.length) md+=`\n> ⚠ **Fiche technique constructeur manquante** pour ${noSpecs.map(p=>p.g.name).join(", ")} → le taux de charge ne peut pas être calculé (puissance nominale inconnue). La transmission de la fiche technique (ou une photo de la plaque signalétique) fiabilisera pleinement l'analyse.\n`;
   // Repères de DIMENSIONNEMENT (l'IA peut raisonner permutation/redéploiement sans inventer : pointe estimée ≠ pointe mesurée)
