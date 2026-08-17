@@ -24,6 +24,10 @@ test_b2.js
 
 # DONNÉES CLIENTS (factures pompiste/JIRAMA, exports, refacturations) — STRICTEMENT jamais en ligne
 FACTURES ET DONNEES PROG/
+# Exports de synchro local ⇄ en ligne : base COMPLÈTE (clients + clés d'époque) — a failli partir le 17/08, bloqué par GitHub
+data synchro/
+*_synchro_*.json
+cockpit.json
 *.xlsx
 *.xls
 *.zip
