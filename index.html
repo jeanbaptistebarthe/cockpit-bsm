@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.17.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.18.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -673,6 +673,7 @@ function load(){
   if(!DB.a1targets) DB.a1targets={};                       // objectifs par client (Lot D)
   if(!Array.isArray(DB.a1execreports)) DB.a1execreports=[]; // archivage numéroté des rapports exécutifs (Lot D)
   if(!Array.isArray(DB.a1relances)) DB.a1relances=[];       // relances de collecte tracées (Lot E)
+  if(!Array.isArray(DB.a1imports)) DB.a1imports=[];         // journal des fichiers importés (banque de données)
   if(DB.meta.mailCopyTo===undefined) DB.meta.mailCopyTo="jeanbaptiste.barthe@bsmconseils.com"; // copie pro de tout mail client (réglable dans ⚙)
   // Lot E : l'écran « Suivi du mois » est soumis aux permissions → on l'accorde aux comptes direction existants (l'admin a déjà tout).
   if(!DB.meta.a1suiviPermV1){
@@ -7635,6 +7636,7 @@ async function a1WizImport(){
       runA1Import();
     }
   } finally { hid.remove(); }
+  if(w.file && !(isGen && w.mode==="xlsx")) a1LogImport(w.clientId, w.kind, w.file, "import guidé (wizard)");   // le chemin xlsx est déjà tracé par a1ImportXlsxFile
   setTimeout(()=>{ if(isGen) a1GenAnalyze(); else a1Analyze(); }, 700);   // enchaînement automatique : l'analyse s'ouvre seule
 }
 /* ================== LOT B — PANNEAU « DONNÉES & FIABILITÉ » ================== */
@@ -8730,7 +8732,7 @@ function openA1Actions(kind){ const isGen=kind==="gen";
     ${G("Analyse",[["🧭 Nouvelle analyse (guidé)","openA1Wizard('"+(isGen?"gen":"fleet")+"')","gold"],["🚦 Prêt à présenter ?","openA1ReadyCheck('"+(isGen?"gen":"fleet")+"')","gold"],["🤖 Analyse IA",isGen?"a1GenAnalyze()":"a1Analyze()"],["💬 Chat IA","openA1Chat('"+(isGen?"gen":"fleet")+"')"],["📕 Rapport exécutif","a1ExecReport('"+(isGen?"gen":"fleet")+"')"],["🎯 Données & fiabilité","openA1DataPanel('"+(isGen?"gen":"fleet")+"')"],["🥅 Objectif client","openA1Target('"+(isGen?"gen":"fleet")+"')"],isGen&&["🔁 Étude de permutation","openA1SwapStudy()"],["📚 Historique des rapports","openA1ExecHistory('"+(isGen?"gen":"fleet")+"')"],["📆 Suivi du mois (tous clients)","setScreen('a1suivi')"],["🎬 Mode démo client","a1DemoMode('"+(isGen?"gen":"fleet")+"')"],["📊 Tableau de bord",isGen?"a1GenDashboard()":"a1FleetDashboard()"],["🖨 Rapport technique",isGen?"printA1GenReport()":"printA1Report()"]])}
     ${G("Saisie & données",[[isGen?"+ Relevé":"+ Relevé",isGen?"openA1GenLog()":"openA1Log()","gold"],[isGen?"+ Groupe":"+ Véhicule",isGen?"openA1Genset()":"openA1Vehicle()"],["⇊ Importer CSV",isGen?"openA1GenImport()":"openA1Import()"],!isGen&&["📍 Importer GPS","openA1GpsImport()"],["📋 Parc complet","openA1Roster('"+(isGen?"gen":"fleet")+"')"],["📚 Fiches techniques","openA1SpecLibrary('"+(isGen?"gen":"fleet")+"')"]])}
     ${G("Factures & contrôle",[["🧾 Facture","openA1InvoiceImport('"+(isGen?"jirama":"fuel")+"')"],["📚 Registre","openA1InvoiceRegister('"+(isGen?"jirama":"fuel")+"')"],["🔎 Contrôle & écarts","openA1Control('"+(isGen?"jirama":"fuel")+"')"]])}
-    ${G("Documents & terrain",[["📎 Documents client","openA1Docs('"+(isGen?"gen":"fleet")+"')"],["📋 Fiche de relevé (imprimer)","printA1CollectSheet('"+(isGen?"gen":"fleet")+"')"]])}
+    ${G("Documents & terrain",[["📎 Documents client","openA1Docs('"+(isGen?"gen":"fleet")+"')"],["🗄️ Banque de données","openA1DataBank('"+(isGen?"gen":"fleet")+"')"],["📋 Fiche de relevé (imprimer)","printA1CollectSheet('"+(isGen?"gen":"fleet")+"')"]])}
     ${G("Configuration & sauvegarde",[["⛽ Prix carburant","openFuelPrices()"],["⚙ Seuils","openA1Thresholds()"],["💾 Sauvegarde","openA1DataSafety()"]])}
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`;
   openModal(html);
@@ -9433,6 +9435,96 @@ function a1BuildingsMd(clientId){
   });
   return any?md:"";
 }
+/* ================== 🗄️ BANQUE DE DONNÉES : tout fichier intégré est journalisé, consultable et SUPPRIMABLE ================== */
+/* Journal d'import : trace {fichier, client, module, date, résumé} + conserve le FICHIER SOURCE sur le serveur (≤15 Mo)
+   → on retrouve chaque Excel/CSV intégré, on le retélécharge, on le supprime — sans devoir réimporter par-dessus. */
+function a1LogImport(clientId, kind, file, summary){
+  DB.a1imports=DB.a1imports||[];
+  const rec={ id:uid(), clientId:clientId||"", kind:kind||"", fileName:(file&&file.name)||"(collage direct)", size:(file&&file.size)||0,
+    date:new Date().toISOString(), summary:String(summary||""), by:(currentUser&&currentUser.login)||"" };
+  DB.a1imports.push(rec);
+  if(serverEnabled && file && file.size<=15*1048576){
+    a1FileToDataURL(file).then(du=>fileServerPut("a1src_"+rec.id, file.name, file.type||"", du))
+      .then(ok=>{ if(ok){ rec.onServer=true; save(); } }).catch(()=>{});
+  }
+  return rec;
+}
+function a1SrcDownload(id){
+  const r=(DB.a1imports||[]).find(x=>x.id===id); if(!r) return;
+  if(!r.onServer||!serverEnabled){ toast("Fichier source non conservé (import antérieur au journal, ou sans serveur)."); return; }
+  fetch("/api/file?id="+encodeURIComponent("a1src_"+id)).then(x=>x.json()).then(f=>{
+    if(f&&f.data&&String(f.data).indexOf("data:")===0){ const a=document.createElement("a"); a.href=f.data; a.download=f.name||r.fileName||"import"; a.click(); }
+    else toast("⚠️ Fichier source introuvable sur le serveur.");
+  }).catch(()=>toast("⚠️ Fichier source introuvable sur le serveur."));
+}
+function a1ImportDel(id, kind){
+  const r=(DB.a1imports||[]).find(x=>x.id===id); if(!r) return;
+  confirmModal("Retirer « "+esc(r.fileName)+" » du journal ?","Le fichier source conservé est supprimé du serveur. Les DONNÉES déjà importées (relevés, groupes…) ne sont pas touchées — elles se gèrent dans leurs écrans.",()=>{
+    DB.a1imports=DB.a1imports.filter(x=>x.id!==id);
+    if(r.onServer&&serverEnabled){ try{ fetch("/api/file-del",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:"a1src_"+id})}); }catch(e){} }
+    save(); closeModal(); openA1DataBank(kind); toast("Entrée retirée du journal.");
+  });
+}
+function a1DeleteBuildings(clientId, gensetEnc, kind){
+  const genset=decodeURIComponent(gensetEnc||"");
+  const rec=(DB.a1buildings||[]).find(r=>(r.clientId||"")===(clientId||"") && (r.genset||"")===genset); if(!rec) return;
+  confirmModal("Supprimer ce contexte bâtiments ?", esc(clientName(clientId)||"—")+" — "+(rec.buildings||[]).length+" bâtiment(s). Tu pourras réimporter la feuille plus tard (l'import remplace proprement).",()=>{
+    DB.a1buildings=DB.a1buildings.filter(r=>r!==rec);
+    DB.a1gensets.forEach(g=>{ if(g.hasBuildings && !(DB.a1buildings||[]).some(b=>(b.clientId||"")===(g.clientId||""))) delete g.hasBuildings; });
+    save(); closeModal(); openA1DataBank(kind); toast("Contexte bâtiments supprimé.");
+  });
+}
+function a1InvoiceFileDel(invId, kind){
+  const inv=(DB.a1invoices||[]).find(i=>i.id===invId); if(!inv||!inv.hasFile) return;
+  confirmModal("Supprimer la pièce jointe de cette facture ?", esc(inv.fileName||"")+" — les CHIFFRES de la facture restent enregistrés ; seule la pièce (preuve) est supprimée.",()=>{
+    a1FileDel(inv.id); inv.hasFile=false; delete inv.fileName; delete inv.fileType; delete inv.fileSize;
+    save(); closeModal(); openA1DataBank(kind); toast("Pièce supprimée (chiffres conservés).");
+  });
+}
+function a1BankDelDoc(docId, kind){
+  const d=(DB.a1docs||[]).find(x=>x.id===docId); if(!d) return;
+  confirmModal("Supprimer ce document ?", esc(d.title||d.fileName||""),()=>{
+    if(d.hasFile) a1FileDel(d.id);
+    DB.a1docs=DB.a1docs.filter(x=>x.id!==docId);
+    save(); closeModal(); openA1DataBank(kind); toast("Document supprimé.");
+  });
+}
+function a1SizeFmt(b){ b=+b||0; return b>=1048576?(b/1048576).toFixed(1)+" Mo":(b>=1024?Math.round(b/1024)+" Ko":(b?b+" o":"—")); }
+function openA1DataBank(kind){
+  kind=kind||"gen";
+  const cid=(kind==="gen")?a1genClient:a1Client;
+  const cf=x=>!cid||(x.clientId||"")===cid;   // filtré sur le client sélectionné, sinon tout
+  const imports=(DB.a1imports||[]).filter(cf).slice().reverse();
+  const builds=(DB.a1buildings||[]).filter(cf);
+  const invF=(DB.a1invoices||[]).filter(i=>cf(i)&&i.hasFile);
+  const docs=(DB.a1docs||[]).filter(cf);
+  const isImg=t=>/^image\//.test(String(t||""));
+  const sec=(t,inner,empty)=>`<h3 style="margin:14px 0 6px;font-size:12px;color:var(--navy);text-transform:uppercase;letter-spacing:.05em">${t}</h3>${inner||`<div class="hint">${empty}</div>`}`;
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🗄️ Banque de données${cid?" — "+esc(clientName(cid)):" (tous clients)"}</h2>
+    <div class="msub">Tout ce qui a été intégré au programme : fichiers importés, contextes bâtiments, pièces jointes, photos. Consultable, retéléchargeable, <b>supprimable</b> — sans devoir réimporter par-dessus.</div>
+    ${sec("📥 Fichiers importés ("+imports.length+")",
+      imports.length?`<table style="font-size:12px"><thead><tr><th>Date</th><th>Fichier</th><th>Module</th><th>Client</th><th>Contenu</th><th></th></tr></thead><tbody>
+      ${imports.map(r=>`<tr><td>${frDate(r.date)}</td><td><b>${esc(r.fileName)}</b>${r.size?`<div style="font-size:10px;color:var(--muted)">${a1SizeFmt(r.size)}</div>`:""}</td><td>${r.kind==="gen"?"🔌":"🚗"}</td><td>${esc(r.clientId?clientName(r.clientId):"—")}</td><td style="font-size:11px;color:var(--muted);max-width:230px">${esc((r.summary||"").slice(0,90))}</td>
+        <td style="text-align:right;white-space:nowrap">${r.onServer?`<button class="cta ghost sm" title="Retélécharger le fichier source" onclick="a1SrcDownload('${r.id}')">⬇</button> `:""}<button class="iconbtn del" title="Retirer du journal (les données importées restent)" onclick="a1ImportDel('${r.id}','${kind}')">🗑</button></td></tr>`).join("")}
+      </tbody></table><div class="hint">⬇ = retélécharger le fichier source conservé sur le serveur. 🗑 retire l'entrée (et sa source) — les <b>données</b> importées se suppriment dans leurs écrans (relevés, groupes…).</div>`:null,
+      "Aucun import journalisé pour l'instant — chaque import à venir (wizard, classeur Excel) sera tracé ici avec son fichier source.")}
+    ${sec("🏢 Contextes bâtiments ("+builds.length+")",
+      builds.length?`<table style="font-size:12px"><thead><tr><th>Client</th><th>Rattaché à</th><th style="text-align:right">Bâtiments</th><th>Importé le</th><th></th></tr></thead><tbody>
+      ${builds.map(b=>`<tr><td><b>${esc(b.clientId?clientName(b.clientId):"—")}</b></td><td>${esc(b.genset||"—")}</td><td style="text-align:right">${(b.buildings||[]).length}</td><td>${frDate(b.importedAt)}</td>
+        <td style="text-align:right"><button class="iconbtn del" title="Supprimer ce contexte (réimportable plus tard)" onclick="a1DeleteBuildings('${b.clientId||""}','${encodeURIComponent(b.genset||"")}','${kind}')">🗑</button></td></tr>`).join("")}
+      </tbody></table>`:null,"Aucune feuille bâtiments intégrée"+(cid?" pour ce client":"")+".")}
+    ${sec("📎 Pièces jointes factures ("+invF.length+")",
+      invF.length?`<table style="font-size:12px"><thead><tr><th>Période</th><th>Type</th><th>Pièce</th><th></th></tr></thead><tbody>
+      ${invF.map(i=>`<tr><td>${a1MonthFr(i.period)}</td><td>${i.kind==="jirama"?"⚡ JIRAMA":"⛽ Carburant"}${i.ref?" · "+esc(i.ref):""}</td><td>${isImg(i.fileType)?"🖼️":"📄"} ${esc(i.fileName||"pièce")}<span style="font-size:10px;color:var(--muted)"> ${a1SizeFmt(i.fileSize)}</span></td>
+        <td style="text-align:right;white-space:nowrap"><button class="cta ghost sm" onclick="a1FileOpen('${i.id}')">📎 Ouvrir</button> <button class="iconbtn del" title="Supprimer la pièce (les chiffres restent)" onclick="a1InvoiceFileDel('${i.id}','${kind}')">🗑</button></td></tr>`).join("")}
+      </tbody></table>`:null,"Aucune pièce jointe de facture"+(cid?" pour ce client":"")+".")}
+    ${sec("🗂️ Documents & photos ("+docs.length+")",
+      docs.length?`<table style="font-size:12px"><thead><tr><th>Titre</th><th>Catégorie</th><th>Pièce</th><th></th></tr></thead><tbody>
+      ${docs.map(d=>`<tr><td><b>${esc(d.title||"—")}</b><div style="font-size:10px;color:var(--muted)">${frDate(d.createdAt)}</div></td><td>${esc(d.category||"")}</td><td>${d.hasFile?`${isImg(d.fileType)?"🖼️":"📄"} ${esc(d.fileName||"")} <span style="font-size:10px;color:var(--muted)">${a1SizeFmt(d.fileSize)}</span>`:'<span style="color:var(--muted)">note seule</span>'}</td>
+        <td style="text-align:right;white-space:nowrap">${d.hasFile?`<button class="cta ghost sm" onclick="a1FileOpen('${d.id}')">📎 Ouvrir</button> `:""}<button class="iconbtn del" onclick="a1BankDelDoc('${d.id}','${kind}')">🗑</button></td></tr>`).join("")}
+      </tbody></table>`:null,"Aucun document A1"+(cid?" pour ce client":"")+".")}
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`);
+}
 /* Import d'un classeur .xlsx complet : lit toutes les feuilles et range chaque donnée au bon endroit. */
 async function a1ImportXlsxFile(f){
   const st=document.getElementById("gi-xlsx-status"); if(st) st.textContent="⏳ Lecture du classeur Excel…";
@@ -9464,6 +9556,7 @@ async function a1ImportXlsxFile(f){
     // 3) BATIMENTS → contexte des installations (charge électrique réelle) par groupe
     const baKey=names.find(k=>/batiment|installation/i.test(k)) || names.find(k=>a1IsBatimentsRows(sheets[k]));
     if(baKey){ const nb=a1SaveBatiments(sheets[baKey], cid); if(nb) report.push(nb+" bâtiment(s) de contexte (feuille "+baKey+")"); }
+    a1LogImport(cid, "gen", f, report.join(" · ")||"classeur Excel");   // banque de données : import tracé + source conservée
     save(); closeModal(); renderA1Genset();
     toast("Classeur importé ✅ — "+(report.join(" · ")||"aucune feuille reconnue"));
   }catch(e){ if(st) st.textContent="⚠ "+(e.message||"Lecture .xlsx impossible"); toast("Import .xlsx : "+(e.message||"échec")); }
