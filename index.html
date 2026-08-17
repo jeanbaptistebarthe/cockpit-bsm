@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.21.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.22.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -6951,7 +6951,7 @@ async function a1ExecReport(kind){
   if(isGen&&clientId&&(DB.a1swapReport||{})[clientId]){
     const pin=DB.a1swapReport[clientId];
     if(DB.a1gensets.some(g=>g.id===pin.a)&&DB.a1gensets.some(g=>g.id===pin.b)){
-      const swapRes=a1SwapAssess(pin.a, pin.b);
+      const swapRes=a1SwapAssess(pin.a, pin.b, {addA:pin.addA, addB:pin.addB});
       if(swapRes){
         const swapHtml=`<p style="font-size:12.5px;line-height:1.7">Réponse à la question posée : <b>que gagnerait-on à échanger l'emplacement des deux groupes ?</b> Analyse recalculée avec les données de la période — le verdict définitif exige la mesure de pointe détaillée ci-dessous.</p>`
           +a1SwapInnerHtml(swapRes).replace(/<h2 class="docsec">/g,'<h3 style="font-size:12.5px;font-weight:700;color:#B5923A;text-transform:uppercase;letter-spacing:.04em;margin:16px 0 6px;break-after:avoid-page;page-break-after:avoid">').replace(/<\/h2>/g,"</h3>");
@@ -7542,18 +7542,30 @@ function a1SpecConsoLkWh(chargePct){
   return 0.25;
 }
 const A1_SWAP_PEAK=1.6;   // pointe estimée = kW moyen × 1,6 — règle PRUDENTE en l'absence de mesure de pointe réelle
-function a1SwapAssess(idA, idB){
+function a1SwapAssess(idA, idB, opts){
+  opts=opts||{};
   const gA=DB.a1gensets.find(x=>x.id===idA), gB=DB.a1gensets.find(x=>x.id===idB);
   if(!gA||!gB) return null;
   const A=a1GroupLoadStats(gA), B=a1GroupLoadStats(gB);
-  const evalDir=(site, gen)=>{ // le SITE (demande mesurée sur son groupe actuel) alimenté par l'AUTRE groupe
-    if(!(site.kwAvg>0)) return {status:"inconnu", why:"aucun kWh/heure mesuré sur le site"};
+  const evalDir=(site, gen, addKw)=>{ // le SITE (demande mesurée + évolution prévue éventuelle) alimenté par un groupe
+    const kw=(site.kwAvg||0)+(+addKw||0);
+    if(!(kw>0)) return {status:"inconnu", why:"aucun kWh/heure mesuré sur le site"};
     if(!(gen.kwNom>0))  return {status:"inconnu", why:"puissance nominale du groupe receveur inconnue (fiche technique)"};
-    const chargeAvg=site.kwAvg/gen.kwNom*100;
-    const peakKw=site.kwAvg*A1_SWAP_PEAK, peakPct=peakKw/gen.kwNom*100;
-    return { chargeAvg, peakKw, peakPct, status: peakPct<=80?"ok":(peakPct<=100?"risque":"non") };
+    const chargeAvg=kw/gen.kwNom*100;
+    const peakKw=kw*A1_SWAP_PEAK, peakPct=peakKw/gen.kwNom*100;
+    return { kw, chargeAvg, peakKw, peakPct, status: peakPct<=80?"ok":(peakPct<=100?"risque":"non") };
   };
-  const AB=evalDir(A,B), BA=evalDir(B,A);   // AB = site de A sur groupe B ; BA = site de B sur groupe A
+  const AB=evalDir(A,B,0), BA=evalDir(B,A,0);   // AB = site de A sur groupe B ; BA = site de B sur groupe A
+  // ÉVOLUTION PRÉVUE (ex. : bâtiment en construction bientôt raccordé) — hypothèse SAISIE, clairement étiquetée.
+  const addA=(opts.addA&&+opts.addA.kw>0)?{kw:+opts.addA.kw,label:String(opts.addA.label||"évolution prévue")}:null;
+  const addB=(opts.addB&&+opts.addB.kw>0)?{kw:+opts.addB.kw,label:String(opts.addB.label||"évolution prévue")}:null;
+  const fut=addA||addB?{
+    addA, addB,
+    AAf:addA?evalDir(A,A,addA.kw):null,   // SANS permutation : site de A (avec l'évolution) sur SON groupe actuel
+    ABf:addA?evalDir(A,B,addA.kw):null,   // AVEC permutation : site de A (avec l'évolution) sur le groupe B
+    BBf:addB?evalDir(B,B,addB.kw):null,
+    BAf:addB?evalDir(B,A,addB.kw):null
+  }:null;
   const gainSite=(site, after)=>{ const s1=a1SpecConsoLkWh(site.charge), s2=a1SpecConsoLkWh(after&&after.chargeAvg); return (s1!=null&&s2!=null&&site.kwh>0)?site.kwh*(s1-s2):0; };
   const fuelA=gainSite(A,AB), fuelB=gainSite(B,BA);          // + = économie de gasoil pour ce site, − = surconsommation
   const litersSaved=fuelA+fuelB;
@@ -7565,8 +7577,11 @@ function a1SwapAssess(idA, idB){
   });
   const price=(DB.meta.fuelPrices&&+DB.meta.fuelPrices.gasoil)||0;
   const monthsRef=Math.max(A.months,B.months,1);
-  const feasible=(AB.status==="inconnu"||BA.status==="inconnu")?"inconnu":(AB.status==="non"||BA.status==="non")?"non":(AB.status==="risque"||BA.status==="risque")?"risque":"ok";
-  return { A, B, AB, BA, fuelA, fuelB, litersSaved, costSaved:litersSaved*price, monthsRef,
+  // le verdict global intègre l'ÉVOLUTION PRÉVUE : c'est souvent elle qui rend la permutation nécessaire (ou impossible)
+  const futStatuses=fut?[fut.ABf,fut.BAf].filter(Boolean).map(x=>x.status):[];
+  const allSt=[AB.status,BA.status].concat(futStatuses);
+  const feasible=allSt.indexOf("inconnu")>=0?"inconnu":allSt.indexOf("non")>=0?"non":allSt.indexOf("risque")>=0?"risque":"ok";
+  return { A, B, AB, BA, fut, fuelA, fuelB, litersSaved, costSaved:litersSaved*price, monthsRef,
     costSavedYear:(litersSaved*price)/monthsRef*12, relief, strain, feasible };
 }
 function a1SwapChecklist(A,B){
@@ -7612,6 +7627,23 @@ function a1SwapInnerHtml(res, forPrint){
     </div>
     ${dir(`Site du « ${esc(res.A.g.name)} » alimenté par « ${esc(res.B.g.name)} »`, res.A, res.B, res.AB)}
     ${dir(`Site du « ${esc(res.B.g.name)} » alimenté par « ${esc(res.A.g.name)} »`, res.B, res.A, res.BA)}
+    ${res.fut?(function(){
+      const F0=v=>Math.round(v).toLocaleString("fr-FR");
+      const line=(lbl,gen,r)=>{ if(!r) return ""; const [col,txt]=a1SwapStatusBadge(r.status);
+        return `<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid #F3F4F6"><span style="font-size:12px">${lbl} <b>(${F0(r.kw)} kW moyens estimés)</b> sur <b>${esc(gen.g.name)}</b> : charge ${r.chargeAvg!=null?F0(r.chargeAvg)+" %":"—"} · pointe ${r.peakPct!=null?F0(r.peakPct)+" %":"—"} du nominal</span><b style="color:${col};font-size:11.5px;white-space:nowrap">${txt.split("(")[0].trim()}</b></div>`; };
+      const lbls=[res.fut.addA&&res.fut.addA.label,res.fut.addB&&res.fut.addB.label].filter(Boolean).join(" · ");
+      return `<div style="border:2px solid #102A43;border-radius:10px;padding:11px 14px;margin:10px 0;background:#F8FAFC;page-break-inside:avoid">
+        <div style="font-weight:700;font-size:13px;color:#102A43">🏗️ Évolution prévue : ${esc(lbls)} <span style="font-weight:400;font-size:10.5px;color:#6B7280">(hypothèse déclarée — à confirmer par bilan de puissance sur pièces)</span></div>
+        <div style="margin-top:6px">
+          ${res.fut.addA?line("SANS permutation — site du « "+esc(res.A.g.name)+" » + "+esc(res.fut.addA.label), res.A, res.fut.AAf):""}
+          ${res.fut.addA?line("AVEC permutation — même site + "+esc(res.fut.addA.label), res.B, res.fut.ABf):""}
+          ${res.fut.addB?line("SANS permutation — site du « "+esc(res.B.g.name)+" » + "+esc(res.fut.addB.label), res.B, res.fut.BBf):""}
+          ${res.fut.addB?line("AVEC permutation — même site + "+esc(res.fut.addB.label), res.A, res.fut.BAf):""}
+        </div>
+        ${(res.fut.AAf&&res.fut.AAf.status!=="ok"&&res.fut.ABf&&res.fut.ABf.status==="ok")||(res.fut.BBf&&res.fut.BBf.status!=="ok"&&res.fut.BAf&&res.fut.BAf.status==="ok")
+          ?`<div style="margin-top:7px;font-size:12px;font-weight:700;color:#2F855A">→ La permutation n'est pas une simple optimisation : elle ANTICIPE l'évolution prévue. Sans elle, le groupe actuel entrerait en zone critique ; avec elle, les deux périmètres restent couverts avec marge.</div>`
+          :`<div style="margin-top:7px;font-size:11px;color:#6B7280">Le verdict global ci-dessus intègre cette évolution prévue.</div>`}
+      </div>`; })():""}
     <h2 class="docsec">Ce que la permutation rapporterait (estimation indicative)</h2>
     <p style="font-size:12.5px">Un groupe électrogène consomme <b>par kWh produit</b> d'autant moins qu'il travaille près de sa zone optimale (60–80 % de charge) : à 25 % de charge, chaque kWh coûte ≈ 0,42 L de gasoil ; à 75 %, ≈ 0,25 L (courbe diesel standard). Deux effets à peser : le <b>carburant</b> (taux de charge) et la <b>fiabilité</b> (un groupe en surcharge chronique s'use et décroche).</p>
     <ul style="font-size:12.5px;line-height:1.7;margin:6px 0 6px 20px">
@@ -7636,17 +7668,32 @@ function openA1SwapStudy(){
   window._swapA=window._swapA&&gens.some(g=>g.id===window._swapA)?window._swapA:gens[0].id;
   window._swapB=window._swapB&&gens.some(g=>g.id===window._swapB&&g.id!==window._swapA)?window._swapB:(gens.find(g=>g.id!==window._swapA)||{}).id;
   const sel=(id,v)=>`<select id="${id}" onchange="window.${id==='sw-a'?'_swapA':'_swapB'}=this.value;a1SwapRender()" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px">${gens.map(g=>`<option value="${g.id}" ${g.id===v?'selected':''}>${esc(g.name)}${g.site?" — "+esc(g.site):""}</option>`).join("")}</select>`;
+  const pin=(DB.a1swapReport||{})[cid]||{};
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔁 Étude de permutation — groupes électrogènes${cid?" · "+esc(clientName(cid)):""}</h2>
     <div class="msub">Peut-on échanger deux groupes sans qu'un site se retrouve <b>sous-motorisé</b> ? Verdict sur les données disponibles, gains estimés, et la liste exacte de ce qu'il reste à mesurer.</div>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><b style="font-size:13px">Groupe A</b>${sel("sw-a",window._swapA)}<span style="font-size:16px">⇄</span><b style="font-size:13px">Groupe B</b>${sel("sw-b",window._swapB)}</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><b style="font-size:13px">Groupe A</b>${sel("sw-a",window._swapA)}<span style="font-size:16px">⇄</span><b style="font-size:13px">Groupe B</b>${sel("sw-b",window._swapB)}</div>
+    <div class="card" style="background:var(--cream);margin-bottom:10px;padding:10px 12px">
+      <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:6px">🏗️ Évolution prévue sur un site (option) — ex. : bâtiment en construction bientôt raccordé</div>
+      <div class="field row2" style="margin-bottom:6px"><label style="font-size:11px">Site du groupe A : + kW moyens estimés & libellé</label>
+        <input id="sw-adda-kw" type="number" min="0" step="1" value="${pin.addA?pin.addA.kw:""}" placeholder="ex : 40" oninput="a1SwapRender()">
+        <input id="sw-adda-lbl" value="${esc(pin.addA?pin.addA.label:"")}" placeholder="ex : raccordement Immeuble S4" oninput="a1SwapRender()"></div>
+      <div class="field row2" style="margin-bottom:2px"><label style="font-size:11px">Site du groupe B : + kW moyens estimés & libellé</label>
+        <input id="sw-addb-kw" type="number" min="0" step="1" value="${pin.addB?pin.addB.kw:""}" placeholder="" oninput="a1SwapRender()">
+        <input id="sw-addb-lbl" value="${esc(pin.addB?pin.addB.label:"")}" placeholder="" oninput="a1SwapRender()"></div>
+      <div class="hint">Repère d'estimation : demande moyenne mesurée du site ÷ nombre d'étages ≈ kW par étage, × les étages du bâtiment à venir. Hypothèse <b>déclarée</b> dans l'étude et le rapport — à confirmer par bilan de puissance sur pièces.</div>
+    </div>
     <div id="sw-result"></div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal();setScreen('documentation')" title="Note générique « Permutation de groupes » à générer pour un client (bibliothèque de modèles)">📄 Note méthode client</button><span id="sw-pin"></span><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="a1SwapPrint()">🖨 Imprimer l'étude (PDF)</button></div>`);
   a1SwapRender(); a1SwapPinRender();
 }
+function a1SwapOpts(){
+  return { addA:{kw:parseFloat(val("sw-adda-kw"))||0, label:(val("sw-adda-lbl")||"").trim()||"évolution prévue"},
+           addB:{kw:parseFloat(val("sw-addb-kw"))||0, label:(val("sw-addb-lbl")||"").trim()||"évolution prévue"} };
+}
 function a1SwapRender(){
   const host=document.getElementById("sw-result"); if(!host) return;
   if(window._swapA===window._swapB){ host.innerHTML='<div class="hint" style="color:var(--orange)">Choisis deux groupes différents.</div>'; return; }
-  const res=a1SwapAssess(window._swapA, window._swapB);
+  const res=a1SwapAssess(window._swapA, window._swapB, a1SwapOpts());
   host.innerHTML=res?a1SwapInnerHtml(res):'<div class="empty">Groupes introuvables.</div>';
 }
 /* Épinglage : la question du client (« que gagnerait-on à échanger les groupes ? ») entre dans CHAQUE rapport
@@ -7665,13 +7712,15 @@ function a1SwapPinToggle(){
   if(DB.a1swapReport[cid]){ delete DB.a1swapReport[cid]; toast("Étude retirée des prochains rapports."); }
   else {
     if(!window._swapA||!window._swapB||window._swapA===window._swapB){ toast("Choisis d'abord les deux groupes à comparer."); return; }
-    DB.a1swapReport[cid]={a:window._swapA, b:window._swapB, since:todayISO()};
+    const o=a1SwapOpts();
+    DB.a1swapReport[cid]={a:window._swapA, b:window._swapB, since:todayISO(),
+      addA:(o.addA.kw>0?o.addA:null), addB:(o.addB.kw>0?o.addB:null)};   // l'évolution prévue (ex. S4) suit l'étude dans les rapports
     toast("📌 L'étude de permutation figurera dans chaque rapport de "+clientName(cid)+" — recalculée à chaque édition, retirable ici.");
   }
   save(); a1SwapPinRender();
 }
 function a1SwapPrint(){
-  const res=a1SwapAssess(window._swapA, window._swapB); if(!res) return;
+  const res=a1SwapAssess(window._swapA, window._swapB, a1SwapOpts()); if(!res) return;
   const cid=a1genClient||"";
   openPrintable(docChrome(a1SwapInnerHtml(res, true), { title:"Étude de permutation — "+res.A.g.name+" ⇄ "+res.B.g.name,
     typeLabel:"Étude technique", date:frLong(todayISO()), clientName:cid?clientName(cid):"—",
