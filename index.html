@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.20.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.21.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -674,6 +674,7 @@ function load(){
   if(!Array.isArray(DB.a1execreports)) DB.a1execreports=[]; // archivage numéroté des rapports exécutifs (Lot D)
   if(!Array.isArray(DB.a1relances)) DB.a1relances=[];       // relances de collecte tracées (Lot E)
   if(!Array.isArray(DB.a1imports)) DB.a1imports=[];         // journal des fichiers importés (banque de données)
+  if(!DB.a1swapReport) DB.a1swapReport={};                  // étude de permutation épinglée au rapport, par client (question client ouverte)
   // Assainissement tarif JIRAMA (2026-08-17) : une facture mal saisie (21,653 kWh au lieu de 21 653) avait produit
   // un « tarif » de 2,6 M Ar/kWh adopté silencieusement → chiffres absurdes dans les rapports. Un tarif > 20 000 Ar/kWh
   // est physiquement impossible : on l'écarte et on reprend le dernier tarif plausible de l'historique.
@@ -6946,6 +6947,18 @@ async function a1ExecReport(kind){
     ${seasonHtml}`]);
   if(evoHtml) secs.push([evoTitle, evoHtml]);
   if(gisementHtml) secs.push(["Gisements d'économie estimés", gisementHtml]);
+  // Question client ÉPINGLÉE : l'étude de permutation entre dans le rapport, recalculée avec les données du mois.
+  if(isGen&&clientId&&(DB.a1swapReport||{})[clientId]){
+    const pin=DB.a1swapReport[clientId];
+    if(DB.a1gensets.some(g=>g.id===pin.a)&&DB.a1gensets.some(g=>g.id===pin.b)){
+      const swapRes=a1SwapAssess(pin.a, pin.b);
+      if(swapRes){
+        const swapHtml=`<p style="font-size:12.5px;line-height:1.7">Réponse à la question posée : <b>que gagnerait-on à échanger l'emplacement des deux groupes ?</b> Analyse recalculée avec les données de la période — le verdict définitif exige la mesure de pointe détaillée ci-dessous.</p>`
+          +a1SwapInnerHtml(swapRes).replace(/<h2 class="docsec">/g,'<h3 style="font-size:12.5px;font-weight:700;color:#B5923A;text-transform:uppercase;letter-spacing:.04em;margin:16px 0 6px;break-after:avoid-page;page-break-after:avoid">').replace(/<\/h2>/g,"</h3>");
+        secs.push(["Étude de permutation des groupes", swapHtml]);
+      }
+    }
+  }
   if(benchHtml) secs.push(["Positionnement — sites comparables (anonymisé)", benchHtml]);
   secs.push(["Indicateurs clés de la période", `<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;page-break-inside:avoid"><tbody>${kpis.map(k=>kpiRow(k[0],k[1])).join("")}</tbody></table>`]);
   if(drvHtml) secs.push(["Conduite & conducteurs", drvHtml]);
@@ -7627,14 +7640,35 @@ function openA1SwapStudy(){
     <div class="msub">Peut-on échanger deux groupes sans qu'un site se retrouve <b>sous-motorisé</b> ? Verdict sur les données disponibles, gains estimés, et la liste exacte de ce qu'il reste à mesurer.</div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><b style="font-size:13px">Groupe A</b>${sel("sw-a",window._swapA)}<span style="font-size:16px">⇄</span><b style="font-size:13px">Groupe B</b>${sel("sw-b",window._swapB)}</div>
     <div id="sw-result"></div>
-    <div class="modal-actions"><button class="cta ghost" onclick="closeModal();setScreen('documentation')" title="Note générique « Permutation de groupes » à générer pour un client (bibliothèque de modèles)">📄 Note méthode client</button><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="a1SwapPrint()">🖨 Imprimer l'étude (PDF)</button></div>`);
-  a1SwapRender();
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal();setScreen('documentation')" title="Note générique « Permutation de groupes » à générer pour un client (bibliothèque de modèles)">📄 Note méthode client</button><span id="sw-pin"></span><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="a1SwapPrint()">🖨 Imprimer l'étude (PDF)</button></div>`);
+  a1SwapRender(); a1SwapPinRender();
 }
 function a1SwapRender(){
   const host=document.getElementById("sw-result"); if(!host) return;
   if(window._swapA===window._swapB){ host.innerHTML='<div class="hint" style="color:var(--orange)">Choisis deux groupes différents.</div>'; return; }
   const res=a1SwapAssess(window._swapA, window._swapB);
   host.innerHTML=res?a1SwapInnerHtml(res):'<div class="empty">Groupes introuvables.</div>';
+}
+/* Épinglage : la question du client (« que gagnerait-on à échanger les groupes ? ») entre dans CHAQUE rapport
+   mensuel tant qu'elle est ouverte — recalculée avec les données du moment, retirable en un clic. */
+function a1SwapPinRender(){
+  const host=document.getElementById("sw-pin"); if(!host) return;
+  const cid=a1genClient||""; if(!cid){ host.innerHTML=""; return; }
+  const pinned=(DB.a1swapReport||{})[cid];
+  host.innerHTML=pinned
+    ?`<button class="cta ghost" style="color:var(--green);border-color:var(--green)" onclick="a1SwapPinToggle()" title="L'étude figure dans chaque rapport exécutif de ce client — clic pour la retirer">📌 Dans les rapports ✓</button>`
+    :`<button class="cta gold" onclick="a1SwapPinToggle()" title="La question du client entre dans le prochain rapport exécutif (et les suivants), recalculée à chaque édition">📌 Inclure dans les rapports</button>`;
+}
+function a1SwapPinToggle(){
+  const cid=a1genClient||""; if(!cid){ toast("Sélectionne d'abord un client."); return; }
+  DB.a1swapReport=DB.a1swapReport||{};
+  if(DB.a1swapReport[cid]){ delete DB.a1swapReport[cid]; toast("Étude retirée des prochains rapports."); }
+  else {
+    if(!window._swapA||!window._swapB||window._swapA===window._swapB){ toast("Choisis d'abord les deux groupes à comparer."); return; }
+    DB.a1swapReport[cid]={a:window._swapA, b:window._swapB, since:todayISO()};
+    toast("📌 L'étude de permutation figurera dans chaque rapport de "+clientName(cid)+" — recalculée à chaque édition, retirable ici.");
+  }
+  save(); a1SwapPinRender();
 }
 function a1SwapPrint(){
   const res=a1SwapAssess(window._swapA, window._swapB); if(!res) return;
