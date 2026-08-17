@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.17.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.17.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -8769,13 +8769,16 @@ function deleteA1Doc(id, kind){ const d=(DB.a1docs||[]).find(x=>x.id===id); if(!
 function a1DocsContext(clientId){
   const list=(DB.a1docs||[]).filter(d=>d.clientId===clientId && (d.note||"").trim());
   let t=list.length?("\n\n=== DOCUMENTS COMPLÉMENTAIRES DU CLIENT (contexte terrain fourni par BSM — à prendre en compte) ===\n"+list.map(d=>"- ["+(d.category||"Autre")+"] "+(d.title?d.title+" : ":"")+(d.note||"")).join("\n")):"";
-  // Factures enregistrées (preuves validées à la main) : données solides pour recouper conso, prix et périodes.
-  const inv=(DB.a1invoices||[]).filter(i=>i.clientId===clientId).sort((a,b)=>String(a.period).localeCompare(String(b.period)));
+  // Factures enregistrées : agrégées PAR MOIS pour le recoupement interne. Le client connaît ses factures —
+  // on ne les lui recopie JAMAIS ; elles servent à valider prix et volumes, point.
+  const inv=(DB.a1invoices||[]).filter(i=>i.clientId===clientId);
   if(inv.length){
-    t+="\n\n=== FACTURES ENREGISTRÉES (chiffres validés sur pièce — source fiable pour recoupement) ===\n"
-      +inv.slice(-18).map(i=>"- "+(i.period||"?")+" · "+(i.kind==="jirama"?"JIRAMA":"Carburant"+(i.supplier?" ("+i.supplier+")":""))+" : "
-        +(i.kind==="jirama"?Math.round(i.kwh||0).toLocaleString("fr-FR")+" kWh":Math.round(i.liters||0).toLocaleString("fr-FR")+" L")
-        +" · "+Math.round(i.amount||0).toLocaleString("fr-FR")+" Ar"+(i.unit?" ("+Math.round(i.unit).toLocaleString("fr-FR")+" Ar/u)":"")+(i.hasFile?" · preuve jointe":"")).join("\n");
+    const agg={};
+    inv.forEach(i=>{ const k=(i.period||"?")+"|"+i.kind; const o=agg[k]=agg[k]||{period:i.period||"?",kind:i.kind,n:0,amount:0,qty:0};
+      o.n++; o.amount+=(+i.amount||0); o.qty+=(+(i.kind==="jirama"?i.kwh:i.liters)||0); });
+    t+="\n\n=== RECOUPEMENT FACTURES (USAGE STRICTEMENT INTERNE : sert à valider prix et volumes. INTERDIT de lister, recopier ou mentionner ces factures dans le texte destiné au client — il les connaît) ===\n"
+      +Object.values(agg).sort((a,b)=>String(a.period).localeCompare(String(b.period))).slice(-12)
+        .map(o=>"- "+o.period+" · "+(o.kind==="jirama"?"réseau":"carburant")+" : "+o.n+" facture(s), "+Math.round(o.qty).toLocaleString("fr-FR")+(o.kind==="jirama"?" kWh":" L")+", "+Math.round(o.amount).toLocaleString("fr-FR")+" Ar").join("\n");
   }
   return t; }
 function buildA1Context(){
@@ -9354,20 +9357,31 @@ function a1IsBatimentsRows(rows){
   return rows.some(r=> r && norm(r[0]||"")==="batiment")
       || rows.some(r=> r && r.some(c=>/climatisation|ascenceur|ascenseur|surpresseur|pompe de forage|nbre etage|superficie|supperficie/.test(norm(c))));
 }
-/* Parse la feuille : lignes « nom de groupe seul » = regroupement, ligne BATIMENT = en-tête de colonnes, autres lignes = bâtiments du groupe courant. */
+/* Parse la feuille : lignes « nom de groupe seul » = regroupement, ligne d'en-tête (BATIMENT / Immeuble / Site + colonnes
+   typiques) = intitulés, autres lignes = bâtiments. Les titres de feuille et cellules isolées sont ignorés. */
 function a1ParseBatiments(rows){
   const out=[]; let cols=null, cur=null;
   const flush=()=>{ if(cur && cur.buildings.length) out.push(cur); };
+  const isHeaderRow=cells=>{
+    const f=norm(cells[0]||"");
+    return ["batiment","batiments","immeuble","site","local"].indexOf(f)>=0
+        && cells.slice(1).some(c=>/localisation|locataire|superficie|supperficie|tanti|etage|niveau|ascen|climatisation|activite|eclairage/.test(norm(c)));
+  };
   for(let i=0;i<(rows||[]).length;i++){
     const cells=(rows[i]||[]).map(c=>String(c==null?"":c).trim());
     const nonEmpty=cells.filter(x=>x!=="");
     if(!nonEmpty.length) continue;
     const first=cells[0]||"";
-    if(norm(first)==="batiment"){ cols=cells.slice(); continue; }   // ligne d'en-tête (colonnes)
-    if(nonEmpty.length===1 && first){ flush(); cur={genset:first, buildings:[]}; continue; } // nom de groupe seul
+    if(norm(first)==="batiment" || isHeaderRow(cells)){ cols=cells.slice(); continue; }   // ligne d'en-tête (colonnes)
+    if(nonEmpty.length===1 && first){
+      // ligne seule : nom de groupe… ou simple TITRE de feuille (« Répartition des superficies… ») → ignoré
+      if(/repartition|superficie|tanti|liste|tableau|feuille/.test(norm(first)) || first.length>40) continue;
+      flush(); cur={genset:first, buildings:[]}; continue;
+    }
     if(!cur) cur={genset:"", buildings:[]};
     const fields=[];
     for(let c=1;c<cells.length;c++){ const v=cells[c]; if(v==="") continue; const label=(cols&&cols[c])||("Col"+(c+1)); fields.push([label,v]); }
+    if(!first && fields.length<=1) continue;   // cellule isolée / reste de mise en page → écarté
     cur.buildings.push({name:first, fields});
   }
   flush();
@@ -9377,11 +9391,10 @@ function a1ParseBatiments(rows){
 function a1SaveBatiments(rows, clientId){
   const groups=a1ParseBatiments(rows); if(!groups.length) return 0;
   if(!Array.isArray(DB.a1buildings)) DB.a1buildings=[];
+  DB.a1buildings=DB.a1buildings.filter(r=>(r.clientId||"")!==(clientId||""));   // la feuille réimportée EST la vérité pour ce client (fini les restes d'anciens formats)
   let n=0;
   groups.forEach(grp=>{
-    const rec={ clientId:clientId||"", genset:grp.genset||"", buildings:grp.buildings, importedAt:todayISO() };
-    const gi=DB.a1buildings.findIndex(r=>(r.clientId||"")===(clientId||"") && norm(r.genset)===norm(grp.genset||""));
-    if(gi>=0) DB.a1buildings[gi]=rec; else DB.a1buildings.push(rec);
+    DB.a1buildings.push({ clientId:clientId||"", genset:grp.genset||"", buildings:grp.buildings, importedAt:todayISO() });
     n+=grp.buildings.length;
     const g=grp.genset?DB.a1gensets.find(x=>a1NameMatch(x.name, grp.genset)&&(!clientId||x.clientId===clientId)):null;
     if(g) g.hasBuildings=true;
@@ -9391,13 +9404,34 @@ function a1SaveBatiments(rows, clientId){
 /* Contexte bâtiments (markdown compact) injecté dans la synthèse IA — enrichit l'analyse d'un groupe par ce qu'il alimente réellement. */
 function a1BuildingsMd(clientId){
   const recs=(DB.a1buildings||[]).filter(r=>(r.clientId||"")===(clientId||"")); if(!recs.length) return "";
-  let md="\n## Contexte des installations (bâtiments alimentés)\n\n_Détails terrain fournis par BSM — expliquent la charge électrique appelée par chaque groupe (à prendre en compte dans l'interprétation, sans inventer de chiffre)._\n\n";
+  let md="\n## Contexte des installations (bâtiments alimentés)\n\n_Détails terrain — ils expliquent la charge électrique appelée par chaque groupe. À prendre en compte dans l'interprétation, sans recopier le tableau in extenso._\n\n";
+  let any=false;
   recs.forEach(r=>{
-    md+=`**${r.genset||"Groupe"}** alimente :\n`;
-    r.buildings.forEach(bd=>{ const d=bd.fields.map(f=>f[0]+" : "+f[1]).join(" · "); md+=`- ${bd.name}${d?" — "+d:""}\n`; });
+    let builds=r.buildings.slice();
+    // RATTRAPAGE des anciens imports : si l'en-tête a été avalé comme « bâtiment » (labels Col2, Col3…),
+    // on le recycle en intitulés de colonnes au lieu d'afficher du brut.
+    let labels=null;
+    if(builds.length && builds.every(b=>b.fields.every(f=>/^Col\d+$/.test(f[0])))){
+      const h=builds.find(b=>/^(immeuble|b[aâ]timent|site|local)s?$/i.test(b.name||"") && b.fields.some(f=>/localisation|locataire|superficie|tanti|etage|niveau|ascen|climatisation|activite/i.test(String(f[1]))));
+      if(h){ labels={}; h.fields.forEach(f=>{ labels[f[0]]=String(f[1]); }); builds=builds.filter(b=>b!==h); }
+    }
+    const lb=k=>labels&&labels[k]?labels[k]:k;
+    // lignes de total mises de côté, lignes parasites écartées
+    const totals=builds.filter(b=>!b.name && b.fields.some(f=>/total/i.test(String(f[1]))));
+    builds=builds.filter(b=>b.name && b.fields.length);
+    if(!builds.length) return;
+    any=true;
+    const cols=[]; builds.forEach(b=>b.fields.forEach(f=>{ const L=lb(f[0]); if(cols.indexOf(L)<0) cols.push(L); }));
+    const num=v=>{ const s=String(v).trim(); const x=parseFloat(s.replace(",",".")); return (!isNaN(x)&&/^[\d.,\s]+$/.test(s))?(Math.round(x*100)/100).toLocaleString("fr-FR"):s; };
+    const gname=(r.genset && DB.a1gensets.some(g=>a1NameMatch(g.name, r.genset)))?r.genset:"";
+    if(gname) md+=`**Alimenté par ${gname}**\n\n`;
+    md+="| Bâtiment | "+cols.map(c=>/^Col\d+$/.test(c)?"—":c).join(" | ")+" |\n|"+Array(cols.length+1).fill("---").join("|")+"|\n";
+    builds.forEach(b=>{ const map={}; b.fields.forEach(f=>{ map[lb(f[0])]=f[1]; });
+      md+="| "+b.name+" | "+cols.map(c=>map[c]!=null?num(map[c]):"—").join(" | ")+" |\n"; });
+    if(totals.length) md+="\n_"+totals[0].fields.map(f=>num(f[1])).join(" · ")+"_\n";
     md+="\n";
   });
-  return md;
+  return any?md:"";
 }
 /* Import d'un classeur .xlsx complet : lit toutes les feuilles et range chaque donnée au bon endroit. */
 async function a1ImportXlsxFile(f){
