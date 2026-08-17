@@ -2752,7 +2752,7 @@ function docChrome(innerHtml, opt){
   const logo=DB.meta.logo?`<img src="${DB.meta.logo}" style="height:46px;margin-bottom:4px">`:`<div style="font-size:28px;font-weight:700;color:${D};font-family:'Cormorant Garamond',serif">BSM A&amp;C</div>`;
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>${esc(opt.title||"Document BSM A&C")}</title>`
     +`<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Raleway:wght@300;400;500;600&display=swap" rel="stylesheet">`
-    +`<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Raleway,sans-serif;color:${D};background:#fff;font-size:13px}@page{margin:15mm 18mm}@media print{.np{display:none!important}}
+    +`<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Raleway,sans-serif;color:${D};background:#fff;font-size:13px;-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{margin:15mm 18mm}@media print{.np{display:none!important}}
 h2.docsec{font-family:'Cormorant Garamond',serif;font-size:18px;color:${D};margin:18px 0 7px;padding-bottom:4px;border-bottom:1px solid #E5E7EB;break-after:avoid-page;page-break-after:avoid;break-inside:avoid;page-break-inside:avoid}
 p{margin:7px 0;line-height:1.65;orphans:3;widows:3}ul{margin:7px 0 7px 20px;line-height:1.65}li{orphans:3;widows:3}
 table{page-break-inside:auto}tr{page-break-inside:avoid;break-inside:avoid}thead{display:table-header-group}
