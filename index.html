@@ -736,6 +736,14 @@ function load(){
     try{ if(!(DB.docTemplates||[]).some(t=>/permutation de groupes/i.test(t.title||""))) DB.docTemplates.push(a1SwapNoteTemplate()); }catch(e){}
     DB.meta.swapNoteSeededV1=true;
   }
+  // v5.23 : facturation de base + échéancier à la charte (bases existantes, une fois)
+  if(!DB.meta.billingDocsSeededV1){
+    try{
+      if(!(DB.docTemplates||[]).some(t=>t.type==="facture")) DB.docTemplates.push(docFactureTemplate());
+      if(!(DB.docTemplates||[]).some(t=>t.type==="echeancier")) DB.docTemplates.push(docEcheancierTemplate());
+    }catch(e){}
+    DB.meta.billingDocsSeededV1=true;
+  }
   generateRecurring();
 }
 /* ----------------------------- Charges & produits récurrents ----------------------------- */
@@ -2722,6 +2730,8 @@ const DOC_TYPES=[
   {key:"devis",label:"Devis",icon:"📄"},
   {key:"proposition",label:"Proposition commerciale",icon:"📊"},
   {key:"contrat",label:"Contrat",icon:"📝"},
+  {key:"facture",label:"Facture",icon:"🧾"},
+  {key:"echeancier",label:"Échéancier de règlement",icon:"🗓️"},
   {key:"nda",label:"NDA — Confidentialité",icon:"🔒"},
   {key:"avenant",label:"Avenant",icon:"➕"},
   {key:"autre",label:"Autre document",icon:"📎"}
@@ -2794,7 +2804,7 @@ table{page-break-inside:auto}tr{page-break-inside:avoid;break-inside:avoid}thead
     +`<div style="margin-top:4px;text-align:center;font-size:9px;color:${GR}">Document émis par ${esc(s.rs)} — NIF ${esc(s.nif)} · STAT ${esc(s.stat)}</div>`
     +`</div>${opt.footRef?`<div class="pfoot">${esc(opt.footRef)}</div>`:""}</body></html>`;
 }
-function nextDocRef(type){ const code={devis:"DV",proposition:"PC",contrat:"CT",nda:"NDA",avenant:"AV",autre:"DOC"}[type]||"DOC";
+function nextDocRef(type){ const code={devis:"DV",proposition:"PC",contrat:"CT",facture:"FAC",echeancier:"ECH",nda:"NDA",avenant:"AV",autre:"DOC"}[type]||"DOC";
   const y=new Date().getFullYear(); const n=(DB.clientDocs||[]).filter(d=>d.type===type).length+1;
   return "BSM-"+code+"-"+y+"-"+String(n).padStart(3,"0"); }
 const DOC_TEMPLATES_VERSION=2; // ↑ à incrémenter si on veut re-proposer les modèles par défaut (ne remplace que les squelettes non personnalisés)
@@ -2924,8 +2934,50 @@ Le présent avenant prend effet à sa date de signature par les deux parties.
 
 ## Article 5 — Clauses inchangées
 Toutes les clauses du contrat initial non modifiées par le présent avenant demeurent applicables.`},
-  a1SwapNoteTemplate()
+  a1SwapNoteTemplate(),
+  docFactureTemplate(),
+  docEcheancierTemplate()
 ]; }
+/* Facturation de base à la charte — pour les prestations ponctuelles ; les factures d'échéances d'abonnement restent automatiques (Budget). */
+function docFactureTemplate(){ return {id:uid(),type:"facture",title:"Facture de prestation",active:true,body:
+`Facture émise par {{cabinet}} à l'attention de {{client}}.
+
+## Références
+Date d'émission : {{date}}. Objet : {{objet}}. La référence de la présente facture figure en en-tête du document.
+
+## Détail de la prestation
+- {{objet}} — montant : {{montant}}
+
+(Ajouter d'autres lignes au besoin : prestation — montant.)
+
+## Total à régler
+Montant total : {{montant}}. (Régime de TVA : à préciser selon la situation fiscale en vigueur.)
+
+## Modalités de règlement
+- Échéance : à réception de la présente facture, sauf échéancier convenu entre les parties.
+- Moyens acceptés : virement bancaire, chèque, mobile money (Mvola / Orange Money) — références communiquées sur demande.
+- Tout retard de paiement peut donner lieu à des pénalités, conformément aux conditions convenues.
+
+## Note
+Pour les prestations en abonnement, les factures d'échéances sont émises automatiquement à chaque échéance par {{cabinet}}.`}; }
+/* Échéancier de règlement à la charte — la colonne vertébrale de l'accord financier avec le client. */
+function docEcheancierTemplate(){ return {id:uid(),type:"echeancier",title:"Échéancier de règlement",active:true,body:
+`Échéancier convenu entre {{cabinet}} et {{client}} pour la prestation suivante : {{objet}}. Montant total : {{montant}}.
+
+## Échéances convenues
+- Échéance 1 — date : (à compléter) — montant : (à compléter) — à la signature
+- Échéance 2 — date : (à compléter) — montant : (à compléter)
+- Échéance 3 — date : (à compléter) — montant : (à compléter)
+
+(Ajuster le nombre d'échéances ; la somme des échéances doit égaler le montant total convenu.)
+
+## Conditions
+- Chaque échéance donne lieu à l'émission d'une facture par {{cabinet}}.
+- Le règlement intervient au plus tard à la date indiquée ; moyens acceptés : virement, chèque, mobile money.
+- En cas d'échéance impayée, {{cabinet}} se réserve le droit de suspendre les prestations après mise en demeure restée sans effet.
+
+## Suivi
+Le présent échéancier est suivi dans le système de pilotage de {{cabinet}} ; un rappel est adressé avant chaque échéance.`}; }
 /* Note technique GÉNÉRIQUE « permutation de groupes » — valable pour toute paire de groupes, transférable en PDF au client. */
 function a1SwapNoteTemplate(){ return {id:uid(),type:"autre",title:"Note technique — Permutation de groupes électrogènes",active:true,body:
 `Note établie par {{cabinet}} à l'attention de {{client}}. Elle explique, en langage clair, comment se décide l'échange de deux groupes électrogènes entre sites — et ce qu'il faut mesurer avant de déplacer la moindre machine.
@@ -3218,6 +3270,23 @@ function previewDocTemplate(id){ const t=DB.docTemplates.find(x=>x.id===id); if(
     {title:"Aperçu — "+t.title,typeLabel:docTypeMeta(t.type).label,ref:nextDocRef(t.type),date:frLong(todayISO()),clientName:"« Client »",clientContact:"« Contact »",objet:"« Objet »"})); }
 
 let __docGen={};
+/* Le bon document au bon moment : après une saisie commerciale (mission, abonnement, devis rattaché),
+   le Cockpit PROPOSE immédiatement les documents à la charte pour ce client — l'accroche se joue dans l'heure. */
+function docProposeAfter(context, clientId){
+  const c=DB.clients.find(x=>x.id===clientId); if(!c) return;
+  const items={
+    mission:[["📝 Contrat de prestation","contrat"],["🗓️ Échéancier de règlement","echeancier"],["🧾 Facture","facture"]],
+    abonnement:[["🗓️ Échéancier de règlement","echeancier"],["📝 Contrat de prestation","contrat"]],
+    devis:[["📝 Contrat de prestation","contrat"],["🗓️ Échéancier de règlement","echeancier"]]
+  }[context]||[];
+  if(!items.length) return;
+  const lbl={mission:"Mission enregistrée",abonnement:"Abonnement créé",devis:"Devis rattaché"}[context]||"Enregistré";
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>✨ ${lbl} — habiller ${esc(c.company)} à la charte ?</h2>
+    <div class="msub">Le réflexe premium : le document part <b>dans la foulée</b> de l'accord, pré-rempli pour ce client, à la charte BSM. Choisis, complète, imprime ou envoie.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px">${items.map((it,i)=>`<button class="cta ${i===0?"gold":"ghost"}" onclick="closeModal();openDocGenerate(null,'${clientId}','${it[1]}')">${it[0]}</button>`).join("")}</div>
+    <div class="hint" style="margin-top:8px">Modèles modifiables dans Documentation. NB : les factures d'échéances d'<b>abonnement</b> restent automatiques (Budget → « Factures à envoyer »).</div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Plus tard</button></div>`);
+}
 function openDocGenerate(templateId, clientId, forceType, editId){
   let tpl = templateId? DB.docTemplates.find(t=>t.id===templateId) : null;
   const editInst = editId? (DB.clientDocs||[]).find(d=>d.id===editId) : null;
@@ -3784,6 +3853,7 @@ function confirmDevisClient(){
   let cid=val("f-dvclient");
   if(cid==="__new"){ const c={id:uid(),company:pending.client||"Nouveau client",contactName:pending.contact||"",sector:"Autre",status:"prospect",createdAt:todayISO()}; DB.clients.push(c); cid=c.id; }
   saveDevisFor(cid, pending); window.__pendingDevis=null; closeModal(); toast("Devis enregistré."); openClientFiche(cid);
+  setTimeout(()=>docProposeAfter("devis", cid), 400);   // devis rattaché → proposer le contrat/échéancier dans la foulée (le réflexe premium)
 }
 function devisCardHtml(c){
   const d=clientDevis(c.id);
@@ -4709,7 +4779,9 @@ function saveRecurring(id){
     // purge des échéances à venir (prévu) pour régénérer selon la nouvelle fréquence/montant ; l'historique payé est conservé
     DB.transactions=DB.transactions.filter(t=>!(t.recurringId===id && t.status==="prevu")); }
   else { obj.id=uid(); obj.created=todayISO(); DB.recurring.push(obj); }
-  generateRecurring(); save(); openRecurringManager(); refreshAll(); toast("Récurrent enregistré — budget & compte de résultat mis à jour.");
+  generateRecurring(); save(); refreshAll(); toast("Récurrent enregistré — budget & compte de résultat mis à jour.");
+  if(!id && obj.clientId && obj.sens==="entrant") docProposeAfter("abonnement", obj.clientId);   // nouvel abonnement client → proposer l'échéancier à la charte
+  else openRecurringManager();
 }
 function toggleRecurring(id,on){
   const r=DB.recurring.find(x=>x.id===id); if(!r) return; r.active=on;
@@ -5419,6 +5491,7 @@ function saveMission(id){
   // acompte = somme encaissée (échéances de facturation encaissées)
   m.acompte=DB.transactions.filter(t=>t.missionId===mid&&t.sens==="entrant"&&t.status==="realise").reduce((s,t)=>s+(t.amount||0),0);
   save();closeModal();refreshAll();toast("Mission enregistrée — Budget & CA mis à jour.");
+  if(!id && obj.clientId) docProposeAfter("mission", obj.clientId);   // nouvelle mission → proposer contrat/échéancier/facture dans la foulée
 }
 // (Re)crée/synchronise le récurrent d'abonnement lié à une mission depuis le formulaire.
 function syncMissionSubscription(mid, m){
