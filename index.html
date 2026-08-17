@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.13.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.14.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -6721,6 +6721,8 @@ async function a1ExecReport(kind){
   const drvHtml=(drvStats&&drvStats.arr.length>=2)?(a1DriverTableHtml(drvStats,8)+`<p style="font-size:11px;color:#6B7280;margin-top:6px">Écart mesuré vs consommation constructeur des véhicules conduits (repli : moyenne flotte) ; ralenti croisé relevés + GPS. La conduite est généralement le gisement d'économies le plus rapide (éco-conduite, coupure moteur à l'arrêt, objectifs par conducteur).</p>`):"";
   const season=(isGen&&clientId)?a1OutageSeason(clientId):null;
   const seasonHtml=season?`<p style="font-size:12.5px;margin-top:8px;color:${season.level==="intense"?"#B5923A":season.level==="faible"?"#102A43":"#374151"}"><b>🗓️ Contexte délestages :</b> ${esc(a1SeasonText(season))}</p>`:"";
+  // ---- Page 2 « L'essentiel en une page » : verdict + jauges machines + trajectoire début → mois → objectif ----
+  const essential=a1EssentialPageHtml({ kind, isGen, arr, totals, comp, q, eco, ia, alerts, series, tgt, bench, season });
   // ---- Assemblage : sections numérotées dynamiquement (seules les sections avec matière apparaissent) ----
   const secs=[];
   secs.push(["Synthèse exécutive",
@@ -6751,7 +6753,7 @@ async function a1ExecReport(kind){
       <div style="font-size:16px;color:#374151;margin-bottom:30px">${esc(cName)}</div>
       <div style="font-size:12px;color:#6B7280;line-height:1.8">${period}<br>Référence : <b>${ref}</b><br>Document confidentiel — établi par ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}<br>Méthode R5® · Reveal · Connect · Respond · Strengthen · Review</div>
     </div>
-    `+secs.map((s,i)=>`<h2 class="docsec">${i+1}. ${s[0]}</h2>`+s[1]).join("");
+    `+essential+secs.map((s,i)=>`<h2 class="docsec">${i+1}. ${s[0]}</h2>`+s[1]).join("");
   const html=docChrome(body,{ title:"Rapport exécutif "+ref+" — "+cName, typeLabel:isGen?"Optimisation énergétique":"Optimisation flotte & carburant", date:period, clientName:cName, objet:isGen?"Analyse des groupes électrogènes et du coût de l'énergie":"Analyse de la flotte et du poste carburant" });
   openPrintable(html);
   a1ArchiveExecReport({ref, clientId:clientId||"", kind, cost:totals.cost, fiab:q.pct, alerts:alerts.length}, html);   // archivage numéroté (preuve du suivi)
@@ -7088,6 +7090,104 @@ function a1TrendCard(kind){
   if(!svg) return "";
   return `<div class="card"><h2 style="margin:0 0 4px">📈 Évolution ${series.length} mois — ${kind==="gen"?"coût du kWh":"conso moyenne"}${tgt?` <span style="font-size:11px;color:var(--gold);font-weight:600">🎯 objectif : ${kind==="gen"?fmtD(tgt.value)+"/kWh":tgt.value+" L/100"}</span>`:""}</h2>${svg}</div>`;
 }
+/* --- 🎛️ LANGAGE VISUEL « JAUGES » (validé JB : cartes + barres 0-100 zonées, lisibles en 2 s par un dirigeant).
+   Print-safe (couleurs fixes) : utilisé par la page « L'essentiel en une page » des rapports ET les écrans A1. --- */
+function a1LoadGaugeHtml(charge, peak){   // groupes : taux de charge, zones sous-charge / acceptable / idéale / danger
+  const mk=(pos,color,w)=>pos!=null?`<div style="position:absolute;top:-1px;bottom:-1px;left:${Math.min(99,Math.max(0,pos)).toFixed(1)}%;width:${w}px;background:${color};border-radius:2px"></div>`:"";
+  return `<div style="position:relative;height:10px;border-radius:5px;overflow:hidden;display:flex;border:1px solid #D6D0C2">
+      <div style="width:30%;background:#F5DFC0"></div><div style="width:30%;background:#EFEAD9"></div><div style="width:20%;background:#CBE5D3"></div><div style="width:20%;background:#F2C9C2"></div>
+      ${mk(charge,"#102A43",3)}${mk(peak,(peak!=null&&peak>80)?"#C0392B":"#2F855A",2)}</div>
+    <div style="display:flex;font-size:7.5px;color:#9CA3AF;justify-content:space-between;margin-top:1px"><span>0</span><span>30 % sous-charge</span><span>60–80 % idéale</span><span>100</span></div>`;
+}
+function a1DriftGaugeHtml(drift){   // véhicules : dérive de conso vs référence, échelle −20 % → +50 %
+  const pos=((Math.min(50,Math.max(-20,+drift||0))+20)/70*100);
+  return `<div style="position:relative;height:10px;border-radius:5px;overflow:hidden;display:flex;border:1px solid #D6D0C2">
+      <div style="width:28.6%;background:#CBE5D3"></div><div style="width:21.4%;background:#EFEAD9"></div><div style="width:50%;background:#F2C9C2"></div>
+      <div style="position:absolute;top:-1px;bottom:-1px;left:${pos.toFixed(1)}%;width:3px;background:#102A43;border-radius:2px"></div></div>
+    <div style="display:flex;font-size:7.5px;color:#9CA3AF;justify-content:space-between;margin-top:1px"><span>−20 %</span><span>réf. constructeur</span><span>+15 %</span><span>+50 %</span></div>`;
+}
+function a1MachineCardHtml(kind, p, extra){
+  const isGen=kind==="gen";
+  if(isGen){
+    const st=a1GroupLoadStats(p.g);
+    const charge=st.charge;
+    const peak=(st.kwAvg>0&&st.kwNom>0)?Math.min(100,st.kwAvg*A1_SWAP_PEAK/st.kwNom*100):null;
+    const cCol=charge==null?"#6B7280":(charge>=60&&charge<=80)?"#2F855A":charge>85?"#C0392B":"#B5923A";
+    return `<div style="flex:1;min-width:225px;max-width:330px;border:1.5px solid ${p.anomaly?"#C0392B":"#102A43"};border-radius:9px;padding:8px 10px;background:#fff;page-break-inside:avoid">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><div style="font-weight:700;font-size:11.5px;color:#102A43">${esc(p.g.name)}</div><div style="font-weight:700;font-size:13px;color:${cCol};white-space:nowrap">${charge!=null?Math.round(charge)+" %":"—"}</div></div>
+      <div style="font-size:8.5px;color:#6B7280">${st.kwNom?Math.round(st.kwNom)+" kW nominal":"puissance inconnue (fiche technique à importer)"} · ${st.kwAvg?Math.round(st.kwAvg)+" kW moyens":"—"}${(st.kwAvg>0)?` · pointe est. ≈ ${Math.round(st.kwAvg*A1_SWAP_PEAK)} kW`:""}</div>
+      <div style="margin-top:4px">${a1LoadGaugeHtml(charge, peak)}</div>
+      ${p.anomaly?`<div style="font-size:8.5px;color:#C0392B;font-weight:600;margin-top:3px">⚠ Surconsommation vs attendu${p.driftLh!=null?" (+"+p.driftLh.toFixed(0)+" %)":""}</div>`
+        :(charge!=null&&charge<30)?`<div style="font-size:8.5px;color:#B5923A;font-weight:600;margin-top:3px">Groupe surdimensionné pour la demande actuelle</div>`
+        :(charge!=null&&charge>85)?`<div style="font-size:8.5px;color:#C0392B;font-weight:600;margin-top:3px">Charge continue élevée — marge réduite</div>`:""}
+    </div>`;
+  }
+  const drift=(p.driftTheo!=null)?p.driftTheo:((extra&&extra.fleetConso>0&&p.consoL100)?(p.consoL100/extra.fleetConso-1)*100:null);
+  const refLbl=(p.driftTheo!=null)?"réf. constructeur":"réf. moyenne flotte";
+  const dCol=drift==null?"#6B7280":drift>15?"#C0392B":drift>0?"#B5923A":"#2F855A";
+  return `<div style="flex:1;min-width:225px;max-width:330px;border:1.5px solid ${p.anomaly?"#C0392B":"#102A43"};border-radius:9px;padding:8px 10px;background:#fff;page-break-inside:avoid">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><div style="font-weight:700;font-size:11.5px;color:#102A43">${esc(p.v.name)}</div><div style="font-weight:700;font-size:13px;color:${dCol};white-space:nowrap">${p.consoL100?p.consoL100.toFixed(1)+" L/100":"—"}</div></div>
+    <div style="font-size:8.5px;color:#6B7280">${esc(p.v.type||"")}${p.km?` · ${Math.round(p.km).toLocaleString("fr-FR")} km`:""}${(p.v.consoTheo>0)?` · constructeur ${p.v.consoTheo} L/100`:` · ${refLbl}`}${drift!=null?` · écart ${(drift>0?"+":"")+drift.toFixed(0)} %`:""}</div>
+    <div style="margin-top:4px">${drift!=null?a1DriftGaugeHtml(drift):`<div style="font-size:8px;color:#9CA3AF;font-style:italic">référence indisponible — renseigner la conso constructeur</div>`}</div>
+    ${p.anomaly?`<div style="font-size:8.5px;color:#C0392B;font-weight:600;margin-top:3px">⚠ Surconsommation — entretien, conduite ou carburant à contrôler</div>`:""}
+  </div>`;
+}
+function a1ParcCardsHtml(kind, arr, extra){ if(!arr||!arr.length) return ""; return `<div style="display:flex;gap:9px;flex-wrap:wrap">${arr.map(p=>a1MachineCardHtml(kind,p,extra)).join("")}</div>`; }
+/* Trajectoire « avant → pendant → après » généralisée : Début du suivi → Ce mois-ci → Objectif co-défini. */
+function a1TrajectoryHtml(kind, series, tgt){
+  const isGen=kind==="gen"; const key=isGen?"costPerKwh":"consoL100";
+  const pts=(series||[]).filter(s=>s[key]!=null);
+  if(pts.length<2) return "";
+  const first=pts[0], last=pts[pts.length-1];
+  const F=v=>isGen?Math.round(v).toLocaleString("fr-FR")+" Ar/kWh":(+v).toFixed(1)+" L/100";
+  const d=first[key]?(last[key]-first[key])/first[key]*100:0;
+  const box=(tag,sub,val,chip,chipCol,border,bg)=>`<div style="flex:1;border:1.6px solid ${border};background:${bg};border-radius:10px;padding:9px 12px;text-align:center;page-break-inside:avoid">
+      <div style="font-size:8.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#6B7280">${tag}</div>
+      <div style="font-size:8.5px;color:#9CA3AF;text-transform:capitalize">${sub}</div>
+      <div style="font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:700;color:#102A43;margin-top:2px">${val}</div>
+      ${chip?`<div style="font-size:9.5px;font-weight:700;color:${chipCol};margin-top:2px">${chip}</div>`:""}</div>`;
+  const arrow=`<div style="align-self:center;font-size:16px;color:#B5923A;font-weight:700">➜</div>`;
+  const tgtBox=tgt
+    ?box("Objectif co-défini","cible",F(tgt.value),(last[key]>tgt.value?("reste "+Math.round((last[key]-tgt.value)/tgt.value*100)+" % à gagner"):"✔ objectif atteint"),(last[key]>tgt.value?"#B5923A":"#2F855A"),"#B5923A","#FDFCF7")
+    :box("Objectif","à définir","🎯","à co-définir avec BSM","#6B7280","#D1D5DB","#F9FAFB");
+  return `<div style="margin:10px 0;page-break-inside:avoid">
+    <div style="font-size:10px;font-weight:700;color:#102A43;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px">Votre trajectoire — ${isGen?"coût du kWh produit":"consommation moyenne flotte"}</div>
+    <div style="display:flex;gap:8px">
+      ${box("Début du suivi",a1MonthLabel(first.m),F(first[key]),"","","#D6D0C2","#fff")}${arrow}
+      ${box("Ce mois-ci",a1MonthLabel(last.m),F(last[key]),(d<=-1?"▼ "+Math.abs(d).toFixed(0)+" % depuis le début":d>=1?"▲ +"+d.toFixed(0)+" % depuis le début":"stable depuis le début"),(d<=0?"#2F855A":"#C0392B"),"#102A43","#fff")}${arrow}
+      ${tgtBox}</div></div>`;
+}
+/* Page 2 du rapport exécutif : « L'essentiel en une page » — lisible en 60 secondes, suffisante à elle seule. */
+function a1EssentialPageHtml(o){
+  const F0=v=>Math.round(v).toLocaleString("fr-FR");
+  const vCol=o.arr.some(p=>p.diag&&p.diag.fraudScore>=35)?"#C0392B":(o.alerts.length?"#B5923A":"#2F855A");
+  const vBg=vCol==="#2F855A"?"#F0FAF4":vCol==="#B5923A"?"#FDF6E9":"#FDF0EE";
+  const verdict=(o.ia&&o.ia.verdict)||(o.alerts.length?("Points d'attention sur la période : "+o.alerts.map(p=>o.isGen?p.g.name:p.v.name).join(", ")+" — détail en sections suivantes."):"Exploitation conforme aux seuils sur la période analysée.");
+  const chip=(lbl,val,col)=>`<div style="flex:1;min-width:120px;background:#F6F1E8;border-radius:9px;padding:8px 11px;text-align:center">
+      <div style="font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:700;color:${col||"#102A43"}">${val}</div>
+      <div style="font-size:8px;color:#6B7280;text-transform:uppercase;letter-spacing:.05em">${lbl}</div></div>`;
+  const cards=(o.isGen?o.arr.slice().sort((a,b)=>(b.cost||0)-(a.cost||0)):o.arr.slice().sort((a,b)=>((b.driftTheo!=null?b.driftTheo:-999))-((a.driftTheo!=null?a.driftTheo:-999)))).slice(0,6);
+  const fiaCol=o.q.pct>=80?"#2F855A":o.q.pct>=50?"#B5923A":"#C0392B";
+  return `<div style="page-break-after:always">
+    <div style="display:flex;align-items:center;gap:10px;margin:2px 0 10px"><div style="font-family:'Cormorant Garamond',serif;font-size:22px;color:#102A43;font-weight:600">L'essentiel en une page</div><div style="flex:1;height:2px;background:#B5923A"></div></div>
+    <div style="border:2px solid ${vCol};background:${vBg};border-radius:10px;padding:9px 13px;margin-bottom:9px">
+      <div style="font-size:12.5px;line-height:1.65;color:#1F2937">${esc(verdict)}</div>
+      ${o.season?`<div style="font-size:9.5px;color:#6B7280;margin-top:3px">🗓️ ${esc(a1SeasonText(o.season))}</div>`:""}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      ${chip(o.isGen?"Coût énergie (période)":"Coût carburant (période)", fmtD(o.totals.cost))}
+      ${chip("Économies identifiées", o.eco>0?fmtD(o.eco):"—", o.eco>0?"#B5923A":"#102A43")}
+      ${chip("Fiabilité des données", o.q.pct+" %", fiaCol)}
+      ${chip("Points d'attention", String(o.alerts.length), o.alerts.length?"#C0392B":"#2F855A")}
+      ${(o.bench&&o.bench.n>=2)?chip("Vs sites comparables BSM",(o.bench.deltaPct>0?"+":"")+Math.round(o.bench.deltaPct)+" %",(o.bench.mine<=o.bench.median?"#2F855A":"#B5923A")):""}
+    </div>
+    <div style="font-size:10px;font-weight:700;color:#102A43;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px">${o.isGen?"Vos groupes en un coup d'œil":"Votre flotte en un coup d'œil"}</div>
+    ${a1ParcCardsHtml(o.kind, cards, o.comp)}
+    ${o.arr.length>6?`<div style="font-size:8.5px;color:#6B7280;margin-top:3px">+ ${o.arr.length-6} autre(s) machine(s) — détail complet dans les sections suivantes.</div>`:""}
+    ${a1TrajectoryHtml(o.kind, o.series, o.tgt)}
+    <div style="font-size:8.5px;color:#6B7280;border-top:1px solid #E4E0D6;padding-top:5px;margin-top:6px">Trait navy = charge moyenne · trait fin = pointe estimée (moyenne × ${A1_SWAP_PEAK}) · zone verte 60–80 % = zone idéale d'un groupe diesel. Les sections numérotées qui suivent détaillent chaque point.</div>
+  </div>`;
+}
 /* --- 🔁 ÉTUDE DE PERMUTATION DE GROUPES : peut-on échanger deux groupes sans qu'un site se retrouve sous-motorisé ?
    Verdict déterministe sur les données disponibles + gains estimés + LISTE de ce qu'il faut mesurer pour la certitude. --- */
 function a1GroupLoadStats(g){
@@ -7387,6 +7487,7 @@ function renderA1Fleet(){
     ${a1TrendCard('fleet')}
     ${anomalies.length?`<div class="card" style="border-left:3px solid var(--red)"><b>⚠️ Anomalies détectées :</b> ${anomalies.map(p=>esc(p.v.name)+" ("+p.consoL100.toFixed(1)+" L/100, +"+Math.round((p.consoL100/fleetConso-1)*100)+"% vs moyenne)").join(" · ")}. À vérifier : conduite, entretien, ou vol de carburant.</div>`:""}
     ${(function(){const tl=arr.reduce((s,p)=>s+((p.diag&&p.diag.loss)||0),0);const fr=arr.filter(p=>p.diag&&p.diag.fraudScore>=35);return (tl>0||fr.length)?`<div class="card" style="border-left:3px solid var(--navy)">${tl>0?`<b>💸 Impact financier estimé (surconsommation) :</b> ${fmtD(tl)}. `:""}${fr.length?`<b style="color:var(--red)">🚨 ${fr.length} véhicule(s) à risque de détournement</b> (score ≥ 35) — ouvrez le 🔬 diagnostic pour la cause probable et les orientations.`:""}${tl<=0&&!DB.meta.fuelPrices.gasoil?` <span style="color:var(--muted)">Renseignez les <b>⛽ prix carburant</b> pour chiffrer l'impact.</span>`:""}</div>`:"";})()}
+    ${arr.length?`<div class="card"><h2>🎛️ La flotte en un coup d'œil</h2>${a1ParcCardsHtml('fleet', arr, {fleetConso})}<div class="hint" style="margin-top:6px">Jauge = dérive de consommation vs <b>référence constructeur</b> (repli : moyenne flotte). Vert = mieux que la référence · rouge au-delà de +15 %.</div></div>`:""}
     ${a1GpsRecoupCard()}
     ${a1DriverCard()}
     ${a1InvoiceCard("fuel")}
@@ -8871,6 +8972,7 @@ function renderA1Genset(){
     ${(function(){const tl=arr.reduce((s,p)=>s+((p.diag&&p.diag.loss)||0),0);const fr=arr.filter(p=>p.diag&&p.diag.fraudScore>=35);return (tl>0||fr.length)?`<div class="card" style="border-left:3px solid var(--navy)">${tl>0?`<b>💸 Impact financier estimé (surconsommation) :</b> ${fmtD(tl)}. `:""}${fr.length?`<b style="color:var(--red)">🚨 ${fr.length} groupe(s) à risque de détournement</b> (score ≥ 35) — ouvrez le 🔬 diagnostic.`:""}${tl<=0&&!DB.meta.fuelPrices.gasoil?` <span style="color:var(--muted)">Renseignez les <b>⛽ prix carburant</b> pour chiffrer l'impact.</span>`:""}</div>`:"";})()}
     ${a1InvoiceCard("jirama")}
     ${a1ConcentrationCard("gen")}
+    ${arr.length?`<div class="card"><h2>🎛️ Le parc en un coup d'œil</h2>${a1ParcCardsHtml('gen', arr)}<div class="hint" style="margin-top:6px">Trait navy = charge moyenne · trait fin = pointe estimée (moyenne × ${A1_SWAP_PEAK}) · zone verte 60–80 % = zone idéale d'un diesel. Diagnostic détaillé : 🔬 dans le tableau ci-dessous.</div></div>`:""}
     <div class="card"><h2>Parc de groupes (${DB.a1gensets.length} groupes · ${DB.a1genlogs.length} relevés)</h2>
       ${arr.length?`<div style="overflow-x:auto"><table><thead><tr><th>Groupe</th><th style="text-align:right">Heures</th><th style="text-align:right">kWh</th><th style="text-align:right">Conso</th><th style="text-align:right">Rendement</th><th style="text-align:right">Coût/kWh</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`:`<div class="empty">Aucun groupe. Cliquez « + Groupe » ou « ⇊ Importer CSV ».</div>`}
     </div>`;
