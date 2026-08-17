@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.14.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.15.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -2662,7 +2662,16 @@ function docChrome(innerHtml, opt){
   const logo=DB.meta.logo?`<img src="${DB.meta.logo}" style="height:46px;margin-bottom:4px">`:`<div style="font-size:28px;font-weight:700;color:${D};font-family:'Cormorant Garamond',serif">BSM A&amp;C</div>`;
   return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>${esc(opt.title||"Document BSM A&C")}</title>`
     +`<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Raleway:wght@300;400;500;600&display=swap" rel="stylesheet">`
-    +`<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Raleway,sans-serif;color:${D};background:#fff;font-size:13px}@page{margin:15mm 18mm}@media print{.np{display:none!important}}h2.docsec{font-family:'Cormorant Garamond',serif;font-size:18px;color:${D};margin:18px 0 7px;padding-bottom:4px;border-bottom:1px solid #E5E7EB}p{margin:7px 0;line-height:1.65}ul{margin:7px 0 7px 20px;line-height:1.65}</style></head><body>`
+    +`<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Raleway,sans-serif;color:${D};background:#fff;font-size:13px}@page{margin:15mm 18mm}@media print{.np{display:none!important}}
+h2.docsec{font-family:'Cormorant Garamond',serif;font-size:18px;color:${D};margin:18px 0 7px;padding-bottom:4px;border-bottom:1px solid #E5E7EB;break-after:avoid-page;page-break-after:avoid;break-inside:avoid;page-break-inside:avoid}
+p{margin:7px 0;line-height:1.65;orphans:3;widows:3}ul{margin:7px 0 7px 20px;line-height:1.65}li{orphans:3;widows:3}
+table{page-break-inside:auto}tr{page-break-inside:avoid;break-inside:avoid}thead{display:table-header-group}
+.ai-md table{width:100%;border-collapse:collapse;font-size:10.5px;margin:10px 0;font-variant-numeric:tabular-nums}
+.ai-md th{background:#F6F1E8;color:#102A43;font-weight:700;font-size:9px;letter-spacing:.04em;text-transform:uppercase;text-align:left;padding:6px 9px;border:1px solid #E4E0D6}
+.ai-md td{padding:6px 9px;border:1px solid #E4E0D6;vertical-align:top;line-height:1.5}
+.ai-md tbody tr:nth-child(even){background:#FCFBF7}
+.ai-md h2{font-family:'Cormorant Garamond',serif;font-size:15.5px;color:#102A43;margin:14px 0 6px;break-after:avoid-page;page-break-after:avoid}
+.ai-md h3{font-size:11.5px;font-weight:700;color:#B5923A;text-transform:uppercase;letter-spacing:.04em;margin:11px 0 5px;break-after:avoid-page;page-break-after:avoid}</style></head><body>`
     +`<div class="np" style="background:#0D1F45;padding:12px 24px;display:flex;gap:10px"><button onclick="window.print()" style="background:${G};color:#0D1F45;border:none;padding:10px 22px;font-weight:700;font-size:11px;cursor:pointer;border-radius:4px">Imprimer / PDF</button><button onclick="window.close()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4);padding:10px 18px;font-size:11px;cursor:pointer;border-radius:4px">Fermer</button></div>`
     +`<div style="max-width:820px;margin:0 auto;padding:28px 24px">`
     +`<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid ${G}">`
@@ -6622,20 +6631,48 @@ function a1NextRef(clientId, kind){
 }
 async function a1ArchiveExecReport(meta, html){
   DB.a1execreports=DB.a1execreports||[];
-  const rec=Object.assign({id:uid(), ts:new Date().toISOString()}, meta);
+  const rec=Object.assign({id:uid(), ts:new Date().toISOString(), status:"brouillon"}, meta);   // sécurité : tout rapport naît BROUILLON, l'envoi exige une validation
   if(serverEnabled && await fileServerPut("a1rep_"+rec.id, rec.ref, "text/html", "kbtext:"+html)) rec.onServer=true;
   DB.a1execreports.push(rec); save();
+  toast("📕 "+(rec.ref||"Rapport")+" archivé en BROUILLON — relis-le puis ✅ valide-le (📚 Historique) avant tout envoi client.");
+}
+/* Cycle de vie du rapport exécutif : brouillon → validé → envoyé. L'envoi client est verrouillé tant que la direction n'a pas validé. */
+function a1ExecStatus(r){ return r.status||(r.sentAt?"envoye":"brouillon"); }
+function a1ExecStatusBadge(r){ const s=a1ExecStatus(r);
+  return s==="envoye"?'<span class="badge b-green">Envoyé</span>':s==="valide"?'<span class="badge b-blue">Validé ✓</span>':'<span class="badge b-orange">Brouillon — à valider</span>'; }
+function a1ExecValidate(id, reopen){
+  const r=(DB.a1execreports||[]).find(x=>x.id===id); if(!r) return;
+  if(!isDirection()){ toast("Validation réservée à la direction."); return; }
+  r.status="valide"; r.validatedAt=new Date().toISOString(); r.validatedBy=(currentUser&&currentUser.name)||"";
+  save();
+  if(reopen==="send"){ openA1ExecSend(id); }
+  else if(reopen==="histo"){ openA1ExecHistory(r.kind); }
+  else { closeModal(); }
+  if(currentScreen==="a1suivi") renderA1Suivi();
+  toast("✅ "+(r.ref||"Rapport")+" validé — prêt pour l'envoi client.");
+}
+function a1ExecDelete(id){
+  const r=(DB.a1execreports||[]).find(x=>x.id===id); if(!r) return;
+  if(!isDirection()){ toast("Suppression réservée à la direction."); return; }
+  confirmModal("Supprimer le rapport "+esc(r.ref||"")+" ?",
+    "Il sera retiré de l'historique (récupérable 30 jours via la corbeille). Sa copie archivée sur le serveur est supprimée définitivement — un rapport corrigé pourra reprendre la même référence.",
+    ()=>{
+      DB.a1execreports=DB.a1execreports.filter(x=>x.id!==id);
+      if(r.onServer&&serverEnabled){ try{ fetch("/api/file-del",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:"a1rep_"+r.id})}); }catch(e){} }
+      save(); closeModal(); openA1ExecHistory(r.kind); if(currentScreen==="a1suivi") renderA1Suivi(); toast("Rapport supprimé — regénère-le une fois les données corrigées.");
+    });
 }
 function openA1ExecHistory(kind){
   const clientId=kind==="fleet"?a1Client:a1genClient;
   const list=(DB.a1execreports||[]).filter(r=>r.kind===kind&&(!clientId||r.clientId===clientId)).slice().reverse();
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📚 Historique des rapports${clientId?" — "+esc(clientName(clientId)):""}</h2>
     <div class="msub">Chaque rapport exécutif est archivé et numéroté — la preuve du suivi, consultable en réunion.</div>
-    ${list.length?`<table><thead><tr><th>Référence</th><th>Date</th><th style="text-align:right">Coût période</th><th style="text-align:right">Fiabilité</th><th style="text-align:right">Alertes</th><th>Envoyé</th><th></th></tr></thead><tbody>
-      ${list.map(r=>`<tr><td><b>${esc(r.ref)}</b></td><td>${frDate(r.ts)}</td><td style="text-align:right">${r.cost!=null?fmtD(r.cost):"—"}</td><td style="text-align:right">${r.fiab!=null?r.fiab+" %":"—"}</td><td style="text-align:right">${r.alerts!=null?r.alerts:"—"}</td>
-        <td>${r.sentAt?`<span style="color:var(--green);font-weight:600">✓ ${frDate(r.sentAt)}</span><div style="font-size:10px;color:var(--muted)">${esc(r.sentTo||"")}</div>`:'<span class="hint">—</span>'}</td>
-        <td style="text-align:right;white-space:nowrap">${r.onServer?`<button class="cta ghost sm" onclick="a1ViewExecReport('${r.id}')">👁 Revoir</button> <button class="cta ghost sm" title="${r.sentAt?"Renvoyer":"Envoyer"} au client (PDF joint, tracé)" onclick="closeModal();openA1ExecSend('${r.id}')">✉️ ${r.sentAt?"Renvoyer":"Envoyer"}</button>`:'<span class="hint">—</span>'}</td></tr>`).join("")}
-    </tbody></table>`:`<div class="empty">Aucun rapport archivé pour l'instant — génère un 📕 Rapport exécutif.</div>`}
+    ${list.length?`<table><thead><tr><th>Référence</th><th>Date</th><th style="text-align:right">Coût période</th><th style="text-align:right">Fiabilité</th><th>Statut</th><th></th></tr></thead><tbody>
+      ${list.map(r=>{ const st=a1ExecStatus(r); return `<tr><td><b>${esc(r.ref)}</b>${r.alerts?`<div style="font-size:10px;color:var(--muted)">${r.alerts} alerte(s)</div>`:""}</td><td>${frDate(r.ts)}</td><td style="text-align:right">${r.cost!=null?fmtD(r.cost):"—"}</td><td style="text-align:right">${r.fiab!=null?r.fiab+" %":"—"}</td>
+        <td>${a1ExecStatusBadge(r)}${r.sentAt?`<div style="font-size:10px;color:var(--muted)">le ${frDate(r.sentAt)} · ${esc(r.sentTo||"")}</div>`:(st==="valide"&&r.validatedAt?`<div style="font-size:10px;color:var(--muted)">le ${frDate(r.validatedAt)}${r.validatedBy?" par "+esc(r.validatedBy):""}</div>`:"")}</td>
+        <td style="text-align:right;white-space:nowrap">${r.onServer?`<button class="cta ghost sm" title="Relire le rapport" onclick="a1ViewExecReport('${r.id}')">👁</button> `:""}${st==="brouillon"?`<button class="cta sm" title="Valider après relecture — débloque l'envoi client" onclick="a1ExecValidate('${r.id}','histo')">✅ Valider</button>`:`<button class="cta ghost sm" title="${r.sentAt?"Renvoyer":"Envoyer"} au client (PDF joint, tracé)" onclick="closeModal();openA1ExecSend('${r.id}')">✉️ ${r.sentAt?"Renvoyer":"Envoyer"}</button>`} <button class="iconbtn del" title="Supprimer (rapport erroné ou incomplet)" onclick="a1ExecDelete('${r.id}')">🗑</button></td></tr>`; }).join("")}
+    </tbody></table>
+    <div class="hint" style="margin-top:6px">🔒 Sécurité : un rapport naît en <b>brouillon</b> — relis-le (👁), <b>✅ valide-le</b>, et seulement alors l'envoi client se débloque. Un rapport faux se 🗑 supprime puis se regénère (même référence).</div>`:`<div class="empty">Aucun rapport archivé pour l'instant — génère un 📕 Rapport exécutif.</div>`}
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`);
 }
 async function a1ViewExecReport(id){
@@ -6819,12 +6856,12 @@ function renderA1Suivi(){
         ?`<b style="color:var(--green)">${r.monthLogs} relevé(s)</b><div style="font-size:10.5px;color:var(--muted)">dernier : ${frDate(r.lastDate)}</div>`
         :`<span style="color:var(--red);font-weight:600">aucun ce mois</span>${r.lastDate?`<div style="font-size:10.5px;color:var(--muted)">dernier reçu : ${frDate(r.lastDate)}</div>`:""}${r.rel?`<div style="font-size:10.5px;color:#A6641A">📨 relancé le ${frDate(r.rel.at)}</div>`:""}`}</td>
       <td style="text-align:right"><b style="color:${fiaColor}">${q.pct} %</b></td>
-      <td>${r.rep?`<b>${esc(r.rep.ref)}</b><div style="font-size:10.5px;color:var(--muted)">généré le ${frDate(r.rep.ts)}</div>`:"—"}</td>
-      <td>${r.rep&&r.rep.sentAt?`<span style="color:var(--green);font-weight:600">✓ ${frDate(r.rep.sentAt)}</span><div style="font-size:10.5px;color:var(--muted)">${esc(r.rep.sentTo||"")}</div>`:(r.rep?`<span style="color:#A6641A;font-weight:600">à envoyer</span>`:"—")}</td>
+      <td>${r.rep?`<b>${esc(r.rep.ref)}</b><div style="font-size:10.5px;color:var(--muted)">généré le ${frDate(r.rep.ts)}</div><div style="margin-top:2px">${a1ExecStatusBadge(r.rep)}</div>`:"—"}</td>
+      <td>${r.rep&&r.rep.sentAt?`<span style="color:var(--green);font-weight:600">✓ ${frDate(r.rep.sentAt)}</span><div style="font-size:10.5px;color:var(--muted)">${esc(r.rep.sentTo||"")}</div>`:(r.rep?(a1ExecStatus(r.rep)==="valide"?`<span style="color:#A6641A;font-weight:600">à envoyer</span>`:`<span style="color:var(--muted);font-weight:600">à valider d'abord</span>`):"—")}</td>
       <td><div class="rowact">
         <button class="iconbtn" title="Relancer la collecte (mail + fiche de relevé jointe)" onclick="openA1Relance('${r.clientId}','${r.kind}')">📨</button>
         ${r.rep
-          ?`${r.rep.onServer?`<button class="iconbtn" title="Revoir le rapport ${esc(r.rep.ref)}" onclick="a1ViewExecReport('${r.rep.id}')">👁</button>`:""}<button class="iconbtn" title="${r.rep.sentAt?"Renvoyer":"Envoyer"} le rapport au client" onclick="openA1ExecSend('${r.rep.id}')">✉️</button>`
+          ?`${r.rep.onServer?`<button class="iconbtn" title="Revoir le rapport ${esc(r.rep.ref)}" onclick="a1ViewExecReport('${r.rep.id}')">👁</button>`:""}${a1ExecStatus(r.rep)==="brouillon"?`<button class="iconbtn" title="Valider le rapport (relecture faite) — débloque l'envoi" onclick="a1ExecValidate('${r.rep.id}','')">✅</button>`:`<button class="iconbtn" title="${r.rep.sentAt?"Renvoyer":"Envoyer"} le rapport au client" onclick="openA1ExecSend('${r.rep.id}')">✉️</button>`}`
           :`<button class="iconbtn" title="Générer le rapport exécutif du mois" onclick="a1SuiviGenerate('${r.clientId}','${r.kind}')">📕</button>`}
         <button class="iconbtn" title="Ouvrir le module ${isGen?"Groupes":"Flotte"} sur ce client" onclick="a1SuiviOpen('${r.clientId}','${r.kind}')">→</button>
       </div></td>
@@ -6846,7 +6883,7 @@ function renderA1Suivi(){
     </div>
     ${rows.length?`<div class="card"><h2>Cycle de production — ${esc(a1MonthLabel(month))}</h2>
       <table><thead><tr><th>Client</th><th>Cycle du mois</th><th>Relevés</th><th style="text-align:right">Fiabilité</th><th>Rapport</th><th>Envoi</th><th></th></tr></thead><tbody>${trs}</tbody></table>
-      <div class="hint" style="margin-top:8px">📨 = relance de collecte (mail type + fiche de relevé vierge en PDF) · 📕 = générer le rapport exécutif · ✉️ = envoyer le rapport au client (PDF joint, tracé).</div></div>`
+      <div class="hint" style="margin-top:8px">📨 = relance de collecte (mail type + fiche de relevé jointe) · 📕 = générer le rapport (naît en brouillon) · ✅ = valider après relecture (sécurité) · ✉️ = envoyer au client (PDF joint, tracé).</div></div>`
     :`<div class="card"><div class="empty">Aucun client en suivi A1 pour l'instant.<br>Lance une <b>🧭 Nouvelle analyse</b> depuis les modules ⚡ Groupes ou 🚗 Flotte : chaque client importé apparaîtra ici automatiquement.</div>
       <div style="display:flex;gap:8px;justify-content:center;margin-top:6px"><button class="cta" onclick="setScreen('a1genset')">🔌 Groupes électrogènes →</button><button class="cta" onclick="setScreen('a1fleet')">🚗 Flotte & carburant →</button></div></div>`}`;
 }
@@ -6892,6 +6929,7 @@ async function a1RelanceSend(clientId, kind){
 /* ---- Lot E-8 : envoi du rapport exécutif archivé — contrôlé (validation), PDF joint, tracé ---- */
 function openA1ExecSend(id){
   const r=(DB.a1execreports||[]).find(x=>x.id===id); if(!r) return;
+  const st=a1ExecStatus(r);
   const c=DB.clients.find(x=>x.id===r.clientId)||{};
   const to=(c.contactEmail||"").trim();
   const defMsg="Bonjour,\n\nVeuillez trouver ci-joint votre rapport de suivi mensuel "+(r.ref||"")+" ("+(r.kind==="gen"?"optimisation énergétique — groupes électrogènes":"optimisation flotte & carburant")+").\n\nNous restons à votre disposition pour vous le présenter et répondre à vos questions.\n\nBien cordialement,\n"+(DB.meta.cabinetName||"BSM Advisory & Consulting");
@@ -6900,20 +6938,22 @@ function openA1ExecSend(id){
     <div class="msub">Contrôle du destinataire et du message : c'est l'étape de <b>validation</b> avant l'envoi réel. Le rapport part en <b>PDF joint</b>, l'envoi est tracé.</div>
     <div class="mini-list" style="margin:8px 0 10px">
       <div class="li"><span>Client</span><b>${esc(r.clientId?clientName(r.clientId):"—")}</b></div>
-      <div class="li"><span>Généré le</span><b>${frDate(r.ts)}</b></div>
+      <div class="li"><span>Généré le · statut</span><b>${frDate(r.ts)} · ${a1ExecStatusBadge(r)}</b></div>
       <div class="li"><span>Coût période · fiabilité</span><b>${r.cost!=null?fmtD(r.cost):"—"} · ${r.fiab!=null?r.fiab+" %":"—"}</b></div>
       ${r.sentAt?`<div class="li"><span>Déjà envoyé</span><b>le ${frDate(r.sentAt)} à ${esc(r.sentTo||"")}</b></div>`:""}
     </div>
+    ${st==="brouillon"?`<div class="hint" style="color:#A6641A;background:#FDF1E3;border:1px solid #F3D8B4;border-radius:8px;padding:9px;margin-bottom:8px">🔒 <b>Mesure de sécurité :</b> ce rapport est en <b>brouillon</b>. Relis-le (👁) puis <b>valide-le</b> — l'envoi client se débloque après validation. S'il est erroné : 🗑 dans 📚 Historique, puis regénère.</div>`:""}
     <div class="field"><label>Destinataire (e-mail client)</label><input id="xs-to" value="${esc(to)}" placeholder="client@exemple.com"></div>
     <div class="field"><label>Objet</label><input id="xs-subject" value="[BSM] Rapport de suivi ${esc(r.ref||"")}${r.clientId?" — "+esc(clientName(r.clientId)):""}"></div>
     <div class="field"><label>Message d'accompagnement</label><textarea id="xs-msg" rows="7" style="width:100%;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px">${esc(defMsg)}</textarea></div>
     ${to?"":'<div class="hint" style="color:var(--orange)">⚠ Aucune adresse sur la fiche client — saisis-la ci-dessus.</div>'}
     ${r.onServer?"":'<div class="hint" style="color:var(--orange)">⚠ Le contenu de ce rapport n’est pas archivé sur le serveur — regénère-le (📕) pour pouvoir l’envoyer.</div>'}
     ${!serverEnabled?`<div class="hint" style="color:#A6641A;background:#FDF1E3;border:1px solid #F3D8B4;border-radius:8px;padding:9px;margin-top:6px">🖥️ L'<b>envoi e-mail</b> se fait depuis le <b>Cockpit local</b> (serveur). Bascule en local pour envoyer.</div>`:''}
-    <div class="modal-actions">${r.onServer&&serverEnabled?`<button class="cta ghost" onclick="a1ViewExecReport('${r.id}')">👁 Relire</button>`:""}<button class="cta ghost" onclick="closeModal()">Annuler</button>${serverEnabled&&r.onServer?`<button class="cta" onclick="a1ExecSendGo('${r.id}')">${r.sentAt?"Renvoyer":"Envoyer"} au client</button>`:''}</div>`);
+    <div class="modal-actions">${r.onServer&&serverEnabled?`<button class="cta ghost" onclick="a1ViewExecReport('${r.id}')">👁 Relire</button>`:""}<button class="cta ghost" onclick="closeModal()">Annuler</button>${st==="brouillon"?`<button class="cta gold" onclick="a1ExecValidate('${r.id}','send')">✅ Valider (puis envoyer)</button>`:(serverEnabled&&r.onServer?`<button class="cta" onclick="a1ExecSendGo('${r.id}')">${r.sentAt?"Renvoyer":"Envoyer"} au client</button>`:'')}</div>`);
 }
 async function a1ExecSendGo(id){
   const r=(DB.a1execreports||[]).find(x=>x.id===id); if(!r) return;
+  if(a1ExecStatus(r)==="brouillon"){ toast("🔒 Sécurité : valide d'abord le rapport (relecture direction) avant l'envoi client."); return; }
   if(!serverEnabled){ toast("Envoi indisponible ici — ouvre le Cockpit local."); return; }
   const to=(val("xs-to")||"").trim(); if(!to){ toast("Renseigne l'adresse e-mail du client."); return; }
   const subject=(val("xs-subject")||("[BSM] Rapport "+(r.ref||""))).trim();
@@ -6924,7 +6964,7 @@ async function a1ExecSendGo(id){
     const doc=String(f.data||"").replace(/^kbtext:/,"");
     if(!doc) throw new Error("rapport introuvable sur le serveur");
     await bsmClientMail({ to, subject, html:'<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7">'+esc(msg).replace(/\n/g,"<br>")+'</p>', pdfHtml:doc, pdfName:String(r.ref||"rapport").replace(/[^A-Za-z0-9._-]+/g,"_") });
-    r.sentAt=new Date().toISOString(); r.sentTo=to; r.sentBy=(currentUser&&currentUser.name)||"";
+    r.sentAt=new Date().toISOString(); r.sentTo=to; r.sentBy=(currentUser&&currentUser.name)||""; r.status="envoye";
     const c=DB.clients.find(x=>x.id===r.clientId); if(c&&!c.contactEmail) c.contactEmail=to;
     save(); closeModal(); if(currentScreen==="a1suivi") renderA1Suivi(); toast("✉️ Rapport "+(r.ref||"")+" envoyé à "+to+" ✅");
   }catch(e){ toast("Échec de l'envoi : "+(e.message||e)); }
@@ -8660,7 +8700,7 @@ function buildFleetSynthesisMd(){
     md+=`| **${p.v.name}** | ${esc(p.v.type||"—")} | ${p.km.toLocaleString('fr-FR')} | ${p.consoL100?p.consoL100.toFixed(1)+" L/100":"—"} | ${vs} | ${p.costPerKm?fmtD(p.costPerKm):"—"} | ${p.idleRatio?p.idleRatio.toFixed(0)+"%":"—"} | ${a1FleetState(p)} |\n`; });
   md+=`\n## Constats\n\n`;
   const ano=arr.filter(p=>p.anomaly);
-  if(ano.length) md+=`- **Surconsommation : ${ano.map(p=>p.v.name+" ("+p.consoL100.toFixed(1)+" L/100"+(p.driftTheo!=null?", +"+p.driftTheo.toFixed(0)+"% vs constructeur":"")+")").join(", ")}.** À vérifier : entretien (filtres, pneus, injection), conduite, ou détournement (cf. dépistage). ${arr.some(p=>p.consoTheo>0)?"":"⚠ Conso constructeur manquante pour certains véhicules → comparaison vs moyenne flotte (moins précise) ; renseigne les fiches pour affiner."}\n`;
+  if(ano.length) md+=`- **Surconsommation : ${ano.map(p=>p.v.name+" ("+p.consoL100.toFixed(1)+" L/100"+(p.driftTheo!=null?", +"+p.driftTheo.toFixed(0)+"% vs constructeur":"")+")").join(", ")}.** À vérifier : entretien (filtres, pneus, injection), conduite, ou détournement (cf. dépistage). ${arr.some(p=>p.consoTheo>0)?"":"⚠ Conso constructeur manquante pour certains véhicules → comparaison vs moyenne flotte (moins précise) ; la communication des consommations constructeur affinera l'analyse."}\n`;
   else md+=`- **Consommation** : aucune surconsommation nette au-dessus des seuils (vs constructeur / moyenne flotte).\n`;
   const idle=arr.filter(p=>p.idleFlag);
   if(idle.length) md+=`- **Ralenti excessif : ${idle.map(p=>p.v.name+" ("+p.idleRatio.toFixed(0)+"%)").join(", ")}** — moteur tournant à l'arrêt = gasoil brûlé sans kilomètre + usure. Action : sensibiliser les conducteurs (coupure à l'arrêt), suivi.\n`;
@@ -9379,13 +9419,13 @@ function buildGensetSynthesisMd(){
   arr.forEach(p=>{ const puis=[p.g.puissanceKva?p.g.puissanceKva+" kVA":"",p.kwNominal?Math.round(p.kwNominal)+" kW":""].filter(Boolean).join(" / ")||"specs ?";
     md+=`| **${p.g.name}** | ${puis} | ${Math.round(p.hours)} h | ${Math.round(p.kwh).toLocaleString('fr-FR')} kWh | ${p.chargePct>0?"**"+p.chargePct.toFixed(0)+"%**":"—"} | ${p.realLh?p.realLh.toFixed(1)+" L/h":"—"} | ${p.rendement?p.rendement.toFixed(2)+" kWh/L":"—"} | ${p.costPerKwh?fmtD(p.costPerKwh):"—"} | ${a1GensetState(p)} |\n`; });
   const noSpecs=arr.filter(p=>!(p.kwNominal>0));
-  if(noSpecs.length) md+=`\n> ⚠ **Fiche technique non importée** pour ${noSpecs.map(p=>p.g.name).join(", ")} → le taux de charge ne peut pas être calculé (puissance nominale inconnue). Importe le **.xlsx complet** (feuille Fiche_Technique) ou complète les specs du groupe (bouton ✎) pour activer le calcul de charge et une analyse fiable.\n`;
+  if(noSpecs.length) md+=`\n> ⚠ **Fiche technique constructeur manquante** pour ${noSpecs.map(p=>p.g.name).join(", ")} → le taux de charge ne peut pas être calculé (puissance nominale inconnue). La transmission de la fiche technique (ou une photo de la plaque signalétique) fiabilisera pleinement l'analyse.\n`;
   // Repères de DIMENSIONNEMENT (l'IA peut raisonner permutation/redéploiement sans inventer : pointe estimée ≠ pointe mesurée)
   if(arr.length>=2){
     md+=`\n## Dimensionnement des groupes (repères pour permutation / redéploiement)\n\n`;
     arr.forEach(p=>{ const st=a1GroupLoadStats(p.g);
       md+=`- **${p.g.name}** : nominal ${st.kwNom?Math.round(st.kwNom)+" kW":"inconnu (fiche technique manquante)"} · puissance moyenne produite ${st.kwAvg?Math.round(st.kwAvg)+" kW":"—"}${st.charge!=null?` (charge moyenne ${Math.round(st.charge)} %)`:""} · pointe ESTIMÉE ≈ ${st.kwAvg?Math.round(st.kwAvg*A1_SWAP_PEAK)+" kW":"—"} (moyenne × ${A1_SWAP_PEAK}, à confirmer par mesure).\n`; });
-    md+=`- Règle : un échange de groupes ne se valide que si la **pointe mesurée** du site (pince ampèremétrique 7-14 j sur le TGBT) + démarrages moteurs + réserve ~20 % tiennent dans le nominal du groupe receveur. La moyenne ne suffit JAMAIS à conclure. L'outil « 🔁 Étude de permutation » (☰ Actions) donne le verdict provisoire et la liste des mesures.\n`;
+    md+=`- Règle : un échange de groupes ne se valide que si la **pointe mesurée** du site (pince ampèremétrique 7 à 14 jours sur le tableau général) + démarrages moteurs + réserve ~20 % tiennent dans le nominal du groupe receveur. La moyenne ne suffit jamais à conclure. Une étude de permutation détaillée (verdict par sens d'échange, mesures à réaliser) est disponible auprès de BSM.\n`;
   }
   md+=`\n## Constats\n\n`;
   const low=arr.filter(p=>p.lowLoad);
