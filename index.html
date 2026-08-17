@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.15.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.16.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -2058,6 +2058,7 @@ function renderClients(){
   list.sort((a,b)=>a.company.localeCompare(b.company));
   document.getElementById("scr-clients").innerHTML=`
     <div class="pagetitle"><div><h1>Clients</h1><div class="sub">${DB.clients.length} au total — ajout, suivi, archivage, suppression</div></div>
+      ${isDirection()?`<button class="cta ghost" onclick="openClientMerge()" title="Basculer un client de test vers sa vraie fiche, ou fusionner un doublon">⇄ Fusionner</button>`:""}
       <button class="cta" onclick="openClientForm()">+ Nouveau client</button></div>
     <div class="filters">
       ${["tous","prospect","actif","archive"].map(f=>`<button class="chip ${clientFilter===f?'active':''}" onclick="clientFilter='${f}';renderClients()">${f==='tous'?'Tous':cap(f)}</button>`).join("")}
@@ -2498,6 +2499,24 @@ function clientProgress(id){
   const reportDone = hasDoc("Rapport") || active.some(m=>m.rapport) || miss.some(m=>m.status==="termine");
   terrain.push({label:"Rapport d'audit rendu", done: reportDone, ratio: reportDone?1:0});
 
+  /* --- PROGRAMME A1 : si le client a un suivi énergie/flotte, son cycle mensuel entre dans la progression --- */
+  const curMonth=todayISO().slice(0,7);
+  [["gen","énergie"],["fleet","flotte"]].forEach(([kind,lbl])=>{
+    const machines=(kind==="gen"?DB.a1gensets:DB.a1vehicles).filter(m=>m.clientId===id);
+    if(!machines.length) return;
+    const mids=machines.map(m=>m.id);
+    const logs=(kind==="gen"?(DB.a1genlogs||[]):(DB.a1logs||[])).filter(l=>mids.indexOf(kind==="gen"?l.gensetId:l.vehicleId)>=0 && String(l.date||"").slice(0,7)===curMonth);
+    terrain.push({label:"Relevés "+lbl+" du mois", done: logs.length>0, ratio: logs.length>0?1:0, detail: logs.length?logs.length+" relevé(s)":""});
+    const rep=(DB.a1execreports||[]).filter(r=>r.clientId===id&&r.kind===kind&&String(r.ts||"").slice(0,7)===curMonth).slice(-1)[0];
+    terrain.push({label:"Rapport "+lbl+" du mois envoyé", done: !!(rep&&rep.sentAt), ratio: rep?(rep.sentAt?1:0.5):0,
+      detail: rep?(rep.sentAt?"envoyé":(a1ExecStatus(rep)==="valide"?"validé — à envoyer":"brouillon — à valider")):""});
+  });
+
+  /* --- Overrides MANUELS (clic direction dans la fiche 360) : la réalité terrain prime sur l'auto-détection
+         (ex. contrat signé sur papier, pièce hors Cockpit). Stockés sur la fiche client. --- */
+  const ov=c.progressManual||{};
+  admin.concat(terrain).forEach(it=>{ if(ov[it.label]!==undefined){ it.done=!!ov[it.label]; it.ratio=it.done?1:0; it.manual=true; } });
+
   const adminPct = admin.length ? Math.round(100*admin.filter(a=>a.done).length/admin.length) : null;
   const terrPct  = terrain.length ? Math.round(100*terrain.reduce((s,t)=>s+(t.ratio!=null?t.ratio:(t.done?1:0)),0)/terrain.length) : null;
   const parts=[adminPct,terrPct].filter(v=>v!=null);
@@ -2517,13 +2536,30 @@ function clientProgress(id){
 }
 function pgColor(pct){ return pct>=75?'var(--green)':pct>=40?'var(--gold)':'var(--red)'; }
 function pgBar(pct){ pct=Math.max(0,Math.min(100,Math.round(pct||0))); return `<div class="progress" style="width:100%;height:10px"><i style="width:${pct}%;background:${pgColor(pct)}"></i></div>`; }
-function pgChecklist(items){
+function pgChecklist(items, clientId){
   if(!items.length) return `<div class="hint">Aucune pièce requise pour l'instant.</div>`;
+  const clickable=!!clientId && isDirection();
   return `<div class="mini-list">`+items.map(it=>{
     const ratio = it.ratio!=null ? it.ratio : (it.done?1:0);
     const ic = it.done ? '<span style="color:var(--green)">✓</span>' : (ratio>0 ? '<span style="color:var(--gold)">◐</span>' : '<span style="color:var(--red)">✗</span>');
-    return `<div class="li"><span>${ic} ${esc(it.label)}</span><b style="color:${it.done?'var(--green)':(ratio>0?'var(--gold)':'var(--muted)')}">${it.detail?esc(it.detail):(it.done?'À jour':'À faire')}</b></div>`;
+    const tag = it.manual ? ' <span style="font-size:9px;color:var(--muted)" title="Statut forcé à la main — re-cliquer pour revenir à l\'automatique">✋ manuel</span>' : '';
+    const attrs = clickable ? ` data-k="${esc(it.label)}" style="cursor:pointer" title="Clic : marquer fait ✓ → marquer à faire ✗ → automatique ↺ (quand la pièce existe hors Cockpit, ex. contrat papier)" onclick="pgToggle('${clientId}',this.dataset.k)"` : '';
+    return `<div class="li"${attrs}><span>${ic} ${esc(it.label)}${tag}</span><b style="color:${it.done?'var(--green)':(ratio>0?'var(--gold)':'var(--muted)')}">${it.detail?esc(it.detail):(it.done?'À jour':'À faire')}</b></div>`;
   }).join("")+`</div>`;
+}
+/* Clic direction sur une ligne de progression : cycle auto → forcé FAIT → forcé À FAIRE → auto. */
+function pgToggle(clientId, label){
+  if(!isDirection()){ toast("Réservé à la direction."); return; }
+  const c=DB.clients.find(x=>x.id===clientId); if(!c) return;
+  c.progressManual=c.progressManual||{};
+  const cur=c.progressManual[label];
+  if(cur===undefined) c.progressManual[label]=true;
+  else if(cur===true) c.progressManual[label]=false;
+  else delete c.progressManual[label];
+  save();
+  if(currentScreen==="clientfiche" && typeof renderClientFiche==="function") renderClientFiche(); else refreshAll();
+  const st=c.progressManual[label];
+  toast(st===undefined?"↺ « "+label+" » : statut automatique rétabli.":(st?"✓ « "+label+" » marqué fait (manuel).":"✗ « "+label+" » marqué à faire (manuel)."));
 }
 /* Bloc réutilisable affiché dans la fiche 360° (et repris en version compacte dans le Monitoring). */
 function clientProgressCard(id){
@@ -2540,12 +2576,12 @@ function clientProgressCard(id){
       <div>
         <div style="display:flex;justify-content:space-between;font-size:12.5px;font-weight:600;color:var(--navy);margin-bottom:5px"><span>📁 Administratif</span><span>${p.adminPct!=null?p.adminPct+"%":"—"}</span></div>
         ${p.adminPct!=null?pgBar(p.adminPct):`<div class="hint">Aucune pièce due.</div>`}
-        <div style="margin-top:8px">${pgChecklist(p.admin)}</div>
+        <div style="margin-top:8px">${pgChecklist(p.admin, id)}</div>
       </div>
       <div>
         <div style="display:flex;justify-content:space-between;font-size:12.5px;font-weight:600;color:var(--navy);margin-bottom:5px"><span>🎯 Pilotage terrain</span><span>${p.terrPct!=null?p.terrPct+"%":"—"}</span></div>
         ${p.terrPct!=null?pgBar(p.terrPct):`<div class="hint">—</div>`}
-        <div style="margin-top:8px">${pgChecklist(p.terrain)}</div>
+        <div style="margin-top:8px">${pgChecklist(p.terrain, id)}</div>
       </div>
     </div>
     ${p.blockers.length?`<div style="margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--wash,rgba(0,0,0,.02))">
@@ -2553,6 +2589,43 @@ function clientProgressCard(id){
       <div style="display:flex;flex-wrap:wrap;gap:6px">${p.blockers.map(b=>`<span class="badge ${b.axis==="Administratif"?"b-orange":"b-blue"}">${esc(b.label)}</span>`).join("")}</div>
     </div>`:`<div class="hint" style="margin-top:10px;color:var(--green)">✓ Tout est à jour pour ce client.</div>`}
   </div>`;
+}
+/* ⇄ FUSION DE FICHES CLIENT : bascule un client de test vers sa vraie fiche (ex. SIMULATION → ALTHEA)
+   ou absorbe un doublon. TOUTES les données (A1, missions, risques, budget, documents, rapports, relances…)
+   sont rattachées à la cible ; la source part en corbeille (30 j). */
+function openClientMerge(){
+  if(!isDirection()){ toast("Réservé à la direction."); return; }
+  if(DB.clients.length<2){ toast("Il faut au moins 2 fiches client pour fusionner. Pour un simple renommage : ✎ Modifier sur la fiche."); return; }
+  const opts=sel=>DB.clients.slice().sort((a,b)=>(a.company||"").localeCompare(b.company||"")).map(c=>`<option value="${c.id}" ${c.id===sel?"selected":""}>${esc(c.company)}</option>`).join("");
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>⇄ Fusionner deux fiches client</h2>
+    <div class="msub">Toutes les données de la fiche <b>source</b> (relevés A1, groupes/véhicules, missions, risques, budget, factures, documents, rapports, relances, objectifs…) sont rattachées à la fiche <b>cible</b>, puis la source est supprimée (récupérable 30 j en corbeille). Cas type : basculer les données du client de test vers la vraie fiche.</div>
+    <div class="field row2"><label>Source (sera supprimée) → Cible (reçoit tout)</label>
+      <select id="mg-src">${opts()}</select><select id="mg-dst">${opts()}</select></div>
+    <div class="field"><label style="display:flex;gap:8px;align-items:center;font-size:12.5px;font-weight:600"><input type="checkbox" id="mg-demo" checked> Retirer les marqueurs « démo » des données transférées</label></div>
+    <div class="hint">💡 Pour un simple <b>renommage</b> (même fiche, nouveau nom) : ouvre la fiche → ✎ Modifier → change le nom de la société. NB : une fiche nommée « SIMULATION / démo / test » est <b>exclue du benchmark inter-clients</b> — la bascule vers la vraie fiche l'y fait entrer.</div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="clientMergeGo()">⇄ Fusionner</button></div>`);
+}
+function clientMergeGo(){
+  const src=val("mg-src"), dst=val("mg-dst");
+  if(!src||!dst||src===dst){ toast("Choisis deux fiches différentes."); return; }
+  const cs=DB.clients.find(x=>x.id===src), cd=DB.clients.find(x=>x.id===dst); if(!cs||!cd) return;
+  const dropDemo=!!(document.getElementById("mg-demo")||{}).checked;
+  confirmModal("Fusionner « "+esc(cs.company)+" » dans « "+esc(cd.company)+" » ?",
+    "Toutes les données de "+esc(cs.company)+" seront rattachées à "+esc(cd.company)+", puis sa fiche sera supprimée (corbeille 30 j).",
+    ()=>{
+      let n=0;
+      Object.keys(DB).forEach(k=>{ if(!Array.isArray(DB[k])) return;
+        DB[k].forEach(o=>{ if(o && o.clientId===src){ o.clientId=dst; if(dropDemo && o._demo) delete o._demo; n++; } }); });
+      if(DB.a1targets){ Object.keys(DB.a1targets).slice().forEach(key=>{ if(key.indexOf(src+"|")===0){ const nk=dst+key.slice(src.length); if(!DB.a1targets[nk]) DB.a1targets[nk]=DB.a1targets[key]; delete DB.a1targets[key]; } }); }
+      // la fiche cible récupère ce que la source avait en plus (contacts, contrat, notes…), sans écraser l'existant
+      Object.keys(cs).forEach(f=>{ if(f==="id"||f==="company"||f==="_demo") return; if((cd[f]===undefined||cd[f]===""||cd[f]===null) && cs[f]!==undefined && cs[f]!=="") cd[f]=cs[f]; });
+      DB.clients=DB.clients.filter(x=>x.id!==src);
+      if(typeof a1Client!=="undefined" && a1Client===src) a1Client=dst;
+      if(typeof a1genClient!=="undefined" && a1genClient===src) a1genClient=dst;
+      if(typeof focusClient!=="undefined" && focusClient===src) focusClient=dst;
+      save(); closeModal(); refreshAll();
+      toast("⇄ Fusion terminée : "+n+" enregistrement(s) rattaché(s) à "+cd.company+".");
+    });
 }
 let monShowProspects=false;
 let monResp="__init"; // "__init" = à définir selon le rôle ; "" = tous ; sinon login du responsable
