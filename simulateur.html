@@ -240,22 +240,6 @@ input,select,textarea,button{font-family:var(--ff-u)}
 .ess-text strong{display:block;font-size:12px;font-weight:700;color:var(--gold);letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
 .ess-text span{font-size:12px;color:var(--text-d);line-height:1.5}
 
-/* DASHBOARD STUB */
-.dash-wrap{max-width:1300px;margin:0 auto;padding:28px 40px}
-.dash-header{margin-bottom:24px}
-.dash-title{font-family:var(--ff-s);font-size:26px;font-weight:600;color:var(--text);margin-bottom:4px}
-.dash-sub{font-size:12px;color:var(--text-m)}
-.dash-coming{background:var(--navy-c);border:1px dashed rgba(91,141,217,.3);border-radius:10px;padding:60px 40px;text-align:center}
-.dash-coming-icon{font-size:40px;margin-bottom:16px;opacity:.4}
-.dash-coming-title{font-family:var(--ff-s);font-size:22px;color:var(--text-d);margin-bottom:8px}
-.dash-coming-sub{font-size:13px;color:var(--text-m);max-width:500px;margin:0 auto;line-height:1.6}
-.dash-coming-badge{display:inline-block;margin-top:16px;background:rgba(91,141,217,.12);border:1px solid rgba(91,141,217,.3);color:var(--blue);font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;padding:5px 14px;border-radius:20px}
-.dash-kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px;opacity:.35;pointer-events:none}
-.kpi-card{background:var(--navy-c);border:1px solid var(--brd);border-radius:var(--r);padding:16px 18px}
-.kpi-label{font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text-m);margin-bottom:8px}
-.kpi-val{font-family:var(--ff-s);font-size:28px;font-weight:700;color:var(--gold)}
-.kpi-sub{font-size:11px;color:var(--text-m);margin-top:3px}
-
 /* FAB + ADMIN */
 .fab{position:fixed;bottom:28px;right:28px;z-index:400;width:52px;height:52px;background:var(--navy-l);border:1px solid var(--gold-brd);border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;color:var(--gold);transition:all .2s;box-shadow:0 4px 20px rgba(0,0,0,.4)}
 .fab:hover{background:var(--gold);color:var(--navy);transform:scale(1.08)}
@@ -307,7 +291,7 @@ input,select,textarea,button{font-family:var(--ff-u)}
 .m-actions{display:flex;gap:10px;padding-top:14px;border-top:1px solid var(--brd)}
 
 @media(max-width:1100px){
-  .main,.packs-wrap,.dash-wrap{padding:18px 20px}
+  .main,.packs-wrap{padding:18px 20px}
   .main{grid-template-columns:1fr}
   .cfg{padding-right:0}
   .recap-wrap{position:relative;top:auto}
@@ -329,7 +313,7 @@ input,select,textarea,button{font-family:var(--ff-u)}
     <div style="font-size:10px;color:#8B95A8;margin-top:2px">Facturation émise par BSM Sécurité — Barthe Services Malagasy Sécurité SARL</div>
   </div>
   <div class="app-bar-right">
-    <span class="badge badge-ver">Simulateur v4.0</span>
+    <span class="badge badge-ver">Simulateur v4.1</span>
     <span class="badge badge-conf">⚑ Usage interne</span>
   </div>
 </header>
@@ -348,8 +332,7 @@ input,select,textarea,button{font-family:var(--ff-u)}
   <button class="tab-btn" onclick="switchTab('ess')">Offre Essentielle <span class="tab-pill">Allégé</span></button>
   <button class="tab-btn" onclick="switchTab('avt')">Avenant <span class="tab-pill">Modification</span></button>
   <button class="tab-btn" onclick="switchTab('pc')">Proposition <span class="tab-pill">Nouveau</span></button>
-  <button class="tab-btn" onclick="switchTab('dash')">Dashboard CA <span class="tab-pill tab-pill-int">Interne</span></button>
-  <button class="tab-btn" onclick="switchTab('pros')">Prospects <span class="tab-pill tab-pill-int">Interne</span></button>
+  <!-- Dashboard CA & Prospects retirés (v4.1) : le pilotage CA et le suivi des prospects vivent dans le COCKPIT (une seule source de vérité). -->
 </nav>
 
 <!-- ══ TAB PACKS ══ -->
@@ -940,44 +923,6 @@ input,select,textarea,button{font-family:var(--ff-u)}
   </div>
 </div>
 
-<!-- ══ TAB DASHBOARD CA ══ -->
-<div id="tab-dash" class="tab-content">
-  <div class="dash-wrap">
-    <div class="dash-header">
-      <div class="dash-title">Dashboard CA</div>
-      <div class="dash-sub">Vue interne — chiffre d'affaires, pipeline, performance commerciale</div>
-    </div>
-    <div class="dash-kpi-row">
-      <div class="kpi-card"><div class="kpi-label">CA Signé (2026)</div><div class="kpi-val">—</div><div class="kpi-sub">vs objectif annuel</div></div>
-      <div class="kpi-card"><div class="kpi-label">Pipeline Qualifié</div><div class="kpi-val">—</div><div class="kpi-sub">propositions en cours</div></div>
-      <div class="kpi-card"><div class="kpi-label">Taux de Conversion</div><div class="kpi-val">—</div><div class="kpi-sub">propositions → contrats</div></div>
-      <div class="kpi-card"><div class="kpi-label">Panier Moyen</div><div class="kpi-val">—</div><div class="kpi-sub">par mission signée</div></div>
-    </div>
-    <div class="dash-coming">
-      <div class="dash-coming-icon">📊</div>
-      <div class="dash-coming-title">Dashboard CA — En cours de développement</div>
-      <div class="dash-coming-sub">Cette section affichera vos métriques commerciales en temps réel : CA signé vs objectif, pipeline qualifié, taux de conversion par pack, répartition sectorielle.</div>
-      <div class="dash-coming-badge">Bientôt disponible · v4.1</div>
-    </div>
-  </div>
-</div>
-
-<!-- ══ TAB PROSPECTS ══ -->
-<div id="tab-pros" class="tab-content">
-  <div class="dash-wrap">
-    <div class="dash-header">
-      <div class="dash-title">Prospects</div>
-      <div class="dash-sub">Suivi des opportunités commerciales en cours</div>
-    </div>
-    <div class="dash-coming">
-      <div class="dash-coming-icon">👥</div>
-      <div class="dash-coming-title">Gestion Prospects — En cours de développement</div>
-      <div class="dash-coming-sub">Cette section permettra de suivre vos prospects : statut (découverte / proposition / négociation / signé), pack associé, valeur estimée, prochaine étape et date de relance.</div>
-      <div class="dash-coming-badge">Bientôt disponible · v4.1</div>
-    </div>
-  </div>
-</div>
-
 <!-- MODAL CLIENT -->
 <div class="overlay" id="overlay">
   <div class="modal">
@@ -1551,9 +1496,58 @@ function genDevis(){
 // Envoie le devis au Cockpit parent (quand le simulateur est embarqué en iframe)
 function bsmPostDevis(p){ try{ if(window.parent && window.parent!==window){ p.__bsm='devis'; window.parent.postMessage(p,'*'); } }catch(e){} }
 
+/* ── ENVELOPPE DOCUMENT UNIFORME — portée du docChrome du Cockpit (v5.22.1+).
+   Même en-tête (coordonnées, NIF/STAT), mêmes blocs signature et même pied que TOUS les
+   documents BSM (rapports exécutifs, contrats, factures, échéanciers de la bibliothèque
+   Documentation). Inclut le correctif couleurs à l'impression (print-color-adjust).
+   Toute évolution de charte se fait dans le docChrome du Cockpit puis se reporte ici. */
+function simEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
+function simDocChrome(innerHtml,opt){
+  opt=opt||{};var s=C.sig;var G='#B5923A',D='#111827',GR='#6B7280',LT='#F9FAFB';
+  var cabinet='BSM Advisory & Consulting';
+  var logo='<div style="font-size:28px;font-weight:700;color:'+D+';font-family:\'Cormorant Garamond\',serif">BSM A&amp;C</div>';
+  return '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>'+simEsc(opt.title||'Document BSM A&C')+'</title>'
+    +'<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Raleway:wght@300;400;500;600&display=swap" rel="stylesheet">'
+    +'<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Raleway,sans-serif;color:'+D+';background:#fff;font-size:13px;-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{margin:15mm 18mm}@media print{.np{display:none!important}}'
+    +'h2.docsec{font-family:\'Cormorant Garamond\',serif;font-size:18px;color:'+D+';margin:18px 0 7px;padding-bottom:4px;border-bottom:1px solid #E5E7EB;break-after:avoid-page;page-break-after:avoid;break-inside:avoid;page-break-inside:avoid}'
+    +'p{margin:7px 0;line-height:1.65;orphans:3;widows:3}ul{margin:7px 0 7px 20px;line-height:1.65}li{orphans:3;widows:3}'
+    +'table{page-break-inside:auto}tr{page-break-inside:avoid;break-inside:avoid}thead{display:table-header-group}'
+    +'.pfoot{display:none}@media print{.pfoot{display:block;position:fixed;bottom:0;left:0;right:0;text-align:center;font-size:7.5px;color:#9CA3AF;letter-spacing:.05em}body{padding-bottom:16px}}</style></head><body>'
+    +'<div class="np" style="background:#0D1F45;padding:12px 24px;display:flex;gap:10px"><button onclick="window.print()" style="background:'+G+';color:#0D1F45;border:none;padding:10px 22px;font-weight:700;font-size:11px;cursor:pointer;border-radius:4px">Imprimer / PDF</button><button onclick="window.close()" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4);padding:10px 18px;font-size:11px;cursor:pointer;border-radius:4px">Fermer</button></div>'
+    +'<div style="max-width:820px;margin:0 auto;padding:28px 24px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid '+G+'">'
+    +'<div>'+logo+'<div style="font-size:11px;color:'+GR+'">Risk Governance · Operational Resilience · Crisis Management</div>'
+    +'<div style="margin-top:9px;line-height:1.7;font-size:11px;color:'+GR+'">'+simEsc(s.adr)+'<br>'+simEsc(s.email)+' · '+simEsc(s.tel)+'</div>'
+    +'<div style="margin-top:6px;font-size:10px;color:'+GR+';font-style:italic">Émis par '+simEsc(s.rs)+'</div>'
+    +'<div style="margin-top:7px;display:flex;gap:14px"><span style="font-size:10px;color:'+GR+';background:#F9FAFB;border:1px solid #E5E7EB;padding:2px 8px;border-radius:3px">NIF '+simEsc(s.nif)+'</span><span style="font-size:10px;color:'+GR+';background:#F9FAFB;border:1px solid #E5E7EB;padding:2px 8px;border-radius:3px">STAT '+simEsc(s.stat)+'</span></div></div>'
+    +'<div style="text-align:right"><div style="font-size:10px;font-weight:700;color:'+G+';text-transform:uppercase;letter-spacing:.16em">'+simEsc(opt.typeLabel||'Document')+'</div>'
+    +'<div style="font-size:22px;font-weight:600;color:'+D+';font-family:\'Cormorant Garamond\',serif;margin-top:2px">'+simEsc(opt.ref||'')+'</div>'
+    +'<div style="font-size:11px;color:'+GR+';margin-top:3px">Émis le '+simEsc(opt.date||'')+'</div>'
+    +(opt.validite?'<div style="font-size:11px;color:'+GR+'">Valable jusqu\'au '+simEsc(opt.validite)+'</div>':'')
+    +(opt.badge?'<div style="margin-top:8px;display:inline-block;background:#F0F4FF;border:1px solid #C5CEEA;color:#4A608A;font-size:9px;font-weight:700;padding:3px 9px;border-radius:3px">'+simEsc(opt.badge)+'</div>':'')+'</div></div>'
+    +(opt.clientName!==false?'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px">'
+      +'<div style="padding:13px 15px;background:'+LT+';border-left:3px solid '+G+'"><div style="font-size:9px;font-weight:700;color:'+G+';margin-bottom:6px;text-transform:uppercase;letter-spacing:.18em">Client</div>'
+      +'<div style="font-weight:600;color:'+D+';font-size:14px">'+simEsc(opt.clientName||'—')+'</div><div style="font-size:12px;color:'+D+'">'+simEsc(opt.clientContact||'')+'</div>'
+      +(opt.clientEmail?'<div style="font-size:11px;color:'+GR+';margin-top:3px">'+simEsc(opt.clientEmail)+'</div>':'')+'</div>'
+      +'<div style="padding:13px 15px;background:'+LT+';border-left:3px solid #E5E7EB"><div style="font-size:9px;font-weight:700;color:'+GR+';margin-bottom:6px;text-transform:uppercase;letter-spacing:.18em">Objet</div>'
+      +'<div style="font-weight:500;color:'+D+';font-size:13px;line-height:1.5">'+simEsc(opt.objet||'—')+'</div></div></div>':'')
+    +'<div style="font-size:13px;color:'+D+'">'+innerHtml+'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;border-top:2px solid '+G+';padding-top:20px;margin-top:28px">'
+    +'<div><div style="font-size:10px;font-weight:700;color:'+D+';text-transform:uppercase;letter-spacing:.1em;margin-bottom:11px">Pour '+simEsc(cabinet)+'</div>'
+    +'<div style="border-bottom:1px solid #D1D5DB;height:42px;margin-bottom:7px"></div>'
+    +'<div style="font-size:12.5px;color:'+D+';font-weight:500">'+simEsc(s.nom)+'</div><div style="font-size:11px;color:'+GR+'">'+simEsc(s.titre)+'</div>'
+    +'<div style="font-size:11px;color:'+GR+';margin-top:4px">Date : _______________</div></div>'
+    +'<div><div style="font-size:10px;font-weight:700;color:'+D+';text-transform:uppercase;letter-spacing:.1em;margin-bottom:11px">Bon pour accord — '+simEsc(opt.clientName||'le Client')+'</div>'
+    +'<div style="border-bottom:1px solid #D1D5DB;height:42px;margin-bottom:7px"></div>'
+    +'<div style="font-size:12px;color:'+D+'">'+simEsc(opt.clientContact||'')+'</div>'
+    +'<div style="font-size:11px;color:'+GR+';margin-top:4px">Date : _______________</div></div></div>'
+    +'<div style="margin-top:20px;text-align:center;font-size:10px;color:'+GR+'">'+simEsc(cabinet)+' — '+simEsc(s.adr)+' — '+simEsc(s.email)+' — '+simEsc(s.tel)+'</div>'
+    +'<div style="margin-top:4px;text-align:center;font-size:9px;color:'+GR+'">Document émis par '+simEsc(s.rs)+' — NIF '+simEsc(s.nif)+' · STAT '+simEsc(s.stat)+'</div>'
+    +'</div>'+(opt.footRef?'<div class="pfoot">'+simEsc(opt.footRef)+'</div>':'')+'</body></html>';
+}
+
 function buildDevis(cl,calc,date,vdStr,dev,ref,isE){
   var G='#B5923A',D='#111827',GR='#6B7280',LT='#F9FAFB';
-  var s=C.sig;
   var rows='';
   if(!isE){
     rows+='<tr style="background:#FFF9F0"><td style="padding:9px 11px;border-bottom:1px solid #E5E7EB;font-size:12px;color:'+GR+'">OB</td>'
@@ -1595,30 +1589,7 @@ function buildDevis(cl,calc,date,vdStr,dev,ref,isE){
   var priceCell=ST.view==='masque'?'Investissement — à définir lors de l\'échange de cadrage'
     :(ST.view==='mensuel'&&!isE?fmt(calc.mensuel,dev)+' / mois · '+calc.months+' mois':fmt(calc.tot||calc.sub,dev));
   var estNote=ST.estim?'<div style="background:#F0F4FF;border:1px solid #C5CEEA;border-radius:4px;padding:11px 14px;margin-bottom:20px"><div style="font-size:10px;font-weight:700;color:#4A608A;margin-bottom:4px">Note — Estimation indicative</div><div style="font-size:11.5px;color:#374151;line-height:1.6">Ce document est une base de discussion commerciale. Le périmètre réel et les conditions définitives sont co-construits avec le client.</div></div>':'';
-  return '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Devis '+ref+'</title>'
-    +'<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Raleway:wght@300;400;500;600&display=swap" rel="stylesheet">'
-    +'<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Raleway,sans-serif;color:'+D+';background:#fff;font-size:13px}@page{margin:15mm 18mm}@media print{.np{display:none!important}}</style></head><body>'
-    +'<div class="np" style="background:#0D1F45;padding:12px 24px"><button onclick="window.print()" style="background:#B5923A;color:#0D1F45;border:none;padding:10px 22px;font-weight:700;font-size:11px;cursor:pointer;border-radius:4px">Imprimer / PDF</button></div>'
-    +'<div style="max-width:820px;margin:0 auto;padding:28px 24px">'
-    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid '+G+'">'
-    +'<div><div style="font-size:28px;font-weight:700;color:'+D+';font-family:Cormorant Garamond,serif">BSM A&amp;C</div>'
-    +'<div style="font-size:11px;color:'+GR+'">Risk Governance · Operational Resilience · Crisis Management</div>'
-    +'<div style="margin-top:9px;line-height:1.7;font-size:11px;color:'+GR+'">'+s.adr+'<br>'+s.email+' · '+s.tel+'</div>'
-    +'<div style="margin-top:6px;font-size:10px;color:'+GR+';font-style:italic">Facturation émise par '+s.rs+' (BSM Sécurité)</div>'
-    +'<div style="margin-top:7px;display:flex;gap:14px"><span style="font-size:10px;color:'+GR+';background:#F9FAFB;border:1px solid #E5E7EB;padding:2px 8px;border-radius:3px">NIF '+s.nif+'</span>'
-    +'<span style="font-size:10px;color:'+GR+';background:#F9FAFB;border:1px solid #E5E7EB;padding:2px 8px;border-radius:3px">STAT '+s.stat+'</span></div></div>'
-    +'<div style="text-align:right"><div style="font-size:22px;font-weight:600;color:'+D+';font-family:Cormorant Garamond,serif">'+ref+'</div>'
-    +'<div style="font-size:11px;color:'+GR+';margin-top:3px">Émis le '+date+'</div>'
-    +'<div style="font-size:11px;color:'+GR+'">Valable jusqu\'au '+vdStr+'</div>'
-    +(ST.estim?'<div style="margin-top:8px;display:inline-block;background:#F0F4FF;border:1px solid #C5CEEA;color:#4A608A;font-size:9px;font-weight:700;padding:3px 9px;border-radius:3px">ESTIMATION INDICATIVE</div>':'')+'</div></div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px">'
-    +'<div style="padding:13px 15px;background:'+LT+';border-left:3px solid '+G+'"><div style="font-size:9px;font-weight:700;color:'+G+';margin-bottom:6px;text-transform:uppercase;letter-spacing:.18em">Client</div>'
-    +'<div style="font-weight:600;color:'+D+';font-size:14px">'+cl.rs+'</div>'
-    +'<div style="font-size:12px;color:'+D+'">'+cl.ct+(cl.ti?' — '+cl.ti:'')+'</div>'
-    +(cl.em?'<div style="font-size:11px;color:'+GR+';margin-top:3px">'+cl.em+'</div>':'')+'</div>'
-    +'<div style="padding:13px 15px;background:'+LT+';border-left:3px solid #E5E7EB"><div style="font-size:9px;font-weight:700;color:'+GR+';margin-bottom:6px;text-transform:uppercase;letter-spacing:.18em">Mission</div>'
-    +'<div style="font-weight:500;color:'+D+';font-size:13px;line-height:1.5">'+cl.obj+'</div></div></div>'
-    +'<table style="width:100%;border-collapse:collapse;margin-bottom:22px"><thead><tr style="background:'+D+'">'
+  var body='<table style="width:100%;border-collapse:collapse;margin-bottom:22px"><thead><tr style="background:'+D+'">'
     +'<th style="padding:9px 11px;font-size:10px;font-weight:600;color:#E2C98A;text-align:left">#</th>'
     +'<th style="padding:9px 11px;font-size:10px;font-weight:600;color:#E2C98A;text-align:left">Prestation</th>'
     +'<th style="padding:9px 11px;font-size:10px;font-weight:600;color:#E2C98A;text-align:center">Qté</th>'
@@ -1626,21 +1597,18 @@ function buildDevis(cl,calc,date,vdStr,dev,ref,isE){
     +'<th style="padding:9px 11px;font-size:10px;font-weight:600;color:'+G+';text-align:right">Total HT</th>'
     +'</tr></thead><tbody>'+rows+totRows
     +'<tr style="background:'+D+'"><td colspan="4" style="padding:11px;color:#E2C98A;font-weight:700;font-size:10px;text-align:right;text-transform:uppercase">TOTAL HT</td>'
-    +'<td style="padding:11px;text-align:right;font-size:22px;font-weight:700;color:'+G+';font-family:Cormorant Garamond,serif">'+priceCell+'</td></tr>'
+    +'<td style="padding:11px;text-align:right;font-size:22px;font-weight:700;color:'+G+';font-family:\'Cormorant Garamond\',serif">'+priceCell+'</td></tr>'
     +'</tbody></table>'
-    +estNote
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;border-top:2px solid '+G+';padding-top:20px">'
-    +'<div><div style="font-size:10px;font-weight:700;color:'+D+';text-transform:uppercase;letter-spacing:.1em;margin-bottom:11px">Pour BSM Advisory &amp; Consulting</div>'
-    +'<div style="border-bottom:1px solid #D1D5DB;height:42px;margin-bottom:7px"></div>'
-    +'<div style="font-size:12.5px;color:'+D+';font-weight:500">'+s.nom+'</div><div style="font-size:11px;color:'+GR+'">'+s.titre+'</div>'
-    +'<div style="font-size:11px;color:'+GR+';margin-top:4px">Date : _______________</div></div>'
-    +'<div><div style="font-size:10px;font-weight:700;color:'+D+';text-transform:uppercase;letter-spacing:.1em;margin-bottom:11px">Bon pour accord — '+cl.rs+'</div>'
-    +'<div style="border-bottom:1px solid #D1D5DB;height:42px;margin-bottom:7px"></div>'
-    +'<div style="font-size:12px;color:'+D+'">'+cl.ct+'</div>'
-    +'<div style="font-size:11px;color:'+GR+';margin-top:4px">Date : _______________</div></div></div>'
-    +'<div style="margin-top:20px;text-align:center;font-size:10px;color:'+GR+'">BSM A&amp;C — '+s.adr+' — '+s.email+' — '+s.tel+'</div>'
-    +'<div style="margin-top:4px;text-align:center;font-size:9px;color:'+GR+'">Document commercial BSM A&amp;C · Facturation et documents légaux émis par '+s.rs+' (BSM Sécurité) — NIF '+s.nif+' · STAT '+s.stat+'</div>'
-    +'</div></body></html>';
+    +estNote;
+  return simDocChrome(body,{
+    title:'Devis '+ref,
+    typeLabel:isE?'Devis — Offre Essentielle':'Devis',
+    ref:ref, date:date, validite:vdStr,
+    badge:ST.estim?'ESTIMATION INDICATIVE':'',
+    clientName:cl.rs, clientContact:cl.ct+(cl.ti?' — '+cl.ti:''), clientEmail:cl.em,
+    objet:cl.obj,
+    footRef:ref+' · Document commercial · BSM Advisory & Consulting'
+  });
 }
 
 /* ── AVENANT ── */
@@ -1740,7 +1708,6 @@ function genPC(){
 }
 function buildPC(cl,calc,date){
   var G='#B5923A',D='#111827',GR='#6B7280',LT='#F9FAFB',NAVY='#0D1F45';
-  var s=C.sig;
   var scopeRows='<tr style="background:#FFF9F0"><td style="padding:9px 12px;border-bottom:1px solid #E5E7EB;width:24px;color:'+G+';font-size:14px">◆</td>'
     +'<td style="padding:9px 12px;border-bottom:1px solid #E5E7EB"><div style="font-weight:600;color:'+D+';font-size:13px">Offre de Base BSM R5® ('+calc.months+' mois)</div>'
     +'<div style="font-size:11px;color:'+GR+';margin-top:2px">Diagnostic · Suivi trimestriel · Pilotage mensuel</div></td></tr>';
@@ -1760,45 +1727,31 @@ function buildPC(cl,calc,date){
   else{investHtml='<div style="background:'+NAVY+';border-radius:6px;padding:24px;text-align:center"><div style="font-size:11px;color:#8FA3C8;margin-bottom:8px">Investissement total estimatif</div><div style="font-size:42px;font-weight:700;color:'+G+'">'+calc.tot.toLocaleString('fr-FR')+' €</div><div style="font-size:13px;color:#8FA3C8;margin-top:4px">HT · '+calc.months+' mois</div></div>';}
   var nextSteps=cl.next?cl.next.split('\n').filter(function(l){return l.trim();}).map(function(l){return '<li style="padding:5px 0;font-size:13px;color:'+D+'">'+l.trim()+'</li>';}).join(''):'<li style="padding:5px 0;font-size:13px;color:'+GR+'">À compléter avant envoi</li>';
   var r5=['Révéler','Connecter','Répondre','Renforcer','Réviser'];
-  return '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>PC '+cl.ref+'</title>'
-    +'<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Raleway:wght@300;400;500;600;700&display=swap" rel="stylesheet">'
-    +'<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Raleway,sans-serif;color:'+D+';background:#fff;font-size:13px}.section{margin-bottom:28px}@page{margin:14mm 18mm}@media print{.np{display:none!important}}</style></head><body>'
-    +'<div class="np" style="background:#0D1F45;padding:12px 24px"><button onclick="window.print()" style="background:#B5923A;color:#0D1F45;border:none;padding:10px 22px;font-weight:700;cursor:pointer;border-radius:4px">Imprimer / PDF</button></div>'
-    +'<div style="max-width:820px;margin:0 auto;padding:28px 24px">'
-    +'<div style="background:'+NAVY+';border-radius:8px;padding:32px 36px;margin-bottom:28px;display:flex;justify-content:space-between;align-items:flex-end">'
-    +'<div><div style="font-size:30px;font-weight:700;color:#fff;font-family:Cormorant Garamond,serif">BSM A&amp;C</div>'
-    +'<div style="font-size:11px;color:#8FA3C8;margin-top:2px">Risk Governance · Operational Resilience · Crisis Management</div>'
-    +'<div style="font-size:9px;color:#8FA3C8;margin-top:8px;font-style:italic">Facturation émise par '+s.rs+' (BSM Sécurité)</div>'
-    +'<div style="margin-top:6px;display:flex;gap:10px"><span style="font-size:10px;color:#8FA3C8;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);padding:2px 8px;border-radius:3px">NIF '+s.nif+'</span>'
-    +'<span style="font-size:10px;color:#8FA3C8;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);padding:2px 8px;border-radius:3px">STAT '+s.stat+'</span></div></div>'
-    +'<div style="text-align:right"><div style="font-size:9px;color:'+G+';text-transform:uppercase;letter-spacing:.22em;margin-bottom:4px">Proposition Commerciale</div>'
-    +'<div style="font-size:20px;font-weight:600;color:#fff;font-family:Cormorant Garamond,serif">'+cl.ref+'</div>'
-    +'<div style="font-size:11px;color:#8FA3C8;margin-top:4px">'+cl.rs+'</div>'
-    +'<div style="font-size:11px;color:#8FA3C8">Établie le '+date+'</div></div></div>'
-    +'<div class="section"><div style="font-size:9px;font-weight:700;color:'+G+';text-transform:uppercase;letter-spacing:.2em;margin-bottom:8px">Adressée à</div>'
-    +'<div style="background:'+LT+';border-left:3px solid '+G+';padding:13px 16px;border-radius:0 4px 4px 0">'
-    +'<div style="font-weight:600;font-size:15px;color:'+D+'">'+cl.rs+'</div>'
-    +(cl.ct?'<div style="font-size:13px;color:'+D+';margin-top:2px">'+cl.ct+(cl.ti?' — '+cl.ti:'')+'</div>':'')+'</div></div>'
-    +'<div class="section"><div style="font-size:9px;font-weight:700;color:'+G+';text-transform:uppercase;letter-spacing:.2em;margin-bottom:8px">01 — Contexte &amp; Enjeux</div>'
+  var secT=function(n,t){return '<div style="font-size:9px;font-weight:700;color:'+G+';text-transform:uppercase;letter-spacing:.2em;margin-bottom:8px">'+n+' — '+t+'</div>';};
+  var body='<div style="margin-bottom:26px">'+secT('01','Contexte &amp; Enjeux')
     +(cl.ctx?'<p style="font-size:13px;color:'+D+';line-height:1.7;margin-bottom:10px">'+cl.ctx+'</p>':'')
     +'<div style="background:rgba(181,146,58,.06);border:1px solid rgba(181,146,58,.2);border-radius:6px;padding:16px 18px"><div style="font-size:10px;font-weight:700;color:'+G+';text-transform:uppercase;margin-bottom:8px">Enjeux prioritaires</div>'
     +'<p style="font-size:13px;color:'+D+';line-height:1.7;white-space:pre-wrap">'+cl.enj+'</p></div></div>'
-    +'<div class="section"><div style="font-size:9px;font-weight:700;color:'+G+';text-transform:uppercase;letter-spacing:.2em;margin-bottom:8px">02 — Méthodologie BSM R5®</div>'
+    +'<div style="margin-bottom:26px">'+secT('02','Méthodologie BSM R5®')
     +'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">'+r5.map(function(n,i){return '<div style="text-align:center;padding:12px 8px;background:'+LT+';border-top:2px solid '+G+'"><div style="font-size:11px;font-weight:700;color:'+G+'">R'+(i+1)+'</div><div style="font-weight:600;font-size:12px;color:'+D+';margin-top:4px">'+n+'</div></div>';}).join('')+'</div></div>'
-    +'<div class="section"><div style="font-size:9px;font-weight:700;color:'+G+';text-transform:uppercase;letter-spacing:.2em;margin-bottom:8px">03 — Périmètre Proposé</div>'
+    +'<div style="margin-bottom:26px">'+secT('03','Périmètre Proposé')
     +'<table style="width:100%;border-collapse:collapse"><thead><tr style="background:'+D+'">'
     +'<th style="padding:9px 12px;width:24px"></th>'
     +'<th style="padding:9px 12px;font-size:10px;font-weight:600;color:#E2C98A;text-align:left">Prestation</th>'
     +'</tr></thead><tbody>'+scopeRows+'</tbody></table></div>'
-    +'<div class="section"><div style="font-size:9px;font-weight:700;color:'+G+';text-transform:uppercase;letter-spacing:.2em;margin-bottom:8px">04 — Investissement</div>'
-    +investHtml+'</div>'
-    +'<div class="section"><div style="font-size:9px;font-weight:700;color:'+G+';text-transform:uppercase;letter-spacing:.2em;margin-bottom:8px">05 — Prochaines Étapes</div>'
-    +'<ul style="list-style:none;padding:0;border-left:2px solid '+G+';padding-left:16px">'+nextSteps+'</ul></div>'
-    +'<div style="border-top:2px solid '+G+';padding-top:16px;display:flex;justify-content:space-between;align-items:center">'
-    +'<div style="font-size:18px;font-weight:600;color:'+D+';font-family:Cormorant Garamond,serif">BSM A&amp;C</div>'
-    +'<div style="font-size:10px;color:'+G+'">BSM R5® — Révéler · Connecter · Répondre · Renforcer · Réviser</div></div>'
-    +'<div style="margin-top:10px;text-align:center;font-size:9px;color:'+GR+'">Document commercial BSM A&amp;C · Facturation et documents légaux émis par '+s.rs+' (BSM Sécurité) — NIF '+s.nif+' · STAT '+s.stat+'</div>'
-    +'</div></body></html>';
+    +'<div style="margin-bottom:26px">'+secT('04','Investissement')+investHtml+'</div>'
+    +'<div style="margin-bottom:26px">'+secT('05','Prochaines Étapes')
+    +'<ul style="list-style:none;padding:0;border-left:2px solid '+G+';padding-left:16px;margin:0">'+nextSteps+'</ul></div>'
+    +'<div style="text-align:center;font-size:10px;color:'+G+'">BSM R5® — Révéler · Connecter · Répondre · Renforcer · Réviser</div>';
+  return simDocChrome(body,{
+    title:'PC '+cl.ref,
+    typeLabel:'Proposition commerciale',
+    ref:cl.ref, date:date,
+    badge:ST.estim?'ESTIMATION INDICATIVE':'',
+    clientName:cl.rs, clientContact:cl.ct+(cl.ti?' — '+cl.ti:''),
+    objet:cl.ctx?cl.ctx.substring(0,160):'Accompagnement en gouvernance des risques — Méthode R5®',
+    footRef:cl.ref+' · Proposition commerciale · BSM Advisory & Consulting'
+  });
 }
 
 /* ── IA ── */
