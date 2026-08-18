@@ -547,7 +547,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.36.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.36.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -2301,11 +2301,11 @@ let currentClientId=null;
    Les risques restent présents, à différentes échelles, et mobiles → suivi & révision continus (phase REVIEW). --- */
 const RISK_STATUS=[["a_traiter","À traiter"],["en_cours","Réponse en cours"],["traite","Sous contrôle"]];
 const RECO_STATUS=[["a_faire","À faire"],["en_cours","En cours"],["fait","Faite"]];
-const CLIENT_DECISION=[["propose","Proposé par BSM"],["valide","Validé par le client"],["enplace","Mis en place par le client"]];
+const CLIENT_DECISION=[["propose","Proposé par BSM"],["valide","Validé par le client"],["enplace","Mis en place par le client"],["refuse","Refusé par le client"]];
 function riskStatusLabel(s){ const x=RISK_STATUS.find(y=>y[0]===s); return x?x[1]:"À traiter"; }
 function recoStatusLabel(s){ const x=RECO_STATUS.find(y=>y[0]===s); return x?x[1]:"À faire"; }
 function decisionLabel(d){ const x=CLIENT_DECISION.find(y=>y[0]===d); return x?x[1]:"—"; }
-function decisionBadge(d){ return d==="enplace"?"b-green":(d==="valide"?"b-blue":"b-grey"); }
+function decisionBadge(d){ return d==="enplace"?"b-green":(d==="valide"?"b-blue":(d==="refuse"?"b-red":"b-grey")); }
 function clientAccepted(d){ return d==="valide"||d==="enplace"; }
 // « Sous contrôle » (maîtrisé) = un protocole de réponse est défini côté BSM (statut « traité ») ET validé/mis en place par le client.
 function riskControlled(r){ return r.status==="traite" && clientAccepted(r.clientDecision); }
@@ -6157,7 +6157,9 @@ async function r5ReportAI(clientId){
 function r5ReportBody(clientId, analysis, aiText, excludeFams){
   const ex=new Set(excludeFams||[]);
   const risks=DB.risks.filter(r=>r.clientId===clientId && !ex.has(r.famille||r.categorie||"Autre")).map(r=>Object.assign({},r,{score:(+r.probabilite||0)*(+r.impact||0)})).sort((a,b)=>b.score-a.score);
-  const recos=DB.recommendations.filter(r=>r.clientId===clientId);
+  const allRecos=DB.recommendations.filter(r=>r.clientId===clientId);
+  const recos=allRecos.filter(r=>r.clientDecision!=="refuse"); // refusées : hors plan d'action, mentionnées en pied pour la traçabilité
+  const refused=allRecos.filter(r=>r.clientDecision==="refuse");
   const counts={CRITIQUE:0,HAUTE:0,MOYENNE:0,FAIBLE:0}; risks.forEach(r=>{ counts[r5Niveau(r.score)]=(counts[r5Niveau(r.score)]||0)+1; });
   const grid=Array.from({length:5},()=>Array(5).fill(0));
   risks.forEach(r=>{ const p=Math.min(5,Math.max(1,+r.probabilite||1)), i=Math.min(5,Math.max(1,+r.impact||1)); grid[5-i][p-1]++; });
@@ -6181,6 +6183,7 @@ function r5ReportBody(clientId, analysis, aiText, excludeFams){
     +sec("Plan d'action — solutions proposées")
     +`<p style="font-size:12px;color:#374151;line-height:1.6"><b>BSM propose, vous décidez.</b> Chaque solution est chiffrée lorsque les données le permettent (investissement → gain attendu). Cochez votre décision, datez : la mise en œuvre et le suivi sont assurés par BSM et revus à chaque audit trimestriel.</p>
      <table style="width:100%;border-collapse:collapse">${th(["Réf.","Recommandation & business case","Priorité","Échéance","Votre décision"])}<tbody>${recRows||'<tr><td colspan="5" style="padding:10px;text-align:center;color:#6B7280">Aucune recommandation</td></tr>'}</tbody></table>`
+    +(refused.length?`<p style="font-size:10.5px;color:#6B7280;margin-top:8px">Écartées par décision du client (conservées au dossier, réactivables sur demande) : ${refused.map(r=>esc(r.ref||"")).filter(Boolean).join(", ")||refused.length+" recommandation(s)"}.</p>`:"")
     +(ex.size?`<p style="font-size:10.5px;color:#6B7280;margin-top:8px">Périmètre : le présent document couvre les domaines convenus avec le client ; les analyses des autres domaines sont conservées par ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")} et restituées séparément sur demande.</p>`:"")
     +sec("Méthodologie")
     +`<p style="font-size:12px;color:#374151;line-height:1.7">Audit conduit selon la méthode R5® (Révéler · Connecter · Répondre · Renforcer · Réviser) de ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}, sur la base des constats terrain et d'évaluations Probabilité × Impact à échelles ancrées. Les analyses assistées par IA, lorsqu'elles figurent au présent rapport, sont générées exclusivement à partir des données d'audit du client et validées par l'auditeur — aucun chiffre n'est inventé. Document confidentiel, réservé au destinataire.</p>`;
@@ -6224,8 +6227,8 @@ function openR5Delta(clientId){
    pré-rempli structuré part vers BSM. Retour saisi en un collage via « 📥 Décisions reçues ». ---- */
 function r5DecisionPage(clientId){
   const c=DB.clients.find(x=>x.id===clientId); if(!c){ toast("Choisis un client."); return; }
-  const recos=DB.recommendations.filter(r=>r.clientId===clientId&&r.status!=="fait");
-  if(!recos.length){ toast("Aucune recommandation ouverte pour ce client."); return; }
+  const recos=DB.recommendations.filter(r=>r.clientId===clientId&&r.status!=="fait"&&r.clientDecision!=="refuse");
+  if(!recos.length){ toast("Aucune recommandation ouverte (non refusée) pour ce client."); return; }
   const mail=(DOC_IDENTITY_DEFAULT&&docIdentity().email)||"";
   const hook=(DB.meta.decisionWebhook||"").trim(); // récepteur Apps Script : « un clic » sans messagerie ; vide = repli mailto/copier
   const G="#B5923A",D="#111827",GR="#6B7280";
@@ -6291,7 +6294,8 @@ function applyR5Decisions(){
     const r=DB.recommendations.find(x=>norm(x.ref||"")===norm(m[1])); if(!r){ nu++; return; }
     const dec=m[2].toUpperCase();
     if(dec==="VALIDER"){ r.clientDecision="valide"; nv++; }
-    else { r.commentaire=((r.commentaire||"")+" · ").replace(/^ · /,"")+(dec.indexOf("DIF")===0?"Différé":"Refusé")+" par le client le "+frDate(todayISO()); nd++; }
+    else if(dec==="REFUSER"){ r.clientDecision="refuse"; r.commentaire=((r.commentaire||"")+" · ").replace(/^ · /,"")+"Refusé par le client le "+frDate(todayISO()); nd++; } // refusée : sort du plan d'action des prochains rapports, conservée au dossier
+    else { r.commentaire=((r.commentaire||"")+" · ").replace(/^ · /,"")+"Différé par le client le "+frDate(todayISO()); nd++; } // différée : re-proposée au prochain rapport (c'est le but du suivi trimestriel)
   });
   save(); closeModal(); refreshAll();
   toast("📥 "+nv+" validée(s), "+nd+" différée(s)/refusée(s)"+(nu?", "+nu+" réf. inconnue(s)":"")+" — le suivi est à jour.");
@@ -6311,7 +6315,7 @@ function r5ReportSend(clientId){
     // « Donner mes décisions » (page en ligne servie par le récepteur) — le PDF joint reste le rapport pur.
     let mailHtml=html;
     const hook=(DB.meta.decisionWebhook||"").trim();
-    const recosOpen=DB.recommendations.filter(x=>x.clientId===clientId&&x.status!=="fait");
+    const recosOpen=DB.recommendations.filter(x=>x.clientId===clientId&&x.status!=="fait"&&x.clientDecision!=="refuse");
     if(hook && recosOpen.length){
       const payload={ c:c.company||"", r:recosOpen.slice(0,12).map(r=>[r.ref||"",String(r.texte||"").slice(0,90),String(r.invest||"").slice(0,40),String(r.gain||"").slice(0,40)]) };
       const b64=btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
