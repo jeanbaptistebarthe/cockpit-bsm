@@ -547,13 +547,15 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.36.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.37.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
 let _encKey=null, _encSaltB64=null, _encLocked=false, _encBlob=null, _pendingRaw=null, _lockTimer=null;
 const PAYMENT_METHODS = ["CB","Chèque","Mvola","Orange Money","Espèces","Virement"];
-const SECTORS = ["Industrie / Distribution","Banque / Finance","Énergie","Aéroportuaire","Télécom","Public / Institutionnel","Santé","Autre"];
+/* Secteurs = SECTEURS D'INTERVENTION BSM (règle d'exclusivité : une seule entreprise par secteur —
+   une société multi-secteurs peut être prise sur une AUTRE branche que celle déjà occupée). */
+const SECTORS = ["Industrie / Manufacture","Distribution / Commerce","Logistique / Transport","Location d'engins / Matériel BTP","BTP / Construction","Agriculture / Élevage","Agroalimentaire","Pêche / Aquaculture","Banque / Finance / Assurance","Énergie","Mines / Extraction","Télécom / IT","Aéroportuaire","Tourisme / Hôtellerie","Santé / Pharmacie","Éducation / Formation","Sécurité privée","Immobilier","Import-Export / Négoce","Public / Institutionnel","ONG","Autre"];
 const CAT_IN  = ["Honoraires mission","Abonnement annuel","Diagnostic / Audit","Formation","Veille / Abonnement","Autre"];
 const CAT_OUT = ["Salaires","Primes & indemnités","Loyer","Charges & taxes","Achat matériel","Mobilier","Fournitures","Essence / Carburant","Déplacement","Logement","Repas / Restauration","Frais annexes","Marketing","Sous-traitance","Intelligence artificielle","Investissement","Dons","Autre"];
 // Regroupement des dépenses internes (affichage budget + différenciation compte de résultat)
@@ -2221,7 +2223,7 @@ function openClientForm(id){
     <h2>${id?"Modifier le client":"Nouveau client"}</h2>
     <div class="msub">Tous les champs sont modifiables à tout moment.</div>
     <div class="field"><label>Société *</label><input id="f-company" value="${esc(c.company||'')}"></div>
-    <div class="field"><label>Secteur</label><select id="f-sector">${SECTORS.map(s=>`<option ${c.sector===s?'selected':''}>${s}</option>`).join("")}</select></div>
+    <div class="field"><label>Secteur d'intervention BSM <span style="font-weight:400;color:var(--muted);font-size:11.5px">— exclusivité : un seul client par secteur</span></label><select id="f-sector">${c.sector&&SECTORS.indexOf(c.sector)===-1?`<option selected>${esc(c.sector)}</option>`:""}${SECTORS.map(s=>`<option ${c.sector===s?'selected':''}>${s}</option>`).join("")}</select></div>
     <div class="field row2"><label>Contact</label>
       <input id="f-cname" placeholder="Nom du contact" value="${esc(c.contactName||'')}">
       <input id="f-cphone" placeholder="Téléphone" value="${esc(c.contactPhone||'')}"></div>
@@ -2261,10 +2263,21 @@ function saveClient(id){
     signatureDate:val("f-sign"), contractType:val("f-ctype"), ndaSigned:document.getElementById("f-cnda").checked,
     ndaDate:val("f-cndadate"), contractInfo:val("f-cinfo"), missionSummary:val("f-msum"), followupSummary:val("f-fsum"),
     fichesDues:document.getElementById("f-cfiches").checked };
-  if(id){ Object.assign(DB.clients.find(x=>x.id===id), obj); }
-  else { obj.id=uid(); obj.createdAt=todayISO(); DB.clients.push(obj);
-    notify("client","Nouveau "+(obj.status==="prospect"?"prospect":"client"), obj.company+(obj.sector?" · "+obj.sector:""), {clientId:obj.id}); }
-  save(); closeModal(); refreshAll(); toast("Client enregistré.");
+  const doSave=()=>{
+    if(id){ Object.assign(DB.clients.find(x=>x.id===id), obj); }
+    else { obj.id=uid(); obj.createdAt=todayISO(); DB.clients.push(obj);
+      notify("client","Nouveau "+(obj.status==="prospect"?"prospect":"client"), obj.company+(obj.sector?" · "+obj.sector:""), {clientId:obj.id}); }
+    save(); closeModal(); refreshAll(); toast("Client enregistré.");
+  };
+  // Règle BSM d'exclusivité sectorielle : jamais deux entreprises sur le même secteur d'intervention (équité, non-concurrence).
+  const prevSector=id?((DB.clients.find(x=>x.id===id)||{}).sector||""):"";
+  const clash=obj.sector && obj.sector!=="Autre" && DB.clients.find(c=>c.id!==id && (c.sector||"")===obj.sector && c.status!=="archive");
+  if(clash && obj.sector!==prevSector){
+    confirmModal("⚖️ Règle d'exclusivité sectorielle",
+      `Le secteur « ${esc(obj.sector)} » est déjà occupé par <b>${esc(clash.company)}</b>.<br><br>La règle BSM : <b>une seule entreprise par secteur</b> (équité, non-concurrence). Une société multi-secteurs peut en revanche être prise sur une <b>autre branche</b> — choisis alors le secteur de la branche concernée.<br><br>Enregistrer quand même ?`, doSave);
+    return;
+  }
+  doSave();
 }
 function openClientMission(clientId){ closeModal(); setScreen("missions"); openMissionForm(null, clientId); }
 function deleteClient(id){
@@ -6472,7 +6485,8 @@ function renderRecos(){
     </div>`;
 }
 function openRecoForm(id){
-  const r=id?DB.recommendations.find(x=>x.id===id):{status:"a_faire",priorite:"Élevée",horizon:RECO_HORIZONS[1],avancement:0};
+  const r=id?DB.recommendations.find(x=>x.id===id):Object.assign({status:"a_faire",priorite:"Élevée",horizon:RECO_HORIZONS[1],avancement:0},window.__recoPrefill||{});
+  window.__recoPrefill=null; // pré-remplissage ponctuel (ex. : constat A1 → reco R5)
   openModal(`
     <span class="close" onclick="closeModal()">✕</span>
     <h2>${id?"Modifier la recommandation":"Nouvelle recommandation"}</h2>
@@ -7255,7 +7269,19 @@ function openA1Diag(kind, id){
       <select id="vd-cause"><option value="">— À investiguer —</option>${Object.keys(A1_CAUSES).filter(k=>k!=="ras").map(k=>`<option value="${k}" ${verdict&&verdict.cause===k?'selected':''}>${A1_CAUSES[k].ic} ${A1_CAUSES[k].label}</option>`).join("")}</select>
       <select id="vd-status"><option value="suspecte" ${verdict&&verdict.status==="suspecte"?'selected':''}>Suspecté</option><option value="confirme" ${verdict&&verdict.status==="confirme"?'selected':''}>Confirmé</option><option value="ecarte" ${verdict&&verdict.status==="ecarte"?'selected':''}>Écarté</option></select></div>
     <div class="field"><label>Note / constat (repris dans le rapport)</label><textarea id="vd-note" rows="3" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">${esc(verdict?(verdict.note||""):"")}</textarea></div>
-    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="saveA1Verdict('${kind}','${id}')">Enregistrer la conclusion</button></div>`);
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta ghost" onclick="a1VerdictToReco('${kind}','${id}')" title="Transforme ce constat en recommandation R5 : registre unique → rapport d'audit, page de décision client, rappels">➕ Reco R5</button><button class="cta" onclick="saveA1Verdict('${kind}','${id}')">Enregistrer la conclusion</button></div>`);
+}
+/* Pont A1 → R5 : un constat terrain (cause + note) devient une recommandation du REGISTRE UNIQUE —
+   elle apparaîtra dans le rapport d'audit R5, la page de décision client et les rappels, comme les autres. */
+function a1VerdictToReco(kind,id){
+  const isGen=kind==="gen";
+  const o=(isGen?DB.a1gensets:DB.a1vehicles).find(x=>x.id===id); if(!o) return;
+  const cause=val("vd-cause"), note=(val("vd-note")||"").trim();
+  const orient=(typeof a1RecosFor==="function"?(a1RecosFor(cause,isGen?"gen":"fleet")||[]):[])[0]||"";
+  window.__recoPrefill={ clientId:o.clientId||"", texte:note||orient||("Constat programme A1 — "+(o.name||"")),
+    commentaire:"Origine : Programme A1 ("+(isGen?"groupes électrogènes":"flotte")+") · "+(o.name||"")+(cause&&A1_CAUSES[cause]?" · "+A1_CAUSES[cause].label:"") };
+  closeModal(); openRecoForm();
+  toast("➕ Reco pré-remplie depuis le constat A1 — chiffre l'investissement et le gain avant d'enregistrer.");
 }
 function saveA1Verdict(kind, id){
   const arr=(kind==="gen")?DB.a1gensets:DB.a1vehicles; const m=arr.find(x=>x.id===id); if(!m) return;
@@ -7688,9 +7714,11 @@ async function a1ExecReport(kind){
     const oFlash=a1Offer(clientId, isGen?"genset":"flotte");
     const passNote=(oFlash&&oFlash.mode==="ponctuel"&&oFlash.passCredit!==false&&a1PassEnd(oFlash)&&todayISO()<=a1PassEnd(oFlash))
       ?`<div style="border:1px solid rgba(181,146,58,.35);background:#FFF9F0;padding:10px 14px;margin-top:10px;font-size:12px;page-break-inside:avoid"><b>Crédit-passerelle :</b> le forfait du présent audit (${fmt(oFlash.setupFee||0,oFlash.currency)}) est intégralement déduit de tout accompagnement R5® signé avant le ${frDate(a1PassEnd(oFlash))}.</div>`:"";
+    const openRecs=DB.recommendations.filter(x=>x.clientId===clientId&&x.status!=="fait"&&x.clientDecision!=="refuse").slice(0,6);
     secs.push(["Pour aller plus loin — méthode BSM R5®",
       `<p style="font-size:12.5px;line-height:1.7">Le présent audit est une photographie à l'instant T. Les constats qui précèdent relèvent de causes que la méthode R5® de ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")} traite en profondeur — modules recommandés au vu de votre diagnostic :</p>`
       +bridgeItems.map(b=>`<div style="border:1px solid #E5E7EB;border-left:3px solid #102A43;padding:10px 14px;margin:8px 0;page-break-inside:avoid"><b style="color:#102A43">R5® · ${esc(b[0])}</b><div style="font-size:12.5px;margin-top:3px;line-height:1.6">${esc(b[1])}</div></div>`).join("")
+      +(openRecs.length?`<div style="font-size:11.5px;color:#374151;margin-top:8px;padding:8px 12px;background:#FCFBF7;border-left:2px solid #B7891A;page-break-inside:avoid"><b>Plan d'action BSM déjà engagé avec vous :</b> ${openRecs.map(r=>esc((r.ref||"")+(r.texte?" — "+String(r.texte).slice(0,60):""))).join(" · ")}</div>`:"")
       +passNote]);
   }
   // Lexique dirigeant : le rapport doit se lire sans traducteur — le patron comme le responsable technique.
