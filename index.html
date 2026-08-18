@@ -642,7 +642,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.48.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.49.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -12200,7 +12200,7 @@ function renderAiassist(){
 }
 /* ---- Rapports ZEUS : plusieurs types, générés par l'IA, datés, classés, archivés, exportables (PDF / copie / mail) ---- */
 const REPORT_TYPES=[
-  { key:"hebdo", label:"Rapport hebdomadaire de direction", icon:"🗓️", sector:"_default", classif:"confidentiel",
+  { key:"hebdo", label:"Rapport hebdomadaire de direction", icon:"🗓️", sector:"_default", classif:"confidentiel", audience:"interne",
     desc:"Synthèse de pilotage : activité, finances, risques, alertes, actions de la semaine.",
     sections:[
       {title:"L'essentiel", instr:"Résume en 3 à 5 lignes la situation du cabinet cette semaine (l'information qu'un dirigeant doit retenir)."},
@@ -12209,7 +12209,7 @@ const REPORT_TYPES=[
       {title:"Alertes & retards", instr:"Liste les alertes détectées : retards d'encaissement, dépenses, échéances, recommandations en retard."},
       {title:"Actions recommandées", instr:"3 à 5 actions priorisées pour la semaine à venir, en signalant clairement ce qui demande une décision de la direction."}
     ]},
-  { key:"finance", label:"Rapport financier", icon:"💰", sector:"conseils", classif:"confidentiel",
+  { key:"finance", label:"Rapport financier", icon:"💰", sector:"conseils", classif:"confidentiel", audience:"interne",
     desc:"Analyse du chiffre d'affaires, des encaissements, du budget et de la trésorerie.",
     sections:[
       {title:"Synthèse financière", instr:"Vue d'ensemble de la situation financière du cabinet en 4 à 6 lignes."},
@@ -12219,8 +12219,8 @@ const REPORT_TYPES=[
       {title:"Trésorerie & tendance", instr:"Solde net, trajectoire de trésorerie, risques de tension."},
       {title:"Recommandations", instr:"3 à 5 recommandations financières priorisées, en distinguant faits et hypothèses."}
     ]},
-  { key:"risques", label:"Rapport des risques (R5)", icon:"⚠️", sector:"conseils", classif:"confidentiel",
-    desc:"État du portefeuille de risques selon la méthode R5.",
+  { key:"risques", label:"Rapport des risques (R5)", icon:"⚠️", sector:"conseils", classif:"confidentiel", audience:"interne",
+    desc:"État du portefeuille de risques selon la méthode R5 — TOUS clients confondus (jamais transmissible à un client).",
     sections:[
       {title:"Synthèse des risques", instr:"Panorama du niveau de risque du portefeuille en 4 à 6 lignes."},
       {title:"Risques critiques ouverts", instr:"Liste les risques critiques (P×I ≥ 15) non maîtrisés, par client, avec leur score et leur statut."},
@@ -12228,7 +12228,7 @@ const REPORT_TYPES=[
       {title:"Recommandations en cours", instr:"État d'avancement des recommandations R5 et décisions clients attendues."},
       {title:"Plan d'action priorisé", instr:"Protocoles de réponse réalistes et priorisés (BSM propose, le client décide)."}
     ]},
-  { key:"audit", label:"Rapport d'audit R5", icon:"🛡️", sector:"conseils", classif:"confidentiel", needsMission:true,
+  { key:"audit", label:"Rapport d'audit R5", icon:"🛡️", sector:"conseils", classif:"confidentiel", needsMission:true, audience:"client",
     desc:"Rapport d'audit dédié à UNE mission d'un client — constats, risques, recommandations, plan d'action. Cloisonné par client.",
     sections:[
       {title:"Synthèse de l'audit", instr:"Résume les constats majeurs de cette mission d'audit en 4 à 6 lignes, orienté dirigeant du client."},
@@ -12238,8 +12238,8 @@ const REPORT_TYPES=[
       {title:"Recommandations priorisées", instr:"Recommandations réalistes et priorisées (R5 · Respond), en distinguant faits, hypothèses et décisions qui appartiennent au client."},
       {title:"Plan d'action & jalons", instr:"Plan d'action R5 (Respond → Strengthen) avec jalons et responsabilités proposées."}
     ]},
-  { key:"client", label:"Rapport client 360°", icon:"🏢", sector:"client-advice", classif:"confidentiel", needsClient:true,
-    desc:"Fiche 360° stratégique pour un client donné.",
+  { key:"client", label:"Rapport client 360°", icon:"🏢", sector:"client-advice", classif:"confidentiel", needsClient:true, audience:"client",
+    desc:"Fiche 360° stratégique pour un client donné — remise au dirigeant du client.",
     sections:[
       {title:"Contexte & présentation", instr:"Présente le client, son secteur, son statut et le contexte de la relation."},
       {title:"Maturité R5 & gouvernance", instr:"Scores R5 (maturité, résilience, gouvernance, maîtrise du risque) et lecture qu'en fait un dirigeant."},
@@ -12248,7 +12248,7 @@ const REPORT_TYPES=[
       {title:"Recommandations stratégiques", instr:"Recommandations stratégiques priorisées pour ce client."},
       {title:"Points d'attention & prochaines étapes", instr:"Points de vigilance, risques émergents et prochaines étapes proposées."}
     ]},
-  { key:"mensuel", label:"Rapport mensuel de synthèse", icon:"📅", sector:"_default", classif:"confidentiel",
+  { key:"mensuel", label:"Rapport mensuel de synthèse", icon:"📅", sector:"_default", classif:"confidentiel", audience:"interne",
     desc:"Synthèse mensuelle : activité, finances, risques, missions, priorités.",
     sections:[
       {title:"Synthèse générale", instr:"Synthèse de la situation du cabinet ce mois-ci, orientée dirigeant (5 à 8 lignes)."},
@@ -12259,6 +12259,13 @@ const REPORT_TYPES=[
       {title:"Recommandations & priorités", instr:"3 à 5 recommandations priorisées pour le mois suivant, en signalant ce qui demande une décision."}
     ]}
 ];
+/* Audience d'un rapport : « client » (livrable transmissible après validation) ou « interne » (direction/admin, jamais transmis). */
+function reportAudience(type){ const t=REPORT_TYPES.find(x=>x.key===type); return (t&&t.audience)||"interne"; }
+function reportAudienceBadge(type){
+  return reportAudience(type)==="client"
+    ? '<span class="badge b-green" title="Livrable client — transmissible après validation de la direction">📤 Client</span>'
+    : '<span class="badge b-grey" title="Réservé direction/administrateur — ne se transmet jamais à un client">🔒 Interne</span>';
+}
 /* Markdown → HTML : rend les rapports proprement (titres, gras, puces) au lieu d'afficher le markdown brut. */
 function mdToHtml(md){
   const esch=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -12385,6 +12392,7 @@ function reportTrailHtml(r){
 // Envoi client sécurisé : bloqué si non validé, garde-fou confidentialité, aperçu + PDF joint, journal.
 function openReportSend(id){
   const r=(DB.reports||[]).find(x=>x.id===id); if(!r) return;
+  if(reportAudience(r.type)!=="client"){ toast("🔒 Rapport interne — il ne se transmet jamais à un client."); return; }
   if(reportStatus(r)!=="valide" && reportStatus(r)!=="envoye"){ toast("Validez d'abord le rapport avant l'envoi au client."); return; }
   if(r.classification==="tres_confidentiel" && !window.__reportUnlockConf){
     confirmModal("Rapport « Très confidentiel »","Ce rapport est classé <b>Très confidentiel</b>. Confirmez-vous son envoi externe à un client ?",()=>{ window.__reportUnlockConf=true; openReportSend(id); });
@@ -12503,21 +12511,21 @@ function renderReports(){
   if(!isDirection()){ host.innerHTML=`<div class="pagetitle"><div><h1>Rapports</h1><div class="sub">Rapports du cabinet</div></div></div><div class="card"><div class="empty">🔒 Réservé à la direction. Les rapports (audit, client, synthèse) sont générés et validés par la direction avant diffusion.</div></div>`; return; }
   if(window.repGenType==null) window.repGenType="hebdo"; window.repFilter=window.repFilter||"";
   const rt=REPORT_TYPES.find(t=>t.key===window.repGenType)||REPORT_TYPES[0];
-  const typeOpts=REPORT_TYPES.map(t=>`<option value="${t.key}" ${window.repGenType===t.key?"selected":""}>${t.icon} ${esc(t.label)}</option>`).join("");
+  const grpOpts=(aud,label)=>`<optgroup label="${label}">`+REPORT_TYPES.filter(t=>(t.audience||"interne")===aud).map(t=>`<option value="${t.key}" ${window.repGenType===t.key?"selected":""}>${t.icon} ${esc(t.label)}</option>`).join("")+`</optgroup>`;
+  const typeOpts=grpOpts("client","📤 RAPPORTS CLIENTS — transmissibles après validation")+grpOpts("interne","🔒 RAPPORTS INTERNES — direction uniquement");
   const list=(DB.reports||[]).filter(r=>!window.repFilter||r.type===window.repFilter);
   const filterChips=`<button class="cta sm ${!window.repFilter?'':'ghost'}" onclick="repSetFilter('')">Tous</button>`+REPORT_TYPES.map(t=>`<button class="cta sm ${window.repFilter===t.key?'':'ghost'}" onclick="repSetFilter('${t.key}')" title="${esc(t.label)}">${t.icon}</button>`).join("");
   const rows=list.map(r=>`<tr>
       <td style="white-space:nowrap">${esc(fmtDateTime(r.ts))}</td>
-      <td><span class="badge b-blue">${esc(r.typeLabel||reportTypeLabel(r.type))}</span></td>
+      <td><span class="badge b-blue">${esc(r.typeLabel||reportTypeLabel(r.type))}</span> ${reportAudienceBadge(r.type)}</td>
       <td><b>${esc(r.title)}</b></td>
       <td>${reportStatusBadge(r)}</td>
       <td>${typeof classifBadge==="function"?classifBadge(r.classification):esc(r.classification||"")}</td>
       <td style="text-align:right;white-space:nowrap">
         <button class="cta ghost sm" onclick="openReport('${r.id}')">Voir</button>
-        ${r.clientId?`<button class="cta ghost sm" onclick="openReportSend('${r.id}')" title="Envoyer au client (après validation)">✉️</button>`:""}
+        ${r.clientId&&reportAudience(r.type)==="client"?`<button class="cta ghost sm" onclick="openReportSend('${r.id}')" title="Envoyer au client (après validation)">✉️</button>`:""}
         <button class="cta ghost sm" onclick="printReportPDF('${r.id}')" title="PDF">🖨</button>
         <button class="cta ghost sm" style="color:var(--red)" onclick="deleteReport('${r.id}')" title="Supprimer">🗑</button></td></tr>`).join("");
-  const assistant=aiAssistantForSector(rt.sector); const prov=aiProviderConf();
   host.innerHTML=`
     <div class="pagetitle"><div><h1>Rapports</h1><div class="sub">Le point central — rapports générés, classés, datés, archivés, exportables (PDF · copie · mail)</div></div></div>
     <div class="card" style="border-left:3px solid var(--gold)">
@@ -12528,7 +12536,9 @@ function renderReports(){
         ${rt.needsClient?`<div class="field" style="margin:0"><label>Client</label><select id="rep-client">${DB.clients.map(c=>`<option value="${c.id}">${esc(c.company)}</option>`).join("")}</select></div>`:""}
         <button class="cta" id="rep-gen-btn" onclick="generateReport(document.getElementById('rep-type').value, (document.getElementById('rep-client')||{}).value||'', (document.getElementById('rep-mission')||{}).value||'')">✦ Générer le rapport</button>
       </div>
-      <div class="hint" style="margin-top:8px">${esc(rt.desc||"")} Assistant utilisé : <b>${esc((assistant&&assistant.name)||"—")}</b>${prov?` (${esc(prov.name==='mammouth'?((assistant&&assistant.model)||prov.model):prov.model)})`:''}. Le rapport est daté, archivé ci-dessous et exportable immédiatement.</div>
+      <div class="hint" style="margin-top:8px">${reportAudience(rt.key)==="client"
+        ?'📤 <b>Livrable client</b> — naît en brouillon, validation direction obligatoire avant tout envoi.'
+        :'🔒 <b>Rapport interne</b> — réservé direction/administrateur, ne se transmet jamais à un client.'} ${esc(rt.desc||"")} Le rapport est daté, archivé ci-dessous et exportable immédiatement.</div>
     </div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Archive des rapports (${(DB.reports||[]).length})</h2><div style="display:flex;gap:6px;flex-wrap:wrap">${filterChips}</div></div>
