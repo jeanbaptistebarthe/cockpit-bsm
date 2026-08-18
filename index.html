@@ -642,7 +642,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.50.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.50.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -10500,7 +10500,10 @@ function a1OfferBillingStart(o){ return (o.offert && o.offertEnd) ? a1MonthStart
 function a1OfferRefNext(){ const y=new Date().getFullYear(); const n=(DB.a1offers||[]).filter(o=>o.ref).length+1; return "BSM-OFF-A1-"+y+"-"+String(n).padStart(3,"0"); }
 function a1OfferCard(clientId, product){
   product=product||"flotte"; const def=a1ProductDef(product); const o=a1Offer(clientId,product);
-  if(!o) return `<div class="card" style="border-left:3px solid var(--gold)"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0">💼 ${def.icon} Offre — ${esc(def.label)}</h2><div class="msub" style="margin:2px 0 0">Associe une offre commerciale à ${esc(clientName(clientId))} : forfait de mise en place + tarif récurrent, éditable, exportable PDF et envoyable par mail.</div></div><button class="cta" onclick="openA1Offer('${clientId}','${product}')">Créer l'offre</button></div></div>`;
+  if(!o){
+    const other=(DB.a1offers||[]).find(x=>x.clientId===clientId); // offre déjà créée pour ce client sur l'AUTRE programme (visible depuis sa fiche) : on la signale au lieu de laisser croire qu'il n'y a rien
+    return `<div class="card" style="border-left:3px solid var(--gold)"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0">💼 ${def.icon} Offre — ${esc(def.label)}</h2><div class="msub" style="margin:2px 0 0">Associe une offre commerciale à ${esc(clientName(clientId))} : <b>⚡ Audit Flash A1</b> (prestation ponctuelle porte d'entrée — crédit-passerelle 100 % vers les packs R5®) ou <b>📅 abonnement de suivi</b> — éditable, exportable PDF, envoyable par mail.</div>${other?`<div class="hint" style="margin-top:6px">ℹ️ ${esc(clientName(clientId))} a déjà une offre sur le programme <b>${esc(a1ProductDef(other.product||"flotte").label)}</b>${other.ref?" · "+esc(other.ref):""} — celle demandée ici concerne l'autre programme. <button class="cta ghost sm" onclick="openA1Offer('${clientId}','${other.product||"flotte"}')">👁 Voir l'offre existante</button></div>`:""}</div><button class="cta" onclick="openA1Offer('${clientId}','${product}')">⚡ Créer l'offre</button></div></div>`;
+  }
   const inOffert = o.offert && o.offertEnd && todayISO()<=o.offertEnd && todayISO()>=(o.offertStart||"");
   const bill=a1OfferBillingStart(o);
   if((o.mode||"abonnement")==="ponctuel"){
