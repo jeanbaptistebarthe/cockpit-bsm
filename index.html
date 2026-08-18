@@ -538,7 +538,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.33.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.34.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -648,6 +648,7 @@ function load(){
   DB.users=DB.users||[]; DB.activityLog=DB.activityLog||[]; DB.notifications=DB.notifications||[]; DB.moneyRequests=DB.moneyRequests||[]; DB.investments=DB.investments||[]; DB.decisions=DB.decisions||[];
   DB.a1vehicles=DB.a1vehicles||[]; DB.a1logs=DB.a1logs||[]; DB.a1gensets=DB.a1gensets||[]; DB.a1genlogs=DB.a1genlogs||[]; DB.a1offers=DB.a1offers||[]; DB.a1outages=DB.a1outages||[];
   DB.r5reports=DB.r5reports||[]; // rapports d'audit R5 (brouillon / édité / envoyé), archivés par client
+  DB.solutionsLib=DB.solutionsLib||[]; // bibliothèque de solutions chiffrées (texte + investissement + gain, par secteur) — s'enrichit à chaque reco chiffrée
   DB.a1gpslogs=DB.a1gpslogs||[]; DB.a1invoices=DB.a1invoices||[]; DB.a1specs=DB.a1specs||[]; DB.a1docs=DB.a1docs||[];
   // Catalogue de fiches techniques : re-seed versionné + idempotent. On rafraîchit les fiches D'ORIGINE (catalogue BSM) sans toucher aux fiches ajoutées/importées par l'utilisateur, et on dédoublonne par marque+modèle.
   if((DB.meta.a1SpecsVersion||0) < 3){
@@ -976,7 +977,7 @@ function secSaveLock(){ DB.meta.autoLockMin=parseInt(val("sec-lock"))||0; save()
    La clé "publishable" est PUBLIQUE par nature — l'accès aux données est verrouillé par la RLS (isolation par organisation). */
 const SB_URL = "https://fxaeeplylyeitukctlph.supabase.co";
 const SB_KEY = "sb_publishable_SrXvreUFVJgLLBi6PLvA-g_ARBg2SST";
-const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","a1docs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge","r5reports"];
+const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","a1docs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge","r5reports","solutionsLib"];
 let _sb=null, cloudOrgId=null, cloudPrimary=false, _cloudTimer=null;
 let _cloudPulling=false, _cloudLastPull=0, _applyingRemote=false; // synchro live entrante (auto-pull sécurisé)
 /* Snapshot des identifiants déjà poussés PAR CE POSTE, par collection.
@@ -5113,6 +5114,26 @@ function generateAdvice(){
       add("recodue-"+r.id,"warn","📌","Recommandation à échéance",
         `${r.ref?r.ref+" — ":""}${(r.texte||"").slice(0,90)} (${clientName(r.clientId)}) : échéance le ${frDate(r.dateCible)}.`); });
   }
+  // 1j. A1 ANTI-PERTES : pleins physiquement impossibles & doubles pleins suspects (60 derniers jours).
+  //     Preuves PHYSIQUES uniquement (capacité réservoir) — jamais une accusation sur la seule consommation.
+  {
+    const since=isoOffset(-60); const byVeh={};
+    (DB.a1logs||[]).forEach(l=>{ if((l.date||"")>=since && (+l.liters||0)>0){ (byVeh[l.vehicleId]=byVeh[l.vehicleId]||[]).push(l); } });
+    Object.keys(byVeh).forEach(vid=>{
+      const v=(DB.a1vehicles||[]).find(x=>x.id===vid); if(!v) return;
+      const cap=+v.reservoir||0; const logs=byVeh[vid];
+      if(cap>0){
+        logs.filter(l=>+l.liters>cap*1.05).slice(0,3).forEach(l=>
+          add("a1cap-"+l.id,"danger","🚨","Anti-pertes : plein supérieur au réservoir",
+            `${v.name} (${clientName(v.clientId)}) : ${l.liters} L le ${frDate(l.date)} pour un réservoir de ${cap} L${l.station?" · "+l.station:""}. Des litres facturés ne sont pas entrés dans le véhicule — vérifier ticket, jauge et pompiste avant d'en parler au client.`));
+        const byDay={}; logs.forEach(l=>{ (byDay[l.date]=byDay[l.date]||[]).push(l); });
+        Object.keys(byDay).forEach(dt=>{ const tot=byDay[dt].reduce((s,l)=>s+(+l.liters||0),0);
+          if(byDay[dt].length>=2 && tot>cap*1.2)
+            add("a1dbl-"+vid+"-"+dt,"warn","🚨","Anti-pertes : doubles pleins le même jour",
+              `${v.name} (${clientName(v.clientId)}) : ${byDay[dt].length} pleins le ${frDate(dt)} totalisant ${Math.round(tot)} L (réservoir ${cap} L). Long trajet à justifier — sinon du carburant est sorti du circuit.`); });
+      }
+    });
+  }
   // 1h. Abonnements clients en ariary : le taux du mois s'écarte de > ±5 % du taux de référence → clause d'indexation activable
   (DB.recurring||[]).forEach(rc=>{
     if(rc.active===false || rc.sens!=="entrant" || rc.currency!=="MGA" || !rc.clientId) return;
@@ -6093,6 +6114,7 @@ function openR5Report(clientId){
     ${prev.length?`<div class="hint">📚 Rapports archivés : ${prev.slice(0,4).map(r=>`<b>${esc(r.ref||"—")}</b> (${frDate(r.date)}${r.sentTo?" · envoyé":""}) <a class="clink" href="#" onclick="r5ReportPrint('${r.id}');return false">voir</a>`).join(" · ")}</div>`:""}
     <div class="modal-actions">
       <button class="cta ghost" onclick="r5ReportSaveDraft('${clientId}');closeModal();toast('Brouillon enregistré.')">💾 Brouillon</button>
+      <button class="cta ghost" onclick="r5DecisionPage('${clientId}')" title="Fichier HTML interactif à remettre au client : il coche Valider/Différer/Refuser et t'envoie ses décisions en un clic">📩 Fiche de décision</button>
       <button class="cta ghost" onclick="r5ReportPreview('${clientId}')">🖨 Aperçu / PDF</button>
       <button class="cta" onclick="r5ReportSend('${clientId}')">✉️ Envoyer au client</button></div>`);
   const ai=document.getElementById("r5r-ai"); if(ai) ai.value=draft.aiText||"";
@@ -6184,6 +6206,69 @@ function openR5Delta(clientId){
     ${gone.length?`<b style="font-size:12.5px;color:var(--muted)">🗑 Sortis de la matrice (${gone.length})</b>${list(gone,x=>`<div class="li"><span>${esc(x.ref||"")} ${esc(x.desc)}</span></div>`)}`:""}
     ${recosDone!=null?`<div class="hint">✅ Recommandations soldées depuis le dernier rapport : <b>${recosDone}</b> (${recosOpenNow} encore ouvertes).</div>`:""}
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="closeModal();openR5Report('${clientId}')">📑 Éditer le rapport de suivi</button></div>`);
+}
+/* ---- Fiche de décision numérique : fichier HTML autonome remis au client (mail/WhatsApp).
+   Il coche Valider / Différer / Refuser par recommandation, clique « Envoyer » → un e-mail
+   pré-rempli structuré part vers BSM. Retour saisi en un collage via « 📥 Décisions reçues ». ---- */
+function r5DecisionPage(clientId){
+  const c=DB.clients.find(x=>x.id===clientId); if(!c){ toast("Choisis un client."); return; }
+  const recos=DB.recommendations.filter(r=>r.clientId===clientId&&r.status!=="fait");
+  if(!recos.length){ toast("Aucune recommandation ouverte pour ce client."); return; }
+  const mail=(DOC_IDENTITY_DEFAULT&&docIdentity().email)||"";
+  const G="#B5923A",D="#111827",GR="#6B7280";
+  const rows=recos.map(r=>`<tr><td style="padding:8px 10px;border:1px solid #E5E7EB;font-size:12px;white-space:nowrap"><b>${esc(r.ref||"")}</b></td>
+    <td style="padding:8px 10px;border:1px solid #E5E7EB;font-size:13px;line-height:1.5">${esc(r.texte||"")}${(r.invest||r.gain)?`<div style="font-size:11px;margin-top:3px;color:${GR}">${r.invest?"Investissement : <b>"+esc(r.invest)+"</b>":""}${r.invest&&r.gain?" → ":""}${r.gain?'<span style="color:#2F855A">Gain attendu : <b>'+esc(r.gain)+"</b></span>":""}</div>`:""}</td>
+    <td style="padding:8px 10px;border:1px solid #E5E7EB;white-space:nowrap;font-size:13px">
+      <label style="margin-right:8px"><input type="radio" name="d${r.id}" value="VALIDER"> ✅ Valider</label>
+      <label style="margin-right:8px"><input type="radio" name="d${r.id}" value="DIFFERER"> ⏸ Différer</label>
+      <label><input type="radio" name="d${r.id}" value="REFUSER"> ✖ Refuser</label></td></tr>`).join("");
+  const refsJson=JSON.stringify(recos.map(r=>({id:"d"+r.id,ref:r.ref||""})));
+  const html=`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Décisions — ${esc(c.company)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Raleway:wght@400;600&display=swap" rel="stylesheet">
+<style>body{font-family:Raleway,Arial,sans-serif;color:${D};max-width:760px;margin:0 auto;padding:24px;font-size:14px}</style></head><body>
+<div style="border-bottom:3px solid ${G};padding-bottom:12px;margin-bottom:16px"><div style="font-size:26px;font-weight:700;font-family:'Cormorant Garamond',serif">BSM A&amp;C</div>
+<div style="font-size:11px;color:${GR}">Fiche de décision — plan d'action R5® · ${esc(c.company)} · ${frLong(todayISO())}</div></div>
+<p style="line-height:1.6"><b>BSM propose, vous décidez.</b> Cochez votre décision pour chaque recommandation, puis cliquez « Envoyer mes décisions » (votre messagerie s'ouvre, pré-remplie) — ou « Copier » pour nous les transmettre par WhatsApp. BSM assure ensuite la mise en œuvre et le suivi.</p>
+<table style="width:100%;border-collapse:collapse;margin:14px 0">
+<tr style="background:#F6F1E8"><th style="padding:7px 10px;border:1px solid #E5E7EB;font-size:10px;text-align:left">RÉF.</th><th style="padding:7px 10px;border:1px solid #E5E7EB;font-size:10px;text-align:left">RECOMMANDATION</th><th style="padding:7px 10px;border:1px solid #E5E7EB;font-size:10px;text-align:left">VOTRE DÉCISION</th></tr>${rows}</table>
+<div style="margin:10px 0"><label style="font-size:12px;color:${GR}">Commentaire (facultatif) :</label><br><textarea id="cmt" rows="3" style="width:100%;font-family:inherit;padding:8px;border:1px solid #E5E7EB;border-radius:6px"></textarea></div>
+<div style="display:flex;gap:10px;flex-wrap:wrap">
+<button onclick="send()" style="background:${G};color:#fff;border:none;padding:12px 22px;font-weight:700;font-size:13px;cursor:pointer;border-radius:6px">✉️ Envoyer mes décisions</button>
+<button onclick="copie()" style="background:#fff;color:${D};border:1px solid #E5E7EB;padding:12px 18px;font-size:13px;cursor:pointer;border-radius:6px">📋 Copier (WhatsApp)</button></div>
+<div id="st" style="font-size:12px;color:#2F855A;margin-top:8px"></div>
+<div style="margin-top:18px;font-size:10px;color:${GR}">Document confidentiel — BSM Advisory &amp; Consulting. Vos décisions sont intégrées à votre dossier de suivi et revues à chaque audit trimestriel.</div>
+<script>
+var REFS=${refsJson};
+function collect(){ var out=["DECISIONS R5 — ${esc(c.company)} — "+new Date().toLocaleDateString("fr-FR")];
+  REFS.forEach(function(x){ var ch=document.querySelector('input[name="'+x.id+'"]:checked'); out.push((x.ref||"?")+" : "+(ch?ch.value:"SANS REPONSE")); });
+  var cm=document.getElementById("cmt").value.trim(); if(cm) out.push("COMMENTAIRE : "+cm);
+  return out.join("\\n"); }
+function send(){ location.href="mailto:${esc(mail)}?subject="+encodeURIComponent("Décisions plan d'action R5 — ${esc(c.company)}")+"&body="+encodeURIComponent(collect()); }
+function copie(){ var t=collect(); if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(function(){ document.getElementById("st").textContent="✓ Copié — collez dans WhatsApp ou un e-mail."; }); } else { prompt("Copiez ce texte :", t); } }
+</scr`+`ipt></body></html>`;
+  const blob=new Blob([html],{type:"text/html"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download="BSM_Decisions_"+(c.company||"client").replace(/[^\w-]+/g,"_")+"_"+todayISO()+".html"; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+  toast("📩 Fiche de décision téléchargée — joins-la au mail du rapport ou envoie-la par WhatsApp.");
+}
+function openR5DecisionsPaste(){
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📥 Décisions reçues du client</h2>
+    <div class="msub">Colle le bloc reçu (mail ou WhatsApp) — format « REC-001 : VALIDER ». Valider → décision « Validé par le client » ; Différer/Refuser → noté au commentaire de suivi, la reco reste proposée.</div>
+    <div class="field"><textarea id="r5dp-txt" rows="8" style="width:100%;font-family:monospace;font-size:12px;padding:8px;border:1px solid var(--line);border-radius:8px" placeholder="DECISIONS R5 — ALTHEA — 18/08/2026&#10;REC-001 : VALIDER&#10;REC-002 : DIFFERER"></textarea></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="applyR5Decisions()">Appliquer</button></div>`);
+}
+function applyR5Decisions(){
+  const lines=String(val("r5dp-txt")||"").split(/\r?\n/); let nv=0,nd=0,nu=0;
+  lines.forEach(ln=>{
+    const m=ln.match(/^\s*(REC-[\w-]+)\s*[:\-–]\s*(VALIDER|DIFFERER|DIFFÉRER|REFUSER)/i); if(!m) return;
+    const r=DB.recommendations.find(x=>norm(x.ref||"")===norm(m[1])); if(!r){ nu++; return; }
+    const dec=m[2].toUpperCase();
+    if(dec==="VALIDER"){ r.clientDecision="valide"; nv++; }
+    else { r.commentaire=((r.commentaire||"")+" · ").replace(/^ · /,"")+(dec.indexOf("DIF")===0?"Différé":"Refusé")+" par le client le "+frDate(todayISO()); nd++; }
+  });
+  save(); closeModal(); refreshAll();
+  toast("📥 "+nv+" validée(s), "+nd+" différée(s)/refusée(s)"+(nu?", "+nu+" réf. inconnue(s)":"")+" — le suivi est à jour.");
 }
 function r5ReportPreview(clientId){ openPrintable(r5ReportHtml(r5ReportSaveDraft(clientId))); }
 function r5ReportPrint(id){ const r=(DB.r5reports||[]).find(x=>x.id===id); if(r) openPrintable(r5ReportHtml(r)); }
@@ -6328,7 +6413,7 @@ function renderRecos(){
   list.sort((a,b)=>(a.ref||"").localeCompare(b.ref||""));
   document.getElementById("scr-recos").innerHTML=`
     <div class="pagetitle"><div><h1>Recommandations & suivi</h1><div class="sub">Plan d'action R5 (Respond → Strengthen)</div></div>
-      <button class="cta" onclick="openRecoForm()">+ Nouvelle recommandation</button></div>
+      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="openR5DecisionsPaste()" title="Coller le bloc de décisions reçu du client (fiche de décision) — applique Validé / Différé / Refusé en un clic">📥 Décisions reçues</button><button class="cta" onclick="openRecoForm()">+ Nouvelle recommandation</button></div></div>
     ${focusBanner()}
     <div class="hint" style="margin-bottom:10px">ℹ️ Les recommandations sont des <b>conseils et schémas de réponse proposés par BSM</b> (recherche, réponse, suivi, amélioration). <b>Le client décide</b> de les valider et de les mettre en place — l'avancement mesure ce suivi, il ne fait pas disparaître le risque associé.</div>
     <div class="filters">${clientPickerHtml()}<span style="width:14px"></span>${[["tous","Toutes"],["a_faire","À faire"],["en_cours","En cours"],["fait","Faites"]].map(f=>`<button class="chip ${recoFilter===f[0]?'active':''}" onclick="recoFilter='${f[0]}';renderRecos()">${f[1]}</button>`).join("")}</div>
@@ -6361,6 +6446,11 @@ function openRecoForm(id){
       <input id="f-xresp" value="${esc(r.responsable||'')}"><input id="f-xmoyens" value="${esc(r.moyens||'')}"></div>
     <div class="field row2"><label>💡 Solution chiffrée — investissement & gain attendu <span style="font-weight:400;color:var(--muted);font-size:11.5px">(ex : « hangar ≈ 120 M Ar » → « −15 % de manutention ≈ 8 M Ar/an » — c'est le business case du rapport)</span></label>
       <input id="f-xinvest" value="${esc(r.invest||'')}" placeholder="Investissement estimé"><input id="f-xgain" value="${esc(r.gain||'')}" placeholder="Gain attendu (%, montant, temps)"></div>
+    ${(DB.solutionsLib||[]).length?(()=>{ const cid0=r.clientId||""; const c0=DB.clients.find(x=>x.id===cid0); const sec0=(c0&&c0.sector)||"";
+      const lib=(DB.solutionsLib||[]).slice().sort((a,b)=>(((b.sector===sec0)?1:0)-((a.sector===sec0)?1:0))||((b.uses||0)-(a.uses||0)));
+      return `<div class="field"><label>📚 Bibliothèque — reprendre une solution éprouvée <span style="font-weight:400;color:var(--muted);font-size:11.5px">(${lib.length} en stock, celles de ton secteur d'abord — adapte les chiffres au contexte)</span></label>
+      <select id="f-xlib" onchange="applySolutionLib(this.value)"><option value="">— Choisir une solution —</option>
+      ${lib.slice(0,40).map(s=>`<option value="${s.id}">${esc((s.sector?"["+s.sector.split(" ")[0]+"] ":"")+(s.texte||"").slice(0,70))}${s.gain?" → "+esc(String(s.gain).slice(0,35)):""}</option>`).join("")}</select></div>`; })():""}
     <div class="field"><label>Indicateur de succès</label><input id="f-xind" value="${esc(r.indicateur||'')}"></div>
     <div class="field row2"><label>Statut (suivi BSM) & avancement (%)</label>
       <select id="f-xstatus">${RECO_STATUS.map(s=>`<option value="${s[0]}" ${r.status===s[0]?'selected':''}>${s[1]}</option>`).join("")}</select>
@@ -6379,7 +6469,24 @@ function saveReco(id){
     status:val("f-xstatus"),avancement:Math.max(0,Math.min(100,parseInt(val("f-xav"))||0)),clientDecision:val("f-xdecision"),dateCible:val("f-xcible"),dateReal:val("f-xreal"),commentaire:val("f-xcom")};
   if(id){Object.assign(DB.recommendations.find(x=>x.id===id),obj);}else{obj.id=uid();DB.recommendations.push(obj);
     notify("reco","Nouvelle recommandation", (obj.texte||obj.ref||"Recommandation")+" · "+clientName(obj.clientId), {clientId:obj.clientId}); }
+  // Bibliothèque de solutions : chaque reco CHIFFRÉE enrichit le catalogue réutilisable (par secteur).
+  if((obj.invest||obj.gain) && (obj.texte||"").trim()){
+    DB.solutionsLib=DB.solutionsLib||[];
+    const k=norm(obj.texte).slice(0,80);
+    let s=DB.solutionsLib.find(x=>norm(x.texte||"").slice(0,80)===k);
+    const c2=DB.clients.find(x=>x.id===obj.clientId);
+    if(s){ if(obj.invest)s.invest=obj.invest; if(obj.gain)s.gain=obj.gain; s.updatedAt=todayISO(); }
+    else DB.solutionsLib.push({id:uid(),texte:obj.texte.trim(),invest:obj.invest||"",gain:obj.gain||"",sector:(c2&&c2.sector)||"",uses:1,createdAt:todayISO()});
+  }
   save();closeModal();refreshAll();toast("Recommandation enregistrée.");
+}
+function applySolutionLib(id){
+  const s=(DB.solutionsLib||[]).find(x=>x.id===id); if(!s) return;
+  const t=document.getElementById("f-xtexte"); if(t) t.value=s.texte||"";
+  const i=document.getElementById("f-xinvest"); if(i) i.value=s.invest||"";
+  const g=document.getElementById("f-xgain"); if(g) g.value=s.gain||"";
+  s.uses=(s.uses||0)+1;
+  toast("📚 Solution reprise — adapte texte et chiffres au contexte de CE client.");
 }
 function deleteReco(id){
   const r=DB.recommendations.find(x=>x.id===id);
