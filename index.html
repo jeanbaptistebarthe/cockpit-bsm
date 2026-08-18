@@ -547,7 +547,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.37.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.38.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -2223,7 +2223,9 @@ function openClientForm(id){
     <h2>${id?"Modifier le client":"Nouveau client"}</h2>
     <div class="msub">Tous les champs sont modifiables à tout moment.</div>
     <div class="field"><label>Société *</label><input id="f-company" value="${esc(c.company||'')}"></div>
-    <div class="field"><label>Secteur d'intervention BSM <span style="font-weight:400;color:var(--muted);font-size:11.5px">— exclusivité : un seul client par secteur</span></label><select id="f-sector">${c.sector&&SECTORS.indexOf(c.sector)===-1?`<option selected>${esc(c.sector)}</option>`:""}${SECTORS.map(s=>`<option ${c.sector===s?'selected':''}>${s}</option>`).join("")}</select></div>
+    <div class="field"><label>Secteur d'intervention BSM (principal) <span style="font-weight:400;color:var(--muted);font-size:11.5px">— exclusivité : un seul client par secteur</span></label><select id="f-sector">${c.sector&&SECTORS.indexOf(c.sector)===-1?`<option selected>${esc(c.sector)}</option>`:""}${SECTORS.map(s=>`<option ${c.sector===s?'selected':''}>${s}</option>`).join("")}</select></div>
+    <div class="field"><label>Secteurs additionnels <span style="font-weight:400;color:var(--muted);font-size:11.5px">— si CE client étend BSM à d'autres branches (Ctrl+clic pour choisir/retirer, même règle d'exclusivité)</span></label>
+      <select id="f-sectors2" multiple size="4" style="height:auto">${SECTORS.filter(s=>s!=="Autre").map(s=>`<option ${(c.sectors2||[]).indexOf(s)>-1?'selected':''}>${s}</option>`).join("")}</select></div>
     <div class="field row2"><label>Contact</label>
       <input id="f-cname" placeholder="Nom du contact" value="${esc(c.contactName||'')}">
       <input id="f-cphone" placeholder="Téléphone" value="${esc(c.contactPhone||'')}"></div>
@@ -2269,12 +2271,22 @@ function saveClient(id){
       notify("client","Nouveau "+(obj.status==="prospect"?"prospect":"client"), obj.company+(obj.sector?" · "+obj.sector:""), {clientId:obj.id}); }
     save(); closeModal(); refreshAll(); toast("Client enregistré.");
   };
-  // Règle BSM d'exclusivité sectorielle : jamais deux entreprises sur le même secteur d'intervention (équité, non-concurrence).
-  const prevSector=id?((DB.clients.find(x=>x.id===id)||{}).sector||""):"";
-  const clash=obj.sector && obj.sector!=="Autre" && DB.clients.find(c=>c.id!==id && (c.sector||"")===obj.sector && c.status!=="archive");
-  if(clash && obj.sector!==prevSector){
+  // Secteurs additionnels (multi-branches chez un même client) — le principal n'y est jamais dupliqué.
+  const s2el=document.getElementById("f-sectors2");
+  obj.sectors2=s2el?Array.prototype.slice.call(s2el.selectedOptions).map(o=>o.value).filter(s=>s!==obj.sector):[];
+  // Règle BSM d'exclusivité sectorielle : jamais deux entreprises sur le même secteur d'intervention
+  // (équité, non-concurrence) — vérifiée sur le secteur principal ET les additionnels, des deux côtés.
+  const prev=id?(DB.clients.find(x=>x.id===id)||{}):{};
+  const prevSecs=[prev.sector||""].concat(prev.sectors2||[]);
+  const mySecs=[obj.sector].concat(obj.sectors2).filter(s=>s&&s!=="Autre");
+  let clash=null;
+  for(const c of DB.clients){ if(c.id===id||c.status==="archive") continue;
+    const theirs=[c.sector||""].concat(c.sectors2||[]);
+    const hit=mySecs.find(s=>theirs.indexOf(s)>-1 && prevSecs.indexOf(s)===-1);
+    if(hit){ clash={c,hit}; break; } }
+  if(clash){
     confirmModal("⚖️ Règle d'exclusivité sectorielle",
-      `Le secteur « ${esc(obj.sector)} » est déjà occupé par <b>${esc(clash.company)}</b>.<br><br>La règle BSM : <b>une seule entreprise par secteur</b> (équité, non-concurrence). Une société multi-secteurs peut en revanche être prise sur une <b>autre branche</b> — choisis alors le secteur de la branche concernée.<br><br>Enregistrer quand même ?`, doSave);
+      `Le secteur « ${esc(clash.hit)} » est déjà occupé par <b>${esc(clash.c.company)}</b>.<br><br>La règle BSM : <b>une seule entreprise par secteur</b> (équité, non-concurrence). Une société multi-secteurs peut en revanche être prise sur une <b>autre branche</b> — choisis alors le secteur de la branche concernée.<br><br>Enregistrer quand même ?`, doSave);
     return;
   }
   doSave();
@@ -5135,6 +5147,19 @@ function generateAdvice(){
     (DB.recommendations||[]).forEach(r=>{ if(r.status!=="fait" && r.dateCible && r.dateCible>=t && r.dateCible<=in7b)
       add("recodue-"+r.id,"warn","📌","Recommandation à échéance",
         `${r.ref?r.ref+" — ":""}${(r.texte||"").slice(0,90)} (${clientName(r.clientId)}) : échéance le ${frDate(r.dateCible)}.`); });
+  }
+  // 1k. CA CLIENT EN RECUL : encaissé des 90 derniers jours < 70 % des 90 précédents → creuser
+  //     (échéance non facturée ? service arrêté ? branche à relancer ?) — le « béton armé » du multi-services.
+  {
+    const d90=isoOffset(-90), d180=isoOffset(-180);
+    DB.clients.filter(c=>c.status==="actif").forEach(c=>{
+      let rec=0, prev90=0;
+      DB.transactions.forEach(x=>{ if(x.clientId!==c.id||x.sens!=="entrant"||x.status!=="realise") return;
+        if(x.date>=d90) rec+=txDefault(x); else if(x.date>=d180) prev90+=txDefault(x); });
+      if(prev90>0 && rec<prev90*0.7)
+        add("cadrop-"+c.id,"warn","📉","CA client en recul",
+          `${c.company} : ${fmtD(rec)} encaissés sur les 90 derniers jours contre ${fmtD(prev90)} sur les 90 précédents (−${Math.round((1-rec/prev90)*100)} %). Vérifier : échéances non facturées ? prestation arrêtée ? branche/secteur à relancer ?`);
+    });
   }
   // 1j. A1 ANTI-PERTES : pleins physiquement impossibles & doubles pleins suspects (60 derniers jours).
   //     Preuves PHYSIQUES uniquement (capacité réservoir) — jamais une accusation sur la seule consommation.

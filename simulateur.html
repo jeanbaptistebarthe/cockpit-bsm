@@ -380,17 +380,30 @@ input,select,textarea,button{font-family:var(--ff-u)}
       <div class="fg">
         <label class="flabel">Secteur d'activité</label>
         <select class="fsel" id="pk-sec" onchange="calcPacks();updateSectorRec()">
-          <option value="std">Commerce / Distribution</option>
+          <!-- Libellés alignés sur les 22 secteurs d'intervention du Cockpit ; la VALEUR = profil de
+               complexité tarifaire existant (std/bpo/elv/ind/tel/nrg/cri/min) — le moteur de prix est inchangé. -->
+          <option value="std">Distribution / Commerce</option>
           <option value="std">Services / Conseil</option>
-          <option value="std">Agro-industrie / Pêche</option>
+          <option value="std">Agriculture / Élevage</option>
+          <option value="std">Agroalimentaire</option>
+          <option value="std">Pêche / Aquaculture</option>
+          <option value="std">Import-Export / Négoce</option>
+          <option value="std">Immobilier</option>
+          <option value="std">Éducation / Formation</option>
+          <option value="std">Tourisme / Hôtellerie</option>
+          <option value="std">ONG</option>
           <option value="bpo">Centre d'appel / BPO</option>
           <option value="elv">BTP / Construction</option>
-          <option value="elv">Transport / Logistique</option>
-          <option value="ind">Industrie manufacturière</option>
+          <option value="elv">Location d'engins / Matériel BTP</option>
+          <option value="elv">Logistique / Transport</option>
+          <option value="elv">Sécurité privée</option>
+          <option value="ind">Industrie / Manufacture</option>
           <option value="tel">Télécom / IT</option>
           <option value="nrg">Énergie (élec., eau, hydrocarbures)</option>
-          <option value="cri">Finance / Assurance</option>
+          <option value="cri">Banque / Finance / Assurance</option>
           <option value="cri">Santé / Pharmacie</option>
+          <option value="cri">Public / Institutionnel</option>
+          <option value="cri">Aéroportuaire</option>
           <option value="min">Mines / Extraction</option>
         </select>
       </div>
