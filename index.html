@@ -538,7 +538,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.32.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.33.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -6087,6 +6087,9 @@ function openR5Report(clientId){
     <div class="field"><label style="display:flex;justify-content:space-between;align-items:center;gap:8px">🧠 Complément IA (facultatif — relis et corrige, c'est toi qui signes) <button type="button" class="cta ghost sm" onclick="r5ReportAI('${clientId}')">✨ Pré-rédiger depuis les données</button></label>
       <textarea id="r5r-ai" rows="6" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px"></textarea>
       <div id="r5r-aistatus" class="hint"></div></div>
+    ${(()=>{ const fams=[...new Set(DB.risks.filter(r=>r.clientId===clientId).map(r=>r.famille||r.categorie||"Autre"))]; const excl=new Set(draft.excludeFams||[]);
+      return fams.length?`<div class="field"><label>🔒 Domaines inclus dans le rapport <span style="font-weight:400;color:var(--muted);font-size:11.5px">— décoche ce que le client ne souhaite pas voir circuler (ex. Finance) : exclu du document envoyé, conservé dans le Cockpit</span></label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${fams.map(f=>`<label style="display:flex;gap:5px;align-items:center;font-size:12.5px;border:1px solid var(--line);border-radius:14px;padding:4px 10px;cursor:pointer"><input type="checkbox" class="r5r-fam" value="${esc(f)}" ${excl.has(f)?"":"checked"}> ${esc(f)}</label>`).join("")}</div></div>`:""; })()}
     ${prev.length?`<div class="hint">📚 Rapports archivés : ${prev.slice(0,4).map(r=>`<b>${esc(r.ref||"—")}</b> (${frDate(r.date)}${r.sentTo?" · envoyé":""}) <a class="clink" href="#" onclick="r5ReportPrint('${r.id}');return false">voir</a>`).join(" · ")}</div>`:""}
     <div class="modal-actions">
       <button class="cta ghost" onclick="r5ReportSaveDraft('${clientId}');closeModal();toast('Brouillon enregistré.')">💾 Brouillon</button>
@@ -6100,6 +6103,8 @@ function r5ReportSaveDraft(clientId){
   if(!d){ d={id:uid(), clientId, status:"brouillon", ref:"", date:todayISO(), by:(currentUser&&currentUser.login)||""}; DB.r5reports.push(d); }
   const a=document.getElementById("r5r-analysis"), ai=document.getElementById("r5r-ai");
   if(a) d.analysis=a.value; if(ai) d.aiText=ai.value; d.date=todayISO();
+  const famCbs=[...document.querySelectorAll(".r5r-fam")];
+  if(famCbs.length) d.excludeFams=famCbs.filter(c=>!c.checked).map(c=>c.value); // confidentialité : domaines exclus du document envoyé
   save(); return d;
 }
 async function r5ReportAI(clientId){
@@ -6107,16 +6112,17 @@ async function r5ReportAI(clientId){
   try{
     const c=DB.clients.find(x=>x.id===clientId)||{};
     const data={ client:c.company, secteur:c.sector||"",
-      risques:DB.risks.filter(r=>r.clientId===clientId).map(r=>({ref:r.ref,famille:r.famille,categorie:r.categorie,desc:r.description,P:+r.probabilite||0,I:+r.impact||0,score:(+r.probabilite||0)*(+r.impact||0),mesures:r.mesures||"",statut:r.status,decisionClient:r.clientDecision||""})),
-      recommandations:DB.recommendations.filter(r=>r.clientId===clientId).map(r=>({ref:r.ref,texte:r.texte,priorite:r.priorite,horizon:r.horizon,statut:r.status,echeance:r.dateCible||""})) };
-    const sys="Tu es l'analyste senior de BSM Advisory & Consulting (gouvernance des risques, méthode R5®, Madagascar). À partir des SEULES données JSON fournies, rédige en français une analyse d'audit en 3 parties courtes : « ## Lecture d'ensemble » (2-3 phrases), « ## Points critiques » (puces, cite les réf. des risques), « ## Trajectoire recommandée » (puces reliées aux recommandations). Règle absolue : n'invente AUCUN chiffre, fait ou risque absent des données. Style sobre, destiné à une direction générale.";
+      risques:DB.risks.filter(r=>r.clientId===clientId).map(r=>({ref:r.ref,famille:r.famille,categorie:r.categorie,desc:r.description,P:+r.probabilite||0,I:+r.impact||0,score:(+r.probabilite||0)*(+r.impact||0),mesures:r.mesures||"",coutEstime:r.coutEstime||"",statut:r.status,decisionClient:r.clientDecision||""})),
+      recommandations:DB.recommendations.filter(r=>r.clientId===clientId).map(r=>({ref:r.ref,texte:r.texte,priorite:r.priorite,horizon:r.horizon,statut:r.status,echeance:r.dateCible||"",investissement:r.invest||"",gainAttendu:r.gain||""})) };
+    const sys="Tu es l'analyste senior de BSM Advisory & Consulting (gouvernance des risques, méthode R5®, Madagascar). À partir des SEULES données JSON fournies, rédige en français une analyse d'audit en 3 parties courtes : « ## Lecture d'ensemble » (2-3 phrases), « ## Points critiques » (puces, cite les réf. des risques), « ## Trajectoire recommandée » (puces reliées aux recommandations). Quand un coût estimé de risque, un investissement ou un gain attendu figure dans les données, articule le raisonnement décisionnel : coût de l'inaction vs investissement vs gain — c'est la valeur ajoutée BSM, apporteur de solutions. Règle absolue : n'invente AUCUN chiffre, fait ou risque absent des données ; si un chiffrage manque, écris « à chiffrer » plutôt qu'une estimation. Style sobre, destiné à une direction générale qui n'a qu'à décider.";
     const txt=await aiComplete([{role:"user",content:sys+"\n\nDONNÉES :\n"+JSON.stringify(data)}], 900, c.sector);
     const el=document.getElementById("r5r-ai"); if(el) el.value=String(txt||"").trim();
     if(st) st.textContent="✓ Proposition rédigée — relis, corrige, complète : le rapport n'engage que ta signature.";
   }catch(e){ if(st) st.textContent="⚠️ IA indisponible ("+esc(e.message||String(e))+") — le rapport fonctionne très bien sans."; }
 }
-function r5ReportBody(clientId, analysis, aiText){
-  const risks=DB.risks.filter(r=>r.clientId===clientId).map(r=>Object.assign({},r,{score:(+r.probabilite||0)*(+r.impact||0)})).sort((a,b)=>b.score-a.score);
+function r5ReportBody(clientId, analysis, aiText, excludeFams){
+  const ex=new Set(excludeFams||[]);
+  const risks=DB.risks.filter(r=>r.clientId===clientId && !ex.has(r.famille||r.categorie||"Autre")).map(r=>Object.assign({},r,{score:(+r.probabilite||0)*(+r.impact||0)})).sort((a,b)=>b.score-a.score);
   const recos=DB.recommendations.filter(r=>r.clientId===clientId);
   const counts={CRITIQUE:0,HAUTE:0,MOYENNE:0,FAIBLE:0}; risks.forEach(r=>{ counts[r5Niveau(r.score)]=(counts[r5Niveau(r.score)]||0)+1; });
   const grid=Array.from({length:5},()=>Array(5).fill(0));
@@ -6128,7 +6134,7 @@ function r5ReportBody(clientId, analysis, aiText){
   const th=arr=>`<thead><tr style="background:#F6F1E8">${arr.map(h=>`<th style="padding:6px 8px;border:1px solid #E5E7EB;font-size:9.5px;text-transform:uppercase;color:#102A43;text-align:left">${h}</th>`).join("")}</tr></thead>`;
   const rows=risks.map(r=>{ const lv=r5Niveau(r.score), col=R5_LEVEL_COLORS[lv]||"#6B7280";
     return `<tr><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11px">${esc(r.ref||"")}</td><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11.5px"><b>${esc(r.categorie||r.famille||"")}</b><div style="color:#374151;line-height:1.5">${esc(r.description||"")}</div>${r.mesures?`<div style="font-size:10.5px;color:#6B7280">Mesures en place : ${esc(r.mesures)}</div>`:""}${r.coutEstime?`<div style="font-size:10.5px;color:#B7891A;font-weight:600">Coût estimé si survenance : ${esc(r.coutEstime)}</div>`:""}${/matérialis/i.test(r.obs||"")?`<div style="font-size:10px;color:#C0392B">⚠ Déjà matérialisé par le passé</div>`:""}</td><td style="text-align:center;border:1px solid #E5E7EB">${r.probabilite||"—"}</td><td style="text-align:center;border:1px solid #E5E7EB">${r.impact||"—"}</td><td style="text-align:center;border:1px solid #E5E7EB;font-weight:700">${r.score||"—"}</td><td style="text-align:center;border:1px solid #E5E7EB"><span style="color:${col};font-weight:700;font-size:10.5px">${lv}</span></td></tr>`; }).join("");
-  const recRows=recos.map(r=>`<tr><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11px">${esc(r.ref||"")}</td><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11.5px;line-height:1.5">${esc(r.texte||"")}</td><td style="text-align:center;border:1px solid #E5E7EB;font-size:11px">${esc(r.priorite||"—")}</td><td style="text-align:center;border:1px solid #E5E7EB;font-size:11px">${r.dateCible?frDate(r.dateCible):esc(r.horizon||"—")}</td><td style="text-align:center;border:1px solid #E5E7EB;font-size:11px">${r.status==="fait"?"✅ Fait":"À faire"}</td></tr>`).join("");
+  const recRows=recos.map(r=>`<tr><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11px">${esc(r.ref||"")}</td><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11.5px;line-height:1.5">${esc(r.texte||"")}${(r.invest||r.gain)?`<div style="font-size:10.5px;margin-top:3px;padding:4px 8px;background:#FCFBF7;border-left:2px solid #B7891A">${r.invest?`Investissement : <b>${esc(r.invest)}</b>`:""}${r.invest&&r.gain?" &nbsp;→&nbsp; ":""}${r.gain?`<span style="color:#2F855A">Gain attendu : <b>${esc(r.gain)}</b></span>`:""}</div>`:""}</td><td style="text-align:center;border:1px solid #E5E7EB;font-size:11px">${esc(r.priorite||"—")}</td><td style="text-align:center;border:1px solid #E5E7EB;font-size:11px">${r.dateCible?frDate(r.dateCible):esc(r.horizon||"—")}</td><td style="text-align:center;border:1px solid #E5E7EB;font-size:10.5px;white-space:nowrap">${r.status==="fait"?"✅ Mise en œuvre":(r.clientDecision?esc(decisionLabel(r.clientDecision)):"☐ Valider&nbsp;&nbsp;☐ Différer")}</td></tr>`).join("");
   let n=1; const sec=t=>`<h2 class="docsec">${n++}. ${t}</h2>`;
   return sec("Synthèse")
     +`<table style="width:100%;border-collapse:collapse;page-break-inside:avoid"><tr>${kpi(risks.length,"Risques évalués")}${kpi(counts.CRITIQUE||0,"Critiques","#C0392B")}${kpi(counts.HAUTE||0,"Priorité haute","#D97706")}${kpi(recos.length,"Recommandations")}</tr></table>`
@@ -6138,14 +6144,16 @@ function r5ReportBody(clientId, analysis, aiText){
     +`<table style="width:100%;border-collapse:collapse">${th(["Réf.","Risque","P","I","Score","Niveau"])}<tbody>${rows||'<tr><td colspan="6" style="padding:10px;text-align:center;color:#6B7280">Aucun risque saisi</td></tr>'}</tbody></table>
      <p style="font-size:10.5px;color:#6B7280">Niveaux : CRITIQUE ≥ 15 · HAUTE 9–14 · MOYENNE 4–8 · FAIBLE &lt; 4.</p>`
     +sec("Cartographie")+carto
-    +sec("Plan d'action — recommandations")
-    +`<table style="width:100%;border-collapse:collapse">${th(["Réf.","Recommandation","Priorité","Échéance","Statut"])}<tbody>${recRows||'<tr><td colspan="5" style="padding:10px;text-align:center;color:#6B7280">Aucune recommandation</td></tr>'}</tbody></table>`
+    +sec("Plan d'action — solutions proposées")
+    +`<p style="font-size:12px;color:#374151;line-height:1.6"><b>BSM propose, vous décidez.</b> Chaque solution est chiffrée lorsque les données le permettent (investissement → gain attendu). Cochez votre décision, datez : la mise en œuvre et le suivi sont assurés par BSM et revus à chaque audit trimestriel.</p>
+     <table style="width:100%;border-collapse:collapse">${th(["Réf.","Recommandation & business case","Priorité","Échéance","Votre décision"])}<tbody>${recRows||'<tr><td colspan="5" style="padding:10px;text-align:center;color:#6B7280">Aucune recommandation</td></tr>'}</tbody></table>`
+    +(ex.size?`<p style="font-size:10.5px;color:#6B7280;margin-top:8px">Périmètre : le présent document couvre les domaines convenus avec le client ; les analyses des autres domaines sont conservées par ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")} et restituées séparément sur demande.</p>`:"")
     +sec("Méthodologie")
     +`<p style="font-size:12px;color:#374151;line-height:1.7">Audit conduit selon la méthode R5® (Révéler · Connecter · Répondre · Renforcer · Réviser) de ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")}, sur la base des constats terrain et d'évaluations Probabilité × Impact à échelles ancrées. Les analyses assistées par IA, lorsqu'elles figurent au présent rapport, sont générées exclusivement à partir des données d'audit du client et validées par l'auditeur — aucun chiffre n'est inventé. Document confidentiel, réservé au destinataire.</p>`;
 }
 function r5ReportHtml(rep){
   const c=DB.clients.find(x=>x.id===rep.clientId)||{};
-  return docChrome(r5ReportBody(rep.clientId, rep.analysis, rep.aiText), { title:"Rapport d'audit R5 "+(rep.ref||"")+" — "+(c.company||""), typeLabel:"Rapport d'audit R5®", ref:rep.ref||"", date:frLong(rep.date||todayISO()), clientName:c.company||"", clientContact:c.contactName||"", clientEmail:c.contactEmail||"", objet:"Audit de gouvernance des risques — méthode R5®", footRef:(rep.ref||"BSM-RA")+" · Document confidentiel · "+(DB.meta.cabinetName||"BSM Advisory & Consulting") });
+  return docChrome(r5ReportBody(rep.clientId, rep.analysis, rep.aiText, rep.excludeFams), { title:"Rapport d'audit R5 "+(rep.ref||"")+" — "+(c.company||""), typeLabel:"Rapport d'audit R5®", ref:rep.ref||"", date:frLong(rep.date||todayISO()), clientName:c.company||"", clientContact:c.contactName||"", clientEmail:c.contactEmail||"", objet:"Audit de gouvernance des risques — méthode R5®", footRef:(rep.ref||"BSM-RA")+" · Document confidentiel · "+(DB.meta.cabinetName||"BSM Advisory & Consulting") });
 }
 /* ---- Synthèse trimestrielle « ce qui a bougé » (lot 2) : état actuel vs photo du dernier rapport envoyé ---- */
 function r5Snapshot(clientId){ return DB.risks.filter(r=>r.clientId===clientId).map(r=>({ ref:r.ref||"", desc:(r.description||r.categorie||"").slice(0,70), score:(+r.probabilite||0)*(+r.impact||0) })); }
@@ -6351,6 +6359,8 @@ function openRecoForm(id){
       <select id="f-xprio">${RECO_PRIORITIES.map(x=>`<option ${r.priorite===x?'selected':''}>${x}</option>`).join("")}</select></div>
     <div class="field row2"><label>Responsable & moyens/budget</label>
       <input id="f-xresp" value="${esc(r.responsable||'')}"><input id="f-xmoyens" value="${esc(r.moyens||'')}"></div>
+    <div class="field row2"><label>💡 Solution chiffrée — investissement & gain attendu <span style="font-weight:400;color:var(--muted);font-size:11.5px">(ex : « hangar ≈ 120 M Ar » → « −15 % de manutention ≈ 8 M Ar/an » — c'est le business case du rapport)</span></label>
+      <input id="f-xinvest" value="${esc(r.invest||'')}" placeholder="Investissement estimé"><input id="f-xgain" value="${esc(r.gain||'')}" placeholder="Gain attendu (%, montant, temps)"></div>
     <div class="field"><label>Indicateur de succès</label><input id="f-xind" value="${esc(r.indicateur||'')}"></div>
     <div class="field row2"><label>Statut (suivi BSM) & avancement (%)</label>
       <select id="f-xstatus">${RECO_STATUS.map(s=>`<option value="${s[0]}" ${r.status===s[0]?'selected':''}>${s[1]}</option>`).join("")}</select>
@@ -6365,6 +6375,7 @@ function openRecoForm(id){
 function saveReco(id){
   const obj={ref:val("f-xref").trim(),clientId:val("f-xclient"),texte:val("f-xtexte"),riskId:val("f-xrisk"),
     horizon:val("f-xhorizon"),priorite:val("f-xprio"),responsable:val("f-xresp"),moyens:val("f-xmoyens"),indicateur:val("f-xind"),
+    invest:val("f-xinvest"),gain:val("f-xgain"),
     status:val("f-xstatus"),avancement:Math.max(0,Math.min(100,parseInt(val("f-xav"))||0)),clientDecision:val("f-xdecision"),dateCible:val("f-xcible"),dateReal:val("f-xreal"),commentaire:val("f-xcom")};
   if(id){Object.assign(DB.recommendations.find(x=>x.id===id),obj);}else{obj.id=uid();DB.recommendations.push(obj);
     notify("reco","Nouvelle recommandation", (obj.texte||obj.ref||"Recommandation")+" · "+clientName(obj.clientId), {clientId:obj.clientId}); }
