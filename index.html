@@ -547,7 +547,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.43.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.44.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -1042,6 +1042,43 @@ async function cloudLoadProfile(){
   const { data } = await c.from("profiles").select("full_name,role,organization_id,organizations(name)").eq("id", s.user.id).single();
   if(data) cloudOrgId = data.organization_id;
   return data;
+}
+/* ---- Mot de passe oublié — circuit AUTONOME : l'employé saisit son e-mail, reçoit le lien
+   Supabase, choisit son nouveau mot de passe. Chaque étape est journalisée (Connexions & activité)
+   et notifiée à la direction — l'employé est autonome, le patron garde la visibilité. ---- */
+async function cloudForgotPassword(){
+  const el=document.getElementById("pf-cemail");
+  const email=((el&&el.value)||prompt("Ton e-mail de connexion :")||"").trim();
+  if(!email){ return; }
+  try{
+    const c=await sbClient();
+    const {error}=await c.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+    if(error){ toast("Erreur : "+error.message); return; }
+    toast("📧 Lien de réinitialisation envoyé à "+email+" — vérifie ta boîte (et les spams).");
+    if(typeof logEvent==="function") logEvent("login","Réinitialisation de mot de passe demandée : "+email, true);
+  }catch(e){ toast("Cloud indisponible — demande à la direction de réinitialiser depuis Supabase."); }
+}
+async function cloudRecoveryCheck(){
+  if(String(location.hash||"").indexOf("type=recovery")===-1) return;
+  try{ await sbClient();
+    openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔑 Choisis ton nouveau mot de passe</h2>
+      <div class="msub">Lien de réinitialisation vérifié — 8 caractères minimum.</div>
+      <div class="field"><label>Nouveau mot de passe</label><input type="password" id="rp-1" autocomplete="new-password"></div>
+      <div class="field"><label>Confirme-le</label><input type="password" id="rp-2" autocomplete="new-password"></div>
+      <div class="modal-actions"><button class="cta" onclick="cloudRecoverySet()">Enregistrer</button></div>`);
+  }catch(e){}
+}
+async function cloudRecoverySet(){
+  const p1=val("rp-1"), p2=val("rp-2");
+  if(p1.length<8){ toast("8 caractères minimum."); return; }
+  if(p1!==p2){ toast("Les deux saisies diffèrent."); return; }
+  try{
+    const c=await sbClient(); const {error}=await c.auth.updateUser({password:p1});
+    if(error){ toast("Erreur : "+error.message); return; }
+    if(typeof logEvent==="function") logEvent("login","Mot de passe réinitialisé via lien e-mail", true);
+    if(typeof notify==="function") notify("login","🔑 Mot de passe réinitialisé","Un utilisateur a changé son mot de passe via le lien e-mail — voir Connexions & activité.",{});
+    closeModal(); location.hash=""; toast("✅ Mot de passe changé — connecte-toi avec le nouveau.");
+  }catch(e){ toast("Cloud indisponible."); }
 }
 async function cloudSignIn(email, pass){
   const c = await sbClient();
@@ -6660,9 +6697,34 @@ function openR5Hub(clientId){
     ${card(2,"🔁","Mesurer l'évolution","Ce qui a bougé depuis le dernier rapport : aggravés, améliorés, nouveaux, recos soldées","openR5Delta('"+clientId+"')")}
     ${card(3,"📑","Émettre LE rapport","Passé · présent · futur — piliers BSM en jauges, analyses, matrice, carto, solutions chiffrées, décision en un clic. Par branche ou groupe entier.","openR5Report('"+clientId+"')")}
     ${card(4,"📚","Registre des rapports","Tous les rapports émis pour ce client — cloisonné, consultable, réimprimable","openR5Registry('"+clientId+"')")}
+    ${card("🪪","","Contexte client","Qui est ce client : secteur, branches, contacts, résumés de mission et de suivi — l'essentiel pour travailler, sans les données financières BSM","openClientContext('"+clientId+"')")}
     </div>
     <div class="hint">Un seul document par client (ou par branche) et par trimestre — jamais plusieurs rapports dispersés. La fenêtre du rapport gère aussi la fiche de décision et l'archivage.</div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`);
+}
+/* 🪪 Contexte client — l'AUTONOMIE de l'analyste : tout ce qu'il faut savoir pour travailler SON client
+   (identité, branches, contacts, résumés, dernier audit) SANS les données financières BSM (devis, CA,
+   budget — réservés à la direction via la fiche 360 complète). */
+function openClientContext(clientId){
+  const c=DB.clients.find(x=>x.id===clientId); if(!c) return;
+  const bs=clientBranches(clientId);
+  const lastAudit=(DB.missions||[]).filter(m=>m.clientId===clientId&&/audit/i.test(m.type||"")).sort((a,b)=>String(b.startDate).localeCompare(String(a.startDate)))[0];
+  const li=(l,v)=>v?`<div class="li"><span>${l}</span><span style="text-align:right;max-width:62%">${esc(v)}</span></div>`:"";
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🪪 Contexte — ${esc(c.company)}</h2>
+    <div class="msub">L'essentiel pour travailler ce client. La fiche 360 complète (devis, finances) est réservée à la direction.</div>
+    <div class="mini-list" style="margin-top:8px">
+      ${li("Secteur principal", c.sector)}
+      ${bs.length>1?li("Branches", bs.join(" · ")):""}
+      ${li("Statut", c.status)}
+      ${li("Contact principal", (c.contactName||"")+(c.contactEmail?" · "+c.contactEmail:"")+(c.contactPhone?" · "+c.contactPhone:""))}
+      ${(c.contacts2||[]).map(k=>li("Représentant — "+(k.branch||"?"), (k.name||"")+(k.email?" · "+k.email:""))).join("")}
+      ${li("Dernier audit", lastAudit?(lastAudit.type+" du "+frDate(lastAudit.startDate)):"")}
+      ${li("Responsable BSM", (typeof respName==="function"?respName(c.responsable):c.responsable)||"")}
+    </div>
+    ${c.notes?`<div class="hint" style="margin-top:8px"><b>Profil :</b> ${esc(c.notes)}</div>`:""}
+    ${c.missionSummary?`<div class="hint"><b>Résumé mission :</b> ${esc(c.missionSummary)}</div>`:""}
+    ${c.followupSummary?`<div class="hint"><b>Résumé suivi :</b> ${esc(c.followupSummary)}</div>`:""}
+    <div class="modal-actions"><button class="cta" onclick="closeModal()">Fermer</button></div>`);
 }
 /* Registre des rapports — cloisonné par client : tout ce qui a été émis, consultable et réimprimable. */
 function openR5Registry(clientId){
@@ -11556,6 +11618,7 @@ function cmdkKey(e){
 }
 /* Badge de version dans l'en-tête (clic : Santé & sauvegardes pour l'admin). */
 (function(){ const v=document.getElementById("ver-badge"); if(v){ v.textContent="v"+APP_VERSION; v.title="Cockpit v"+APP_VERSION+" ("+APP_VERSION_DATE+") — clic : Santé & sauvegardes (admin)"; } })();
+cloudRecoveryCheck(); // lien « mot de passe oublié » cliqué depuis l'e-mail → fenêtre de nouveau mot de passe
 function hideSearch(){ const el=document.getElementById("gs-results"); if(el) el.classList.remove("show"); }
 function clearSearch(){ const i=document.getElementById("globalsearch"); if(i) i.value=""; hideSearch(); }
 
@@ -12715,6 +12778,7 @@ function showPortal(){
     <input type="password" id="pf-cpass" placeholder="Mot de passe" autocomplete="current-password" onkeydown="if(event.key==='Enter')cloudPortalLogin()">
     <button class="cta" style="width:100%" onclick="cloudPortalLogin()">Se connecter</button>
     <div class="foot">Authentification Supabase — accès cloisonné par organisation (RLS). Chaque connexion est journalisée.<br>
+      <a href="#" onclick="cloudForgotPassword();return false" style="color:var(--gold)">Mot de passe oublié ?</a> ·
       <a href="#" onclick="showLocalPortal();return false" style="color:var(--gold)">Mode local (hors-ligne / secours)</a></div>`;
   setTimeout(()=>{ const e=document.getElementById("pf-cemail"); if(e) e.focus(); },60);
   document.getElementById("portal").classList.add("show");
