@@ -538,7 +538,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.28.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.29.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -8638,9 +8638,10 @@ function openA1InvoiceImport(kind){ // kind = 'fuel' | 'jirama'
   const isJ=kind==="jirama"; _a1InvoiceFile=null;
   const client=isJ?a1genClient:a1Client;
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🧾 ${isJ?"Facture JIRAMA (réseau)":"Facture pompiste (carburant)"}</h2>
-    <div class="msub">Charge le PDF (ou photo/Excel) : il est <b>conservé comme preuve</b> et rattaché à la période. Les factures scannées n'ayant pas de texte, tu <b>valides/corriges les chiffres à la main</b> (traçabilité BSM) — l'auto-extraction n'est qu'une aide quand le PDF contient du texte.</div>
-    <div class="field"><label>📎 Fichier facture (PDF idéalement — photo/Excel/CSV acceptés)</label>
-      <input type="file" id="inv-file" accept=".pdf,image/*,.xlsx,.csv,application/pdf" onchange="a1InvoiceFilePicked()">
+    <div class="msub">Charge le PDF (ou photo/Excel) : il est <b>conservé comme preuve</b> et rattaché à la période. ⚡ <b>Saisie en rafale</b> : sélectionne <b>plusieurs fichiers d'un coup</b> — ils s'enchaîneront un par un, pré-remplis, en gardant client, affectation et fournisseur. Les factures scannées n'ayant pas de texte, tu <b>valides/corriges les chiffres à la main</b> (traçabilité BSM).</div>
+    <div class="field"><label>📎 Fichier(s) facture (PDF idéalement — photo/Excel/CSV acceptés · plusieurs = rafale)</label>
+      <input type="file" id="inv-file" multiple accept=".pdf,image/*,.xlsx,.csv,application/pdf" onchange="a1InvoiceFilePicked('${kind}')">
+      <div id="inv-batch" class="hint" style="font-weight:600;color:var(--navy)"></div>
       <div id="inv-fstatus" class="hint" style="color:var(--navy)"></div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 8px"><button class="cta ghost sm" onclick="a1InvoiceTryExtract('${kind}')">✨ Tenter l'extraction auto (si PDF texte)</button><button class="cta ghost sm" onclick="openA1InvoiceRegister('${kind}')">📚 Registre des factures</button></div>
     <div class="field row2"><label>Client & ${isJ?"groupe (option)":"affecter à (option)"}</label>
@@ -8668,15 +8669,43 @@ function a1InvoiceTargetOptions(kind, client){ const isJ=kind==="jirama";
 }
 function a1InvoiceCalcUnit(kind){ const isJ=kind==="jirama"; const q=parseFloat(val(isJ?"inv-kwh":"inv-liters"))||0; const amt=parseFloat(val("inv-amount"))||0; const u=document.getElementById("inv-unit");
   if(u && q>0 && amt>0 && !u.dataset.touched){ u.value=(amt/q).toFixed(2); } }
-function a1InvoiceFilePicked(){ const f=(document.getElementById("inv-file").files||[])[0]; _a1InvoiceFile=f||null; const st=document.getElementById("inv-fstatus");
-  if(!f){ if(st) st.textContent=""; return; }
-  const mb=(f.size/1048576).toFixed(1); if(st) st.innerHTML=`📎 <b>${esc(f.name)}</b> (${mb} Mo) — conservé comme preuve. <span style="color:var(--muted)">${serverEnabled?"Stockée sur le serveur BSM (accessible depuis tous tes postes, sauvegardée).":"Sans serveur : la pièce reste sur cet appareil ; les données validées, elles, se synchronisent."}</span>`;
-  // pré-remplissage depuis le nom du fichier (mois + fournisseur)
+/* Pré-remplissage depuis le nom du fichier (mois + fournisseur + n°) — utilisé en saisie simple ET en rafale. */
+function a1InvoicePrefillFromName(f){
   const nm=norm(f.name); const months={janvier:1,fevrier:2,mars:3,avril:4,mai:5,juin:6,juillet:7,aout:8,septembre:9,octobre:10,novembre:11,decembre:12};
   const ym=f.name.match(/(20\d\d)/); let mo=0; Object.keys(months).forEach(k=>{ if(nm.indexOf(k)>=0) mo=months[k]; });
   if(ym&&mo){ const p=document.getElementById("inv-period"); if(p) p.value=ym[1]+"-"+String(mo).padStart(2,"0"); }
   if(nm.indexOf("galana")>=0){ const s=document.getElementById("inv-supplier"); if(s&&!s.value) s.value="GALANA"; }
   const rf=f.name.match(/INV\d+|N[°o]\s*[:.]?\s*(\w+)/i); if(rf){ const r=document.getElementById("inv-ref"); if(r&&!r.value) r.value=rf[0]; }
+}
+/* ---- SAISIE EN RAFALE (industrialisation A1) : plusieurs fichiers sélectionnés → file d'attente.
+   Chaque « Enregistrer » enchaîne la facture suivante sans fermer la fenêtre. Les champs de CONTEXTE
+   (client, affectation, fournisseur, carburant) sont conservés ; les champs PROPRES à la facture
+   (n°, quantités, montant, prix unitaire) sont remis à zéro — jamais un chiffre recopié par erreur. ---- */
+let _a1Batch=null; // {kind, files:[...], i}
+function a1BatchClearFields(){
+  ["inv-ref","inv-amount","inv-liters","inv-kwh"].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=""; });
+  const u=document.getElementById("inv-unit"); if(u){ u.value=""; delete u.dataset.touched; }
+}
+function a1BatchLoad(i){
+  if(!_a1Batch) return;
+  const f=_a1Batch.files[i]; if(!f) return;
+  _a1Batch.i=i; _a1InvoiceFile=f;
+  a1BatchClearFields();
+  const bb=document.getElementById("inv-batch");
+  if(bb) bb.innerHTML=`📦 Rafale <b>${i+1}/${_a1Batch.files.length}</b> — ${esc(f.name)} (${(f.size/1048576).toFixed(1)} Mo)`;
+  a1InvoicePrefillFromName(f);
+  if(/\.pdf$/i.test(f.name)) a1InvoiceTryExtract(_a1Batch.kind); // aide auto ; les PDF scannés restent à la main
+  else { const st=document.getElementById("inv-fstatus"); if(st) st.textContent="Photo/scan : saisis les chiffres, le fichier est conservé comme preuve."; }
+}
+function a1InvoiceFilePicked(kind){
+  const files=Array.prototype.slice.call((document.getElementById("inv-file")||{}).files||[]);
+  const st=document.getElementById("inv-fstatus"), bb=document.getElementById("inv-batch");
+  if(!files.length){ _a1InvoiceFile=null; _a1Batch=null; if(st) st.textContent=""; if(bb) bb.textContent=""; return; }
+  if(files.length>1){ _a1Batch={ kind:kind||"fuel", files, i:0 }; a1BatchLoad(0); return; }
+  _a1Batch=null; if(bb) bb.textContent="";
+  const f=files[0]; _a1InvoiceFile=f;
+  const mb=(f.size/1048576).toFixed(1); if(st) st.innerHTML=`📎 <b>${esc(f.name)}</b> (${mb} Mo) — conservé comme preuve. <span style="color:var(--muted)">${serverEnabled?"Stockée sur le serveur BSM (accessible depuis tous tes postes, sauvegardée).":"Sans serveur : la pièce reste sur cet appareil ; les données validées, elles, se synchronisent."}</span>`;
+  a1InvoicePrefillFromName(f);
 }
 async function a1InvoiceTryExtract(kind){ const f=_a1InvoiceFile; const st=document.getElementById("inv-fstatus");
   if(!f){ toast("Charge d'abord un fichier."); return; } if(!/\.pdf$/i.test(f.name)){ toast("Extraction auto = PDF uniquement. Sinon, saisis à la main."); return; }
@@ -8721,9 +8750,18 @@ async function saveA1Invoice(kind){
   if(!isJ && tk==="veh" && tid && qty>0){ const v=DB.a1vehicles.find(x=>x.id===tid);
     if(v){ DB.a1logs.push({ id:uid(), vehicleId:v.id, date:(period+"-15"), km:0, liters:qty, cost:amount, unitPrice:unit, currency:inv.currency, hours:0, idle:0, litersReal:0, station:inv.supplier, source:"facture", invoiceId:inv.id }); } }
   DB.a1invoices.push(inv);
+  // RAFALE : la suivante s'enchaîne sans fermer (client/affectation/fournisseur conservés)
+  if(_a1Batch && _a1Batch.i < _a1Batch.files.length-1){
+    save();
+    toast("✓ Facture "+(_a1Batch.i+1)+"/"+_a1Batch.files.length+" enregistrée — au tour de la suivante.");
+    a1BatchLoad(_a1Batch.i+1);
+    return;
+  }
+  const batchN=_a1Batch?_a1Batch.files.length:0; _a1Batch=null;
   save(); closeModal();
   if(isJ||val("inv-target").indexOf("gen")===0) renderA1Genset(); else renderA1Fleet();
-  toast("Facture enregistrée"+(inv.hasFile?" (preuve jointe)":"")+" — "+(isJ?"tarif JIRAMA":"prix carburant")+" du mois mémorisé.");
+  toast(batchN>1 ? "📦 Rafale terminée : "+batchN+" factures enregistrées avec leurs preuves."
+    : "Facture enregistrée"+(inv.hasFile?" (preuve jointe)":"")+" — "+(isJ?"tarif JIRAMA":"prix carburant")+" du mois mémorisé.");
 }
 function openA1InvoiceRegister(kind){
   const isJ=kind==="jirama"; const client=isJ?a1genClient:a1Client;
