@@ -642,7 +642,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.49.2";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.50.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -7979,7 +7979,10 @@ function a1ExecDelete(id){
     ()=>{
       DB.a1execreports=DB.a1execreports.filter(x=>x.id!==id);
       if(r.onServer&&serverEnabled){ try{ fetch("/api/file-del",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:"a1rep_"+r.id})}); fetch("/api/file-del",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:"a1mail_"+r.id})}); }catch(e){} }
-      save(); closeModal(); openA1ExecHistory(r.kind); if(currentScreen==="a1suivi") renderA1Suivi(); toast("Rapport supprimé — regénère-le une fois les données corrigées.");
+      save(); closeModal();
+      // Rafraîchissement selon l'écran d'origine : depuis Rapports on reste sur Rapports, sinon on rouvre l'historique du module.
+      if(currentScreen==="reports" && typeof renderReports==="function") renderReports(); else openA1ExecHistory(r.kind);
+      if(currentScreen==="a1suivi") renderA1Suivi(); toast("Rapport supprimé — regénère-le une fois les données corrigées.");
     });
 }
 function openA1ExecHistory(kind){
@@ -8437,8 +8440,28 @@ function openA1ExecSend(id){
     <div class="field"><label>Message d'accompagnement</label><textarea id="xs-msg" rows="7" style="width:100%;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px">${esc(defMsg)}</textarea></div>
     ${to?"":'<div class="hint" style="color:var(--orange)">⚠ Aucune adresse sur la fiche client — saisis-la ci-dessus.</div>'}
     ${r.onServer?"":'<div class="hint" style="color:var(--orange)">⚠ Le contenu de ce rapport n’est pas archivé sur le serveur — regénère-le (📕) pour pouvoir l’envoyer.</div>'}
+    ${(DB.recommendations||[]).some(x=>x.clientId===r.clientId&&x.status!=="fait"&&x.clientDecision!=="refuse")?`<div class="hint">🗳 Les <b>recommandations ouvertes</b> du registre (mêmes références que la fiche 360) partent automatiquement dans le corps du mail, avec le mode de réponse décision (VALIDER / DIFFÉRER / REFUSER par simple réponse).</div>`:''}
     ${!serverEnabled?`<div class="hint" style="color:#A6641A;background:#FDF1E3;border:1px solid #F3D8B4;border-radius:8px;padding:9px;margin-top:6px">🖥️ L'<b>envoi e-mail</b> se fait depuis le <b>Cockpit local</b> (serveur). Bascule en local pour envoyer.</div>`:''}
     <div class="modal-actions">${r.onServer&&serverEnabled?`<button class="cta ghost" onclick="a1ViewExecReport('${r.id}')">👁 Relire</button>`:""}<button class="cta ghost" onclick="closeModal()">Annuler</button>${st==="brouillon"?`<button class="cta gold" onclick="a1ExecValidate('${r.id}','send')">✅ Valider (puis envoyer)</button>`:(serverEnabled&&r.onServer?`<button class="cta" onclick="a1ExecSendGo('${r.id}')">${r.sentAt?"Renvoyer":"Envoyer"} au client</button>`:'')}</div>`);
+}
+/* Bloc « 🗳 Vos décisions » injecté dans les mails de rapport (A1 et audit R5) : les recommandations
+   OUVERTES du client — mêmes références que la fiche 360 et la fiche de décision — avec réponse par
+   simple reply (« REC-001 : VALIDER »), le format que « 📥 Décisions reçues » sait relire.
+   Les recommandations issues du programme A1 sont étiquetées. */
+function recoDecisionMailBlockHtml(clientId){
+  if(!clientId) return "";
+  const recos=(DB.recommendations||[]).filter(r=>r.clientId===clientId&&r.status!=="fait"&&r.clientDecision!=="refuse");
+  if(!recos.length) return "";
+  const rows=recos.map(r=>`<tr>
+    <td style="padding:7px 9px;border:1px solid #E5E7EB;font-size:12px;white-space:nowrap"><b>${esc(r.ref||"")}</b>${/programme a1/i.test(r.commentaire||"")?'<div style="font-size:10px;color:#B5923A;font-weight:700">PROGRAMME A1</div>':""}</td>
+    <td style="padding:7px 9px;border:1px solid #E5E7EB;font-size:13px;line-height:1.5">${esc(r.texte||"")}${(r.invest||r.gain)?`<div style="font-size:11px;margin-top:2px;color:#6B7280">${r.invest?"Investissement : <b>"+esc(r.invest)+"</b>":""}${r.invest&&r.gain?" → ":""}${r.gain?'<span style="color:#2F855A">Gain attendu : <b>'+esc(r.gain)+"</b></span>":""}</div>`:""}</td>
+    <td style="padding:7px 9px;border:1px solid #E5E7EB;font-size:12px;white-space:nowrap;color:#6B7280">VALIDER · DIFFÉRER · REFUSER</td></tr>`).join("");
+  return `<div style="font-family:Arial,sans-serif;margin-top:18px;border-top:3px solid #B5923A;padding-top:12px">
+    <div style="font-size:15px;font-weight:700;color:#0D1F45">🗳 Vos décisions — plan d'action (${recos.length} recommandation${recos.length>1?"s":""})</div>
+    <p style="font-size:13px;line-height:1.6;color:#111827"><b>BSM propose, vous décidez.</b> Répondez simplement à cet e-mail en indiquant votre décision pour chaque référence, par exemple :<br><code style="background:#F6F1E8;padding:2px 6px;border-radius:4px">${esc(recos[0].ref||"REC-001")} : VALIDER</code></p>
+    <table style="width:100%;border-collapse:collapse;margin:8px 0">
+      <tr style="background:#F6F1E8"><th style="padding:6px 9px;border:1px solid #E5E7EB;font-size:10px;text-align:left">RÉF.</th><th style="padding:6px 9px;border:1px solid #E5E7EB;font-size:10px;text-align:left">RECOMMANDATION</th><th style="padding:6px 9px;border:1px solid #E5E7EB;font-size:10px;text-align:left">VOS OPTIONS</th></tr>${rows}</table>
+    <p style="font-size:11.5px;color:#6B7280">Vos réponses sont intégrées à votre dossier de suivi R5 ; BSM assure ensuite la mise en œuvre et le suivi.</p></div>`;
 }
 async function a1ExecSendGo(id){
   const r=(DB.a1execreports||[]).find(x=>x.id===id); if(!r) return;
@@ -8456,7 +8479,7 @@ async function a1ExecSendGo(id){
     let essential="";
     try{ const fm=await (await fetch("/api/file?id="+encodeURIComponent("a1mail_"+r.id))).json();
       if(fm&&fm.data&&String(fm.data).indexOf("kbtext:")===0) essential=String(fm.data).slice(7); }catch(e){}
-    await bsmClientMail({ to, subject, html:'<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7">'+esc(msg).replace(/\n/g,"<br>")+'</p>'+essential, pdfHtml:doc, pdfName:String(r.ref||"rapport").replace(/[^A-Za-z0-9._-]+/g,"_") });
+    await bsmClientMail({ to, subject, html:'<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7">'+esc(msg).replace(/\n/g,"<br>")+'</p>'+essential+recoDecisionMailBlockHtml(r.clientId), pdfHtml:doc, pdfName:String(r.ref||"rapport").replace(/[^A-Za-z0-9._-]+/g,"_") });
     r.sentAt=new Date().toISOString(); r.sentTo=to; r.sentBy=(currentUser&&currentUser.name)||""; r.status="envoye";
     const c=DB.clients.find(x=>x.id===r.clientId); if(c&&!c.contactEmail) c.contactEmail=to;
     save(); closeModal(); if(currentScreen==="a1suivi") renderA1Suivi(); toast("✉️ Rapport "+(r.ref||"")+" envoyé à "+to+" ✅");
@@ -12427,7 +12450,7 @@ async function sendReportToClient(id){
   const subject=(val("rsend-subject")||("[BSM] "+r.title)).trim();
   const msg=(val("rsend-msg")||"").trim();
   const doc=reportHtml(r);
-  const body=(msg?`<p style="font-family:Arial,sans-serif;font-size:14px">${esc(msg)}</p>`:"")+doc;
+  const body=(msg?`<p style="font-family:Arial,sans-serif;font-size:14px">${esc(msg)}</p>`:"")+doc+recoDecisionMailBlockHtml(r.clientId);
   const who=(currentUser&&currentUser.name)||"";
   try{
     await bsmClientMail({ to, subject, html:body, pdfHtml:doc, pdfName:(r.title||"rapport").replace(/[^A-Za-z0-9._-]+/g,"_") });
@@ -12562,7 +12585,7 @@ function a1ExecReportsCardHtml(){
     <td>${esc(clientName(r.clientId)||"—")}</td>
     <td>${kindLbl(r.kind)}</td>
     <td>${a1ExecStatusBadge(r)}</td>
-    <td style="text-align:right;white-space:nowrap">${r.onServer?`<button class="cta ghost sm" title="Relire" onclick="a1ViewExecReport('${r.id}')">👁</button> `:""}${st==="brouillon"?`<button class="cta sm" title="Valider après relecture — débloque l'envoi client" onclick="a1ExecValidate('${r.id}');setTimeout(renderReports,150)">✅ Valider</button>`:`<button class="cta ghost sm" title="${r.sentAt?"Renvoyer":"Envoyer"} au client (PDF joint, tracé)" onclick="openA1ExecSend('${r.id}')">✉️ ${r.sentAt?"Renvoyer":"Envoyer"}</button>`} <button class="cta ghost sm" title="Ouvrir le module (regénérer, supprimer, historique complet)" onclick="setScreen('${r.kind==="gen"?"a1genset":"a1fleet"}');setTimeout(()=>openA1ExecHistory('${r.kind==="gen"?"gen":"fleet"}'),200)">📚</button></td></tr>`; }).join("");
+    <td style="text-align:right;white-space:nowrap">${r.onServer?`<button class="cta ghost sm" title="Relire" onclick="a1ViewExecReport('${r.id}')">👁</button> `:""}${st==="brouillon"?`<button class="cta sm" title="Valider après relecture — débloque l'envoi client" onclick="a1ExecValidate('${r.id}');setTimeout(renderReports,150)">✅ Valider</button>`:`<button class="cta ghost sm" title="${r.sentAt?"Renvoyer":"Envoyer"} au client (PDF joint, tracé)" onclick="openA1ExecSend('${r.id}')">✉️ ${r.sentAt?"Renvoyer":"Envoyer"}</button>`} <button class="iconbtn del" title="Supprimer (rapport erroné ou mal rattaché) — récupérable 30 j via la corbeille" onclick="a1ExecDelete('${r.id}')">🗑</button> <button class="cta ghost sm" title="Ouvrir le module (regénérer, historique complet)" onclick="setScreen('${r.kind==="gen"?"a1genset":"a1fleet"}');setTimeout(()=>openA1ExecHistory('${r.kind==="gen"?"gen":"fleet"}'),200)">📚</button></td></tr>`; }).join("");
   return `<div class="card">
     <h2 style="margin:0 0 4px">Rapports exécutifs A1 (${list.length})</h2>
     <div class="hint" style="margin-bottom:6px">Livrables des programmes d'analyse (flotte, groupes électrogènes) — archivés, numérotés, <b>tous destinés au client</b>. Relis (👁), ✅ valide, puis ✉️ envoie — ici même. 📚 ouvre le module (regénérer, supprimer). Le contenu d'un rapport se corrige en le supprimant puis le regénérant depuis le module, données corrigées.</div>
