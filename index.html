@@ -642,7 +642,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.49.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.49.2";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -12261,8 +12261,11 @@ const REPORT_TYPES=[
 ];
 /* Audience d'un rapport : « client » (livrable transmissible après validation) ou « interne » (direction/admin, jamais transmis). */
 function reportAudience(type){ const t=REPORT_TYPES.find(x=>x.key===type); return (t&&t.audience)||"interne"; }
-function reportAudienceBadge(type){
-  return reportAudience(type)==="client"
+/* Audience d'un rapport ARCHIVÉ : les types hors référentiel (ex. analyses A1 sauvegardées ici) suivent leur
+   destinataire — un rapport rattaché à un client est un livrable client, sinon il est interne. */
+function reportAudienceFor(r){ const t=REPORT_TYPES.find(x=>x.key===r.type); if(t) return t.audience||"interne"; return r.clientId?"client":"interne"; }
+function reportAudienceBadgeFor(r){
+  return reportAudienceFor(r)==="client"
     ? '<span class="badge b-green" title="Livrable client — transmissible après validation de la direction">📤 Client</span>'
     : '<span class="badge b-grey" title="Réservé direction/administrateur — ne se transmet jamais à un client">🔒 Interne</span>';
 }
@@ -12380,8 +12383,8 @@ function reportActionsHtml(r){
   const s=reportStatus(r), dir=isDirection(); let a="";
   if(s==="brouillon") a+=`<button class="cta" onclick="setReportStatus('${r.id}','a_valider')">Soumettre à validation</button>`;
   if(s==="a_valider"){ if(dir) a+=`<button class="cta" onclick="setReportStatus('${r.id}','valide')">✓ Valider</button>`; a+=`<button class="cta ghost" onclick="setReportStatus('${r.id}','brouillon')">↩ Brouillon</button>`; }
-  if(s==="valide"){ a+=`<button class="cta gold" onclick="openReportSend('${r.id}')">✉️ Envoyer au client</button>`; if(dir) a+=`<button class="cta ghost" onclick="setReportStatus('${r.id}','brouillon')">↩ Brouillon</button>`; }
-  if(s==="envoye"){ a+=`<button class="cta ghost" onclick="openReportSend('${r.id}')">✉️ Renvoyer au client</button>`; }
+  if(s==="valide"){ if(reportAudienceFor(r)==="client") a+=`<button class="cta gold" onclick="openReportSend('${r.id}')">✉️ Envoyer au client</button>`; if(dir) a+=`<button class="cta ghost" onclick="setReportStatus('${r.id}','brouillon')">↩ Brouillon</button>`; }
+  if(s==="envoye"&&reportAudienceFor(r)==="client"){ a+=`<button class="cta ghost" onclick="openReportSend('${r.id}')">✉️ Renvoyer au client</button>`; }
   return a;
 }
 function reportTrailHtml(r){
@@ -12392,7 +12395,7 @@ function reportTrailHtml(r){
 // Envoi client sécurisé : bloqué si non validé, garde-fou confidentialité, aperçu + PDF joint, journal.
 function openReportSend(id){
   const r=(DB.reports||[]).find(x=>x.id===id); if(!r) return;
-  if(reportAudience(r.type)!=="client"){ toast("🔒 Rapport interne — il ne se transmet jamais à un client."); return; }
+  if(reportAudienceFor(r)!=="client"){ toast("🔒 Rapport interne — il ne se transmet jamais à un client."); return; }
   if(reportStatus(r)!=="valide" && reportStatus(r)!=="envoye"){ toast("Validez d'abord le rapport avant l'envoi au client."); return; }
   if(r.classification==="tres_confidentiel" && !window.__reportUnlockConf){
     confirmModal("Rapport « Très confidentiel »","Ce rapport est classé <b>Très confidentiel</b>. Confirmez-vous son envoi externe à un client ?",()=>{ window.__reportUnlockConf=true; openReportSend(id); });
@@ -12517,13 +12520,13 @@ function renderReports(){
   const filterChips=`<button class="cta sm ${!window.repFilter?'':'ghost'}" onclick="repSetFilter('')">Tous</button>`+REPORT_TYPES.map(t=>`<button class="cta sm ${window.repFilter===t.key?'':'ghost'}" onclick="repSetFilter('${t.key}')" title="${esc(t.label)}">${t.icon}</button>`).join("");
   const rows=list.map(r=>`<tr>
       <td style="white-space:nowrap">${esc(fmtDateTime(r.ts))}</td>
-      <td><span class="badge b-blue">${esc(r.typeLabel||reportTypeLabel(r.type))}</span> ${reportAudienceBadge(r.type)}</td>
+      <td><span class="badge b-blue">${esc(r.typeLabel||reportTypeLabel(r.type))}</span> ${reportAudienceBadgeFor(r)}</td>
       <td><b>${esc(r.title)}</b></td>
       <td>${reportStatusBadge(r)}</td>
       <td>${typeof classifBadge==="function"?classifBadge(r.classification):esc(r.classification||"")}</td>
       <td style="text-align:right;white-space:nowrap">
         <button class="cta ghost sm" onclick="openReport('${r.id}')">Voir</button>
-        ${r.clientId&&reportAudience(r.type)==="client"?`<button class="cta ghost sm" onclick="openReportSend('${r.id}')" title="Envoyer au client (après validation)">✉️</button>`:""}
+        ${r.clientId&&reportAudienceFor(r)==="client"?`<button class="cta ghost sm" onclick="openReportSend('${r.id}')" title="Envoyer au client (après validation)">✉️</button>`:""}
         <button class="cta ghost sm" onclick="printReportPDF('${r.id}')" title="PDF">🖨</button>
         <button class="cta ghost sm" style="color:var(--red)" onclick="deleteReport('${r.id}')" title="Supprimer">🗑</button></td></tr>`).join("");
   host.innerHTML=`
@@ -12553,16 +12556,16 @@ function a1ExecReportsCardHtml(){
   const list=(DB.a1execreports||[]).slice().reverse();
   if(!list.length) return "";
   const kindLbl=k=>k==="gen"?"🔌 Groupes":"🚗 Flotte";
-  const rows=list.map(r=>`<tr>
-    <td style="white-space:nowrap"><b>${esc(r.ref||"—")}</b></td>
+  const rows=list.map(r=>{ const st=a1ExecStatus(r); return `<tr>
+    <td style="white-space:nowrap"><b>${esc(r.ref||"—")}</b> <span class="badge b-green" title="Livrable client — transmissible après validation">📤 Client</span></td>
     <td style="white-space:nowrap">${frDate(r.ts)}</td>
     <td>${esc(clientName(r.clientId)||"—")}</td>
     <td>${kindLbl(r.kind)}</td>
     <td>${a1ExecStatusBadge(r)}</td>
-    <td style="text-align:right;white-space:nowrap">${r.onServer?`<button class="cta ghost sm" title="Relire" onclick="a1ViewExecReport('${r.id}')">👁</button> `:""}<button class="cta ghost sm" title="Gérer dans le module (valider, envoyer, supprimer)" onclick="setScreen('${r.kind==="gen"?"a1genset":"a1fleet"}');setTimeout(()=>openA1ExecHistory('${r.kind==="gen"?"gen":"fleet"}'),200)">📚 Gérer</button></td></tr>`).join("");
+    <td style="text-align:right;white-space:nowrap">${r.onServer?`<button class="cta ghost sm" title="Relire" onclick="a1ViewExecReport('${r.id}')">👁</button> `:""}${st==="brouillon"?`<button class="cta sm" title="Valider après relecture — débloque l'envoi client" onclick="a1ExecValidate('${r.id}');setTimeout(renderReports,150)">✅ Valider</button>`:`<button class="cta ghost sm" title="${r.sentAt?"Renvoyer":"Envoyer"} au client (PDF joint, tracé)" onclick="openA1ExecSend('${r.id}')">✉️ ${r.sentAt?"Renvoyer":"Envoyer"}</button>`} <button class="cta ghost sm" title="Ouvrir le module (regénérer, supprimer, historique complet)" onclick="setScreen('${r.kind==="gen"?"a1genset":"a1fleet"}');setTimeout(()=>openA1ExecHistory('${r.kind==="gen"?"gen":"fleet"}'),200)">📚</button></td></tr>`; }).join("");
   return `<div class="card">
     <h2 style="margin:0 0 4px">Rapports exécutifs A1 (${list.length})</h2>
-    <div class="hint" style="margin-bottom:6px">Livrables des programmes d'analyse (flotte, groupes électrogènes) — archivés et numérotés. La validation et l'envoi client se font dans le module.</div>
+    <div class="hint" style="margin-bottom:6px">Livrables des programmes d'analyse (flotte, groupes électrogènes) — archivés, numérotés, <b>tous destinés au client</b>. Relis (👁), ✅ valide, puis ✉️ envoie — ici même. 📚 ouvre le module (regénérer, supprimer). Le contenu d'un rapport se corrige en le supprimant puis le regénérant depuis le module, données corrigées.</div>
     <table><thead><tr><th>Référence</th><th>Date</th><th>Client</th><th>Programme</th><th>Statut</th><th style="text-align:right">Actions</th></tr></thead><tbody>${rows}</tbody></table>
   </div>`;
 }
