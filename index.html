@@ -38,6 +38,7 @@
   .tb-menu.open{display:block;animation:bsmFade .16s ease both;}
   .tb-menu button{display:flex;width:100%;gap:9px;align-items:center;background:none;border:none;padding:9px 11px;border-radius:8px;font-size:13px;color:var(--navy);cursor:pointer;text-align:left;font-family:inherit;}
   .tb-menu button:hover{background:var(--cream);}
+  .tb-menu .sep{height:1px;background:var(--line);margin:4px 6px;}
   /* MODE RENDEZ-VOUS : le client ne voit QUE le simulateur — sidebar, topbar, KPI et raccourcis masqués */
   body.present .topbar,body.present .sidebar{display:none!important;}
   body.present .main{padding:0;}
@@ -392,24 +393,26 @@
     <button class="tb-btn" id="home-btn" onclick="goHome()" title="Revenir au tableau de bord" style="display:none;font-weight:700;color:var(--navy)">← Tableau de bord</button>
     <div class="gsearch"><input id="globalsearch" placeholder="Rechercher…  (Ctrl+K : palette)" title="Recherche rapide dans les données — Ctrl+K ouvre la palette de commandes (écrans, actions, recherche)" autocomplete="off" oninput="globalSearch(this.value)" onblur="setTimeout(hideSearch,180)"><div class="gs-results" id="gs-results"></div></div>
     <button class="tb-btn" id="notif-bell" onclick="goNotifications()" title="Notifications — activité récente" style="position:relative;display:none">🔔<span id="notif-count" style="display:none;position:absolute;top:-5px;right:-5px;background:var(--red);color:#fff;border-radius:9px;min-width:16px;height:16px;font-size:10px;line-height:16px;padding:0 3px;font-weight:700;text-align:center">0</span></button>
-    <button class="tb-btn" id="theme-btn" onclick="toggleTheme()" title="Thème clair / sombre">🌙</button>
-    <span class="tb-btn" id="ver-badge" style="font-weight:700" onclick="if(isAdmin())setScreen('admin-sante')">v…</span>
     <span id="env-badge" class="env-badge env-online" title="" onclick="openSyncCenter()">🌐 <b>EN LIGNE</b></span>
-    <button class="tb-btn" id="env-switch" onclick="envSwitch()" title="Ouvrir l'autre version du Cockpit">⇄</button>
-    <button class="tb-btn" id="env-sync" onclick="openSyncCenter()" title="Synchroniser local ⇄ en ligne">🔄</button>
     <span id="server-status" class="tb-btn" style="display:none;align-items:center;gap:4px" title="État de la connexion au serveur BSM"></span>
     <span id="cloud-status" class="tb-btn" style="display:none;align-items:center;gap:4px" title="État de la synchronisation cloud (Supabase)"></span>
-    <span id="currency-indicator" class="tb-btn" onclick="openSettings()" title="Devise & paramètres">Ar / €</span>
-    <button class="tb-btn" onclick="openSettings()" title="Paramètres">⚙</button>
-    <button class="tb-btn" onclick="backupEverywhere()" title="Sauvegarde en un clic sur TOUS les supports disponibles : ce poste, fichier téléchargé, serveur local, cloud">💾 Tout sauvegarder</button>
+    <button class="tb-btn" onclick="backupEverywhere()" title="Sauvegarde en un clic sur TOUS les supports disponibles : ce poste, fichier téléchargé, serveur local, cloud">💾 Sauvegarder</button>
     <button class="tb-btn" onclick="enterPresentMode()" title="Masque tout le Cockpit et n'affiche que le simulateur — pour présenter en rendez-vous client. Sortie : petit bouton discret en bas à gauche.">🎥 Rendez-vous</button>
+    <button class="tb-btn" onclick="openSettings()" title="Paramètres">⚙</button>
     <div class="tb-more" style="position:relative">
       <button class="tb-btn" onclick="toggleTopMenu()" title="Plus d'actions" aria-label="Plus d'actions">⋯</button>
       <div id="tb-menu" class="tb-menu">
+        <button onclick="closeTopMenu();envSwitch()">⇄&nbsp; Ouvrir l'autre version</button>
+        <button onclick="closeTopMenu();openSyncCenter()">🔄&nbsp; Synchroniser local ⇄ en ligne</button>
+        <button onclick="closeTopMenu();toggleTheme()"><span id="theme-btn">🌙</span>&nbsp; Thème clair / sombre</button>
+        <button onclick="closeTopMenu();openSettings()">💱&nbsp; Devise & taux&nbsp;—&nbsp;<span id="currency-indicator">Ar / €</span></button>
+        <div class="sep"></div>
         <button onclick="closeTopMenu();openImport()">⇊&nbsp; Importer R5</button>
         <button onclick="closeTopMenu();exportData()">⬇&nbsp; Sauvegarde (fichier)</button>
         <button onclick="closeTopMenu();document.getElementById('import-file').click()">⬆&nbsp; Restaurer (fichier)</button>
+        <div class="sep"></div>
         <button onclick="closeTopMenu();openSecurityPanel()">🔐&nbsp; Sécurité (chiffrement)</button>
+        <button onclick="closeTopMenu();if(isAdmin())setScreen('admin-sante')"><span id="ver-badge" style="font-weight:700">v…</span>&nbsp; · Santé & sauvegardes</button>
         <button id="logout-btn" onclick="closeTopMenu();lockPortal()">🔒&nbsp; Se déconnecter</button>
       </div>
     </div>
