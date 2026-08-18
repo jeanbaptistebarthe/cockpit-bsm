@@ -5358,6 +5358,8 @@ function openSettings(){
     <div class="hint">Saisissez chaque montant en Ar, € ou $. Les totaux sont convertis dans la devise principale : <b>1 € = ${(DB.meta.rateEurMga||5000).toLocaleString('fr-FR')} Ar</b> · <b>1 $ = ${(DB.meta.rateUsdMga||4500).toLocaleString('fr-FR')} Ar</b>.
       <br>💱 <b>Taux BSM du mois</b> — rituel du 1ᵉʳ : relève le cours officiel (BFM / ta banque) et enregistre. Dernière vérification : <b>${DB.meta.ratesUpdatedAt?frDate(DB.meta.ratesUpdatedAt):"jamais"}</b>. Les mouvements déjà saisis gardent leur taux figé.</div>
     ${(DB.meta.rateHistory||[]).length?`<div class="hint" style="margin-top:-4px">Historique : ${DB.meta.rateHistory.slice(-6).reverse().map(h=>`${frDate(h.date)} → 1 € = ${(+h.eurMga).toLocaleString('fr-FR')} Ar`).join(" · ")}</div>`:""}
+    <div class="field"><label>📩 Récepteur de décisions client (URL Apps Script /exec) <span style="font-weight:400;color:var(--muted);font-size:11.5px">— fiches de décision « un clic, zéro messagerie » (voir decision_receiver.gs) ; vide = repli e-mail/copier</span></label>
+      <input id="s-decweb" value="${esc(DB.meta.decisionWebhook||'')}" placeholder="https://script.google.com/…/exec"></div>
     <div class="field"><label>Accès & utilisateurs</label>
       ${isAdmin()?`<button type="button" class="cta ghost sm" onclick="closeModal();setScreen('admin-users')">🔐 Gérer les utilisateurs & rôles</button>`:`<div class="hint">La gestion des comptes est réservée aux administrateurs (Espace administrateur).</div>`}</div>
     <div class="hint">Chaque compte a son identifiant, son code et son rôle. Les connexions et l'activité sont tracées dans l'Espace administrateur → Connexions & activité. 1re couche locale ; sécurité inviolable avec la version cloud.</div>
@@ -5457,6 +5459,7 @@ function saveSettings(){
   const oldEur=DB.meta.rateEurMga, oldUsd=DB.meta.rateUsdMga;
   const r=parseFloat(val("s-rate")); DB.meta.rateEurMga=(!isNaN(r)&&r>0)?r:DB.meta.rateEurMga;
   const ru=parseFloat(val("s-rateusd")); DB.meta.rateUsdMga=(!isNaN(ru)&&ru>0)?ru:DB.meta.rateUsdMga;
+  DB.meta.decisionWebhook=(val("s-decweb")||"").trim();
   // Taux du mois : chaque enregistrement vaut vérification (horodatée) ; chaque CHANGEMENT est archivé (traçable sur devis/contrats).
   DB.meta.ratesUpdatedAt=todayISO();
   if(DB.meta.rateEurMga!==oldEur || DB.meta.rateUsdMga!==oldUsd){
@@ -6215,6 +6218,7 @@ function r5DecisionPage(clientId){
   const recos=DB.recommendations.filter(r=>r.clientId===clientId&&r.status!=="fait");
   if(!recos.length){ toast("Aucune recommandation ouverte pour ce client."); return; }
   const mail=(DOC_IDENTITY_DEFAULT&&docIdentity().email)||"";
+  const hook=(DB.meta.decisionWebhook||"").trim(); // récepteur Apps Script : « un clic » sans messagerie ; vide = repli mailto/copier
   const G="#B5923A",D="#111827",GR="#6B7280";
   const rows=recos.map(r=>`<tr><td style="padding:8px 10px;border:1px solid #E5E7EB;font-size:12px;white-space:nowrap"><b>${esc(r.ref||"")}</b></td>
     <td style="padding:8px 10px;border:1px solid #E5E7EB;font-size:13px;line-height:1.5">${esc(r.texte||"")}${(r.invest||r.gain)?`<div style="font-size:11px;margin-top:3px;color:${GR}">${r.invest?"Investissement : <b>"+esc(r.invest)+"</b>":""}${r.invest&&r.gain?" → ":""}${r.gain?'<span style="color:#2F855A">Gain attendu : <b>'+esc(r.gain)+"</b></span>":""}</div>`:""}</td>
@@ -6232,17 +6236,26 @@ function r5DecisionPage(clientId){
 <table style="width:100%;border-collapse:collapse;margin:14px 0">
 <tr style="background:#F6F1E8"><th style="padding:7px 10px;border:1px solid #E5E7EB;font-size:10px;text-align:left">RÉF.</th><th style="padding:7px 10px;border:1px solid #E5E7EB;font-size:10px;text-align:left">RECOMMANDATION</th><th style="padding:7px 10px;border:1px solid #E5E7EB;font-size:10px;text-align:left">VOTRE DÉCISION</th></tr>${rows}</table>
 <div style="margin:10px 0"><label style="font-size:12px;color:${GR}">Commentaire (facultatif) :</label><br><textarea id="cmt" rows="3" style="width:100%;font-family:inherit;padding:8px;border:1px solid #E5E7EB;border-radius:6px"></textarea></div>
+${hook?`<form id="dform" method="POST" action="${esc(hook)}" target="_blank" style="display:none"><input type="hidden" name="client" value="${esc(c.company)}"><input type="hidden" name="decisions" id="hf-dec"><input type="hidden" name="commentaire" id="hf-com"></form>`:""}
 <div style="display:flex;gap:10px;flex-wrap:wrap">
-<button onclick="send()" style="background:${G};color:#fff;border:none;padding:12px 22px;font-weight:700;font-size:13px;cursor:pointer;border-radius:6px">✉️ Envoyer mes décisions</button>
+${hook?`<button onclick="transmettre()" style="background:#2F855A;color:#fff;border:none;padding:12px 22px;font-weight:700;font-size:13px;cursor:pointer;border-radius:6px">✅ Transmettre à BSM (un clic)</button>`:""}
+<button onclick="send()" style="background:${hook?"#fff":G};color:${hook?D:"#fff"};border:${hook?"1px solid #E5E7EB":"none"};padding:12px ${hook?"18px":"22px"};font-weight:${hook?"400":"700"};font-size:13px;cursor:pointer;border-radius:6px">✉️ Par e-mail</button>
 <button onclick="copie()" style="background:#fff;color:${D};border:1px solid #E5E7EB;padding:12px 18px;font-size:13px;cursor:pointer;border-radius:6px">📋 Copier (WhatsApp)</button></div>
 <div id="st" style="font-size:12px;color:#2F855A;margin-top:8px"></div>
 <div style="margin-top:18px;font-size:10px;color:${GR}">Document confidentiel — BSM Advisory &amp; Consulting. Vos décisions sont intégrées à votre dossier de suivi et revues à chaque audit trimestriel.</div>
 <script>
 var REFS=${refsJson};
-function collect(){ var out=["DECISIONS R5 — ${esc(c.company)} — "+new Date().toLocaleDateString("fr-FR")];
+function decLines(){ var out=[];
   REFS.forEach(function(x){ var ch=document.querySelector('input[name="'+x.id+'"]:checked'); out.push((x.ref||"?")+" : "+(ch?ch.value:"SANS REPONSE")); });
-  var cm=document.getElementById("cmt").value.trim(); if(cm) out.push("COMMENTAIRE : "+cm);
   return out.join("\\n"); }
+function collect(){ var t="DECISIONS R5 — ${esc(c.company)} — "+new Date().toLocaleDateString("fr-FR")+"\\n"+decLines();
+  var cm=document.getElementById("cmt").value.trim(); if(cm) t+="\\nCOMMENTAIRE : "+cm; return t; }
+function transmettre(){
+  document.getElementById("hf-dec").value=decLines();
+  document.getElementById("hf-com").value=document.getElementById("cmt").value.trim();
+  document.getElementById("dform").submit();
+  document.getElementById("st").textContent="✓ Décisions transmises à BSM — une page de confirmation s'est ouverte. Merci !";
+}
 function send(){
   var url="mailto:${esc(mail)}?subject="+encodeURIComponent("Décisions plan d'action R5 — ${esc(c.company)}")+"&body="+encodeURIComponent(collect());
   var a=document.createElement("a"); a.href=url; document.body.appendChild(a); a.click(); a.remove();
