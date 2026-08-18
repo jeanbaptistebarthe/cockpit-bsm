@@ -547,7 +547,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.41.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.42.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -5171,6 +5171,18 @@ function generateAdvice(){
       add("recodue-"+r.id,"warn","📌","Recommandation à échéance",
         `${r.ref?r.ref+" — ":""}${(r.texte||"").slice(0,90)} (${clientName(r.clientId)}) : échéance le ${frDate(r.dateCible)}.`); });
   }
+  // 1l. RISQUE SOUS CONTRÔLE À RE-VÉRIFIER : un contrôle qui n'est pas revu se relâche —
+  //     un risque traité & adopté non re-vérifié depuis > 120 jours doit être re-testé au prochain passage.
+  {
+    const stale=isoOffset(-120);
+    (DB.risks||[]).forEach(r=>{
+      if(r.status==="traite" && clientAccepted(r.clientDecision) && (r.lastReview||r.dateSaisie||"")<stale){
+        const c=DB.clients.find(x=>x.id===r.clientId); if(!c||c.status==="archive") return;
+        add("r5ctrl-"+r.id,"warn","🛡","Risque sous contrôle à re-vérifier",
+          `${r.ref?r.ref+" — ":""}${(r.description||r.categorie||"").slice(0,80)} (${clientName(r.clientId)}) : maîtrisé, mais non re-vérifié depuis le ${frDate(r.lastReview||r.dateSaisie)}. Le relâchement fait ressortir les risques tenus — re-tester les mesures au prochain audit et re-coter.`);
+      }
+    });
+  }
   // 1k. CA CLIENT EN RECUL : encaissé des 90 derniers jours < 70 % des 90 précédents → creuser
   //     (échéance non facturée ? service arrêté ? branche à relancer ?) — le « béton armé » du multi-services.
   {
@@ -6233,9 +6245,11 @@ function r5ReportBody(clientId, analysis, aiText, excludeFams, branch){
   const carto=`<table style="border-collapse:collapse;margin:8px auto;page-break-inside:avoid">`+grid.map((row,ri)=>`<tr><td style="font-size:9px;color:#6B7280;padding:2px 6px;text-align:right">I=${5-ri}</td>`+row.map((n,ci)=>`<td style="width:52px;height:34px;border:1px solid #E5E7EB;text-align:center;font-weight:700;font-size:13px;background:${cellBg(ci+1,5-ri)}">${n||""}</td>`).join("")+`</tr>`).join("")+`<tr><td></td>${[1,2,3,4,5].map(p=>`<td style="font-size:9px;color:#6B7280;text-align:center;padding:3px">P=${p}</td>`).join("")}</tr></table>
   <p style="font-size:10px;color:#6B7280;text-align:center">Probabilité en abscisse, impact en ordonnée — chaque case indique le nombre de risques.</p>`;
   const kpi=(v,l,col)=>`<td style="border:1px solid #E5E7EB;padding:9px;text-align:center"><div style="font-size:20px;font-weight:700;font-family:'Cormorant Garamond',serif;color:${col||"#102A43"}">${v}</div><div style="font-size:9px;color:#6B7280;text-transform:uppercase;letter-spacing:.06em">${l}</div></td>`;
+  const isCtrl=r=>r.status==="traite"&&clientAccepted(r.clientDecision); // 🛡 sous contrôle : traité ET adopté — il reste au rapport, surveillé
+  const nCtrl=risks.filter(isCtrl).length;
   const th=arr=>`<thead><tr style="background:#F6F1E8">${arr.map(h=>`<th style="padding:6px 8px;border:1px solid #E5E7EB;font-size:9.5px;text-transform:uppercase;color:#102A43;text-align:left">${h}</th>`).join("")}</tr></thead>`;
-  const rows=risks.map(r=>{ const lv=r5Niveau(r.score), col=R5_LEVEL_COLORS[lv]||"#6B7280";
-    return `<tr><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11px">${esc(r.ref||"")}</td><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11.5px"><b>${esc(r.categorie||r.famille||"")}</b><div style="color:#374151;line-height:1.5">${esc(r.description||"")}</div>${r.mesures?`<div style="font-size:10.5px;color:#6B7280">Mesures en place : ${esc(r.mesures)}</div>`:""}${r.coutEstime?`<div style="font-size:10.5px;color:#B7891A;font-weight:600">Coût estimé si survenance : ${esc(r.coutEstime)}</div>`:""}${/matérialis/i.test(r.obs||"")?`<div style="font-size:10px;color:#C0392B">⚠ Déjà matérialisé par le passé</div>`:""}</td><td style="text-align:center;border:1px solid #E5E7EB">${r.probabilite||"—"}</td><td style="text-align:center;border:1px solid #E5E7EB">${r.impact||"—"}</td><td style="text-align:center;border:1px solid #E5E7EB;font-weight:700">${r.score||"—"}</td><td style="text-align:center;border:1px solid #E5E7EB"><span style="color:${col};font-weight:700;font-size:10.5px">${lv}</span></td></tr>`; }).join("");
+  const rows=risks.map(r=>{ const lv=r5Niveau(r.score), col=R5_LEVEL_COLORS[lv]||"#6B7280"; const ctrl=isCtrl(r);
+    return `<tr><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11px">${esc(r.ref||"")}</td><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11.5px"><b>${esc(r.categorie||r.famille||"")}</b><div style="color:#374151;line-height:1.5">${esc(r.description||"")}</div>${r.mesures?`<div style="font-size:10.5px;color:#6B7280">Mesures en place : ${esc(r.mesures)}</div>`:""}${r.coutEstime?`<div style="font-size:10.5px;color:#B7891A;font-weight:600">Coût estimé si survenance : ${esc(r.coutEstime)}</div>`:""}${/matérialis/i.test(r.obs||"")?`<div style="font-size:10px;color:#C0392B">⚠ Déjà matérialisé par le passé</div>`:""}</td><td style="text-align:center;border:1px solid #E5E7EB">${r.probabilite||"—"}</td><td style="text-align:center;border:1px solid #E5E7EB">${r.impact||"—"}</td><td style="text-align:center;border:1px solid #E5E7EB;font-weight:700">${r.score||"—"}</td><td style="text-align:center;border:1px solid #E5E7EB"><span style="color:${col};font-weight:700;font-size:10.5px">${lv}</span>${ctrl?`<div style="font-size:8.5px;color:#2F855A;font-weight:700;margin-top:2px">🛡 SOUS CONTRÔLE</div>`:""}</td></tr>`; }).join("");
   const recRows=recos.map(r=>`<tr><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11px">${esc(r.ref||"")}</td><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11.5px;line-height:1.5">${esc(r.texte||"")}${(r.invest||r.gain)?`<div style="font-size:10.5px;margin-top:3px;padding:4px 8px;background:#FCFBF7;border-left:2px solid #B7891A">${r.invest?`Investissement : <b>${esc(r.invest)}</b>`:""}${r.invest&&r.gain?" &nbsp;→&nbsp; ":""}${r.gain?`<span style="color:#2F855A">Gain attendu : <b>${esc(r.gain)}</b></span>`:""}</div>`:""}</td><td style="text-align:center;border:1px solid #E5E7EB;font-size:11px">${esc(r.priorite||"—")}</td><td style="text-align:center;border:1px solid #E5E7EB;font-size:11px">${r.dateCible?frDate(r.dateCible):esc(r.horizon||"—")}</td><td style="text-align:center;border:1px solid #E5E7EB;font-size:10.5px;white-space:nowrap">${r.status==="fait"?"✅ Mise en œuvre":(r.clientDecision?esc(decisionLabel(r.clientDecision)):"☐ Valider&nbsp;&nbsp;☐ Différer")}</td></tr>`).join("");
   // Ordre narratif voulu par BSM : PASSÉ (chemin parcouru) → PRÉSENT (état & analyses) → FUTUR (trajectoire).
   const lastRep=(DB.r5reports||[]).filter(x=>x.clientId===clientId&&x.status!=="brouillon"&&x.snap).sort((a,b)=>String(b.date).localeCompare(String(a.date)))[0];
@@ -6257,14 +6271,14 @@ function r5ReportBody(clientId, analysis, aiText, excludeFams, branch){
   }
   let n=1; const sec=t=>`<h2 class="docsec">${n++}. ${t}</h2>`;
   return sec("Synthèse du "+(branch?"périmètre — "+esc(branch):"groupe"))
-    +`<table style="width:100%;border-collapse:collapse;page-break-inside:avoid"><tr>${kpi(risks.length,"Risques évalués")}${kpi(counts.CRITIQUE||0,"Critiques","#C0392B")}${kpi(counts.HAUTE||0,"Priorité haute","#D97706")}${kpi(recos.length,"Recommandations")}</tr></table>`
+    +`<table style="width:100%;border-collapse:collapse;page-break-inside:avoid"><tr>${kpi(risks.length,"Risques évalués")}${kpi(counts.CRITIQUE||0,"Critiques","#C0392B")}${kpi(counts.HAUTE||0,"Priorité haute","#D97706")}${kpi(nCtrl,"🛡 Sous contrôle","#2F855A")}${kpi(recos.length,"Recommandations")}</tr></table>`
     +`<div style="margin-top:10px;page-break-inside:avoid"><div style="font-size:10px;font-weight:700;color:#B7891A;text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px">Les trois piliers BSM</div>${pil.map(gauge).join("")}</div>`
     +(past?sec("Le chemin parcouru")+past:"")
     +(analysis?sec("Analyses & constats de l'auditeur")+docBodyToHtml(analysis):"")
     +(aiText?sec("Analyse complémentaire (assistée, validée par l'auditeur)")+docBodyToHtml(aiText):"")
     +sec("État présent — matrice des risques (P × I)")
     +`<table style="width:100%;border-collapse:collapse">${th(["Réf.","Risque","P","I","Score","Niveau"])}<tbody>${rows||'<tr><td colspan="6" style="padding:10px;text-align:center;color:#6B7280">Aucun risque saisi</td></tr>'}</tbody></table>
-     <p style="font-size:10.5px;color:#6B7280">Niveaux : CRITIQUE ≥ 15 · HAUTE 9–14 · MOYENNE 4–8 · FAIBLE &lt; 4.</p>`
+     <p style="font-size:10.5px;color:#6B7280">Niveaux : CRITIQUE ≥ 15 · HAUTE 9–14 · MOYENNE 4–8 · FAIBLE &lt; 4.${nCtrl?` &nbsp;🛡 <b>Sous contrôle</b> : risque maîtrisé grâce aux mesures adoptées — il reste au rapport et sous surveillance, car le relâchement des mesures le fait ressortir ; la revue trimestrielle vérifie que le contrôle tient.`:""}</p>`
     +sec("Cartographie")+carto
     +sec("Trajectoire — plan d'action & solutions proposées")
     +`<p style="font-size:12px;color:#374151;line-height:1.6"><b>BSM propose, vous décidez.</b> Chaque solution est chiffrée lorsque les données le permettent (investissement → gain attendu). Cochez votre décision, datez : la mise en œuvre et le suivi sont assurés par BSM et revus à chaque audit trimestriel.</p>
@@ -6488,6 +6502,7 @@ function saveRisk(id){
     clientDecision:val("f-rdecision"),lastReview:val("f-rreview")};
   if(obj.status==="traite" && !obj.lastReview) obj.lastReview=todayISO(); // 1re mise sous contrôle = 1re revue
   obj.secteur=val("f-rbranch")||"";
+  obj.lastReview=todayISO(); // chaque édition vaut revue — base de la vigilance « le contrôle tient-il ? »
   if(id){Object.assign(DB.risks.find(x=>x.id===id),obj);}else{obj.id=uid();obj.dateSaisie=todayISO();DB.risks.push(obj);
     const crit=(obj.probabilite*obj.impact)>=15;
     notify("risk", crit?"⚠️ Risque critique identifié":"Nouveau risque", (obj.description||obj.categorie||obj.ref||"Risque")+" · "+clientName(obj.clientId), {clientId:obj.clientId}); }
@@ -11369,7 +11384,7 @@ function applyImportAudit(rows){
       if((fam||desc)&&p>=1&&im>=1){
         const dkey=norm(desc||cat||fam);
         let rk=DB.risks.find(x=>x.clientId===cl.id&&norm(x.description||x.categorie||x.famille)===dkey);
-        const data={clientId:cl.id,missionId:mis.id,famille:fam||cat||"Opérationnel",categorie:cat||fam||"Autre",description:desc||cat||fam,probabilite:Math.min(5,Math.max(1,p)),impact:Math.min(5,Math.max(1,im))};
+        const data={clientId:cl.id,missionId:mis.id,famille:fam||cat||"Opérationnel",categorie:cat||fam||"Autre",description:desc||cat||fam,probabilite:Math.min(5,Math.max(1,p)),impact:Math.min(5,Math.max(1,im)),lastReview:dAudit||todayISO()};
         if(b.mes>=0&&gv(r,b.mes)) data.mesures=gv(r,b.mes);
         if(b.cout>=0&&gv(r,b.cout)) data.coutEstime=gv(r,b.cout);           // v2 : coût estimé si survenance (texte libre chiffré, repris au rapport)
         if(b.mat>=0&&/oui/i.test(gv(r,b.mat))) data.obs="Déjà matérialisé"; // v2 : antécédent avéré
