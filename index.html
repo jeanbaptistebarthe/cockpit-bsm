@@ -538,7 +538,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.27.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.27.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -735,6 +735,8 @@ function load(){
   // Les mouvements existants sont estampillés au taux du jour de CE démarrage (une fois) ;
   // toutes les saisies suivantes sont estampillées immédiatement — l'historique ne bougera plus.
   DB.transactions.forEach(t=>{ if(!t.fx) t.fx=txFxSnap(t.currency); });
+  // Abonnements existants : taux de référence figé à ce démarrage (base de la clause d'indexation ±5 %).
+  DB.recurring.forEach(rc=>{ if(!rc.fxRef) rc.fxRef=fxRefSnap(); });
   // Migration décision client : un risque déjà « traité » / une reco déjà « faite » = considéré adopté par le client.
   DB.risks.forEach(r=>{ if(r.status==="traite" && !r.clientDecision) r.clientDecision="valide"; });
   DB.recommendations.forEach(r=>{ if(r.status==="fait" && !r.clientDecision) r.clientDecision="enplace"; });
@@ -4121,6 +4123,8 @@ function deleteEvent(id){
 function txFxSnap(cur){ const R=curRates(); const dc=DB.meta.defaultCurrency;
   const m=c=>c==="EUR"?R.EUR:(c==="USD"?R.USD:1);
   return { date:todayISO(), cMga:m(cur||dc), dMga:m(dc), dc }; }
+/* Taux de référence d'un abonnement (clause d'indexation ±5 %) : figé à la création, remis à jour à chaque révision de montant. */
+function fxRefSnap(){ return { date:todayISO(), eurMga:DB.meta.rateEurMga||5000, usdMga:DB.meta.rateUsdMga||4500 }; }
 function txDefault(t){
   if(!t) return 0; const dc=DB.meta.defaultCurrency, cur=t.currency||dc;
   if(cur===dc) return t.amount||0;
@@ -4446,7 +4450,7 @@ function saveTx(id){
       frequency:txFreq, day:Math.max(1,Math.min(28,parseInt(d.slice(8,10))||1)),
       startDate:d, endDate:"", clientId:obj.clientId, missionId:obj.missionId,
       invoice: obj.sens==="entrant" && !!(document.getElementById("f-txinvoice")&&document.getElementById("f-txinvoice").checked),
-      entity:obj.entity, active:true, id:uid(), created:todayISO() };
+      entity:obj.entity, active:true, id:uid(), created:todayISO(), fxRef:fxRefSnap() };
     DB.recurring.push(rcObj); generateRecurring();
     notify(obj.sens==="entrant"?"encaissement":"depense","Abonnement "+freqLabel(txFreq).toLowerCase()+" créé", obj.label+" · "+fmt(obj.amount,obj.currency)+"/"+freqUnit(txFreq)+(obj.clientId?" · "+clientName(obj.clientId):""), {clientId:obj.clientId});
     save(); closeModal(); refreshAll(); toast("Abonnement récurrent créé — échéances générées."); return;
@@ -4999,10 +5003,13 @@ function saveRecurring(id){
     startDate:val("rc-start")||todayISO(), endDate:val("rc-end")||"", clientId:val("rc-client"), missionId:rcMission,
     invoice: val("rc-sens")==="entrant" && !!(document.getElementById("rc-invoice")&&document.getElementById("rc-invoice").checked),
     entity:val("rc-entity")||"bsmac", active:true };
-  if(id){ Object.assign(DB.recurring.find(x=>x.id===id),obj);
+  if(id){ const ex=DB.recurring.find(x=>x.id===id);
+    // Révision de montant ou de devise = nouveau taux de référence (clause d'indexation : chaque révision repart du taux du jour).
+    if(ex && (ex.amount!==obj.amount || ex.currency!==obj.currency)) obj.fxRef=fxRefSnap();
+    Object.assign(ex,obj);
     // purge des échéances à venir (prévu) pour régénérer selon la nouvelle fréquence/montant ; l'historique payé est conservé
     DB.transactions=DB.transactions.filter(t=>!(t.recurringId===id && t.status==="prevu")); }
-  else { obj.id=uid(); obj.created=todayISO(); DB.recurring.push(obj); }
+  else { obj.id=uid(); obj.created=todayISO(); obj.fxRef=fxRefSnap(); DB.recurring.push(obj); }
   generateRecurring(); save(); refreshAll(); toast("Récurrent enregistré — budget & compte de résultat mis à jour.");
   if(!id && obj.clientId && obj.sens==="entrant") docProposeAfter("abonnement", obj.clientId);   // nouvel abonnement client → proposer l'échéancier à la charte
   else openRecurringManager();
@@ -5077,6 +5084,18 @@ function generateAdvice(){
         (fxDays==null?"Les taux de change n'ont jamais été vérifiés.":"Dernière vérification des taux il y a "+fxDays+" jours.")
         +" Rituel du 1ᵉʳ du mois : relever le cours officiel (BFM / banque) et l'enregistrer dans ⚙ Paramètres — c'est le taux BSM du mois, utilisé par les devis, le simulateur et les nouvelles saisies. (L'historique déjà saisi garde ses taux figés.)");
   }
+  // 1h. Abonnements clients en ariary : le taux du mois s'écarte de > ±5 % du taux de référence → clause d'indexation activable
+  (DB.recurring||[]).forEach(rc=>{
+    if(rc.active===false || rc.sens!=="entrant" || rc.currency!=="MGA" || !rc.clientId) return;
+    const ref=rc.fxRef&&+rc.fxRef.eurMga; if(!(ref>0)) return;
+    const cur=DB.meta.rateEurMga||5000;
+    const dev=(cur-ref)/ref*100;
+    if(Math.abs(dev)>5){
+      const newAmount=Math.round(rc.amount*cur/ref/1000)*1000; // arrondi au millier d'ariary
+      add("fxidx-"+rc.id,"warn","⚡","Clause d'indexation activable — "+clientName(rc.clientId),
+        `« ${rc.label} » (${fmt(rc.amount,"MGA")}/${freqUnit(rc.frequency)}) : le taux du mois (1 € = ${cur.toLocaleString("fr-FR")} Ar) s'écarte de ${dev>0?"+":"−"}${Math.abs(Math.round(dev))} % du taux de référence de l'abonnement (1 € = ${Math.round(ref).toLocaleString("fr-FR")} Ar, fixé le ${frDate(rc.fxRef.date)}). La clause ±5 % du contrat autorise la révision : nouveau montant proposé ≈ ${fmt(newAmount,"MGA")}/${freqUnit(rc.frequency)}. Prévenir le client, puis ajuster le montant dans 🔁 Récurrents — le taux de référence se remettra à jour automatiquement et les échéances restantes seront régénérées.`);
+    }
+  });
   // 2. Trésorerie du mois : dépenses > entrées
   const mk=t.slice(0,7);
   const inM=DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="realise"&&x.date.slice(0,7)===mk).reduce((s,x)=>s+txDefault(x),0);
@@ -9678,8 +9697,8 @@ function syncA1OfferRecurring(o){
     const start=a1OfferBillingStart(o);
     const data={ sens:"entrant", label:(o.label||"Programme A1")+" — "+clientName(o.clientId), amount:o.monthlyFee, currency:o.currency,
       category:"Abonnement annuel", frequency:"mensuel", day:1, startDate:start, clientId:o.clientId, entity:o.entity, active:true, a1OfferId:o.id };
-    if(rc){ Object.assign(rc,data); DB.transactions=DB.transactions.filter(t=>!(t.recurringId===rc.id&&t.status==="prevu")); }
-    else { data.id=uid(); data.created=todayISO(); DB.recurring.push(data); }
+    if(rc){ if(rc.amount!==data.amount||rc.currency!==data.currency) rc.fxRef=fxRefSnap(); Object.assign(rc,data); DB.transactions=DB.transactions.filter(t=>!(t.recurringId===rc.id&&t.status==="prevu")); }
+    else { data.id=uid(); data.created=todayISO(); data.fxRef=fxRefSnap(); DB.recurring.push(data); }
   } else if(rc){ rc.active=false; }
   generateRecurring();
   if(o.setupFee>0 && !o.setupTxId){
