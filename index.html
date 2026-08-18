@@ -547,7 +547,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.38.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.39.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -6158,6 +6158,8 @@ function openR5Report(clientId){
     <div class="field"><label style="display:flex;justify-content:space-between;align-items:center;gap:8px">🧠 Complément IA (facultatif — relis et corrige, c'est toi qui signes) <button type="button" class="cta ghost sm" onclick="r5ReportAI('${clientId}')">✨ Pré-rédiger depuis les données</button></label>
       <textarea id="r5r-ai" rows="6" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px"></textarea>
       <div id="r5r-aistatus" class="hint"></div></div>
+    ${(()=>{ const bs=clientBranches(clientId); return bs.length>1?`<div class="field"><label>🏢 Branche du rapport <span style="font-weight:400;color:var(--muted);font-size:11.5px">— cloisonnement : la branche choisie + le commun, rien d'autre</span></label>
+      <select id="r5r-branch"><option value="">Groupe entier (toutes branches)</option>${bs.map(b=>`<option ${draft.branch===b?'selected':''}>${esc(b)}</option>`).join("")}</select></div>`:""; })()}
     ${(()=>{ const fams=[...new Set(DB.risks.filter(r=>r.clientId===clientId).map(r=>r.famille||r.categorie||"Autre"))]; const excl=new Set(draft.excludeFams||[]);
       return fams.length?`<div class="field"><label>🔒 Domaines inclus dans le rapport <span style="font-weight:400;color:var(--muted);font-size:11.5px">— décoche ce que le client ne souhaite pas voir circuler (ex. Finance) : exclu du document envoyé, conservé dans le Cockpit</span></label>
       <div style="display:flex;gap:8px;flex-wrap:wrap">${fams.map(f=>`<label style="display:flex;gap:5px;align-items:center;font-size:12.5px;border:1px solid var(--line);border-radius:14px;padding:4px 10px;cursor:pointer"><input type="checkbox" class="r5r-fam" value="${esc(f)}" ${excl.has(f)?"":"checked"}> ${esc(f)}</label>`).join("")}</div></div>`:""; })()}
@@ -6177,6 +6179,7 @@ function r5ReportSaveDraft(clientId){
   if(a) d.analysis=a.value; if(ai) d.aiText=ai.value; d.date=todayISO();
   const famCbs=[...document.querySelectorAll(".r5r-fam")];
   if(famCbs.length) d.excludeFams=famCbs.filter(c=>!c.checked).map(c=>c.value); // confidentialité : domaines exclus du document envoyé
+  const brSel=document.getElementById("r5r-branch"); if(brSel) d.branch=brSel.value; // cloisonnement : rapport émis pour une branche
   save(); return d;
 }
 async function r5ReportAI(clientId){
@@ -6192,10 +6195,11 @@ async function r5ReportAI(clientId){
     if(st) st.textContent="✓ Proposition rédigée — relis, corrige, complète : le rapport n'engage que ta signature.";
   }catch(e){ if(st) st.textContent="⚠️ IA indisponible ("+esc(e.message||String(e))+") — le rapport fonctionne très bien sans."; }
 }
-function r5ReportBody(clientId, analysis, aiText, excludeFams){
+function r5ReportBody(clientId, analysis, aiText, excludeFams, branch){
   const ex=new Set(excludeFams||[]);
-  const risks=DB.risks.filter(r=>r.clientId===clientId && !ex.has(r.famille||r.categorie||"Autre")).map(r=>Object.assign({},r,{score:(+r.probabilite||0)*(+r.impact||0)})).sort((a,b)=>b.score-a.score);
-  const allRecos=DB.recommendations.filter(r=>r.clientId===clientId);
+  const inBranch=x=>!branch||!x.secteur||x.secteur===branch; // sans branche : tout ; avec : la branche + le commun
+  const risks=DB.risks.filter(r=>r.clientId===clientId && inBranch(r) && !ex.has(r.famille||r.categorie||"Autre")).map(r=>Object.assign({},r,{score:(+r.probabilite||0)*(+r.impact||0)})).sort((a,b)=>b.score-a.score);
+  const allRecos=DB.recommendations.filter(r=>r.clientId===clientId && inBranch(r));
   const recos=allRecos.filter(r=>r.clientDecision!=="refuse"); // refusées : hors plan d'action, mentionnées en pied pour la traçabilité
   const refused=allRecos.filter(r=>r.clientDecision==="refuse");
   const counts={CRITIQUE:0,HAUTE:0,MOYENNE:0,FAIBLE:0}; risks.forEach(r=>{ counts[r5Niveau(r.score)]=(counts[r5Niveau(r.score)]||0)+1; });
@@ -6228,7 +6232,7 @@ function r5ReportBody(clientId, analysis, aiText, excludeFams){
 }
 function r5ReportHtml(rep){
   const c=DB.clients.find(x=>x.id===rep.clientId)||{};
-  return docChrome(r5ReportBody(rep.clientId, rep.analysis, rep.aiText, rep.excludeFams), { title:"Rapport d'audit R5 "+(rep.ref||"")+" — "+(c.company||""), typeLabel:"Rapport d'audit R5®", ref:rep.ref||"", date:frLong(rep.date||todayISO()), clientName:c.company||"", clientContact:c.contactName||"", clientEmail:c.contactEmail||"", objet:"Audit de gouvernance des risques — méthode R5®", footRef:(rep.ref||"BSM-RA")+" · Document confidentiel · "+(DB.meta.cabinetName||"BSM Advisory & Consulting") });
+  return docChrome(r5ReportBody(rep.clientId, rep.analysis, rep.aiText, rep.excludeFams, rep.branch), { title:"Rapport d'audit R5 "+(rep.ref||"")+" — "+(c.company||""), typeLabel:"Rapport d'audit R5®", ref:rep.ref||"", date:frLong(rep.date||todayISO()), clientName:c.company||"", clientContact:c.contactName||"", clientEmail:c.contactEmail||"", objet:"Audit de gouvernance des risques — méthode R5®"+(rep.branch?" · Branche "+rep.branch:""), footRef:(rep.ref||"BSM-RA")+" · Document confidentiel · "+(DB.meta.cabinetName||"BSM Advisory & Consulting") });
 }
 /* ---- Synthèse trimestrielle « ce qui a bougé » (lot 2) : état actuel vs photo du dernier rapport envoyé ---- */
 function r5Snapshot(clientId){ return DB.risks.filter(r=>r.clientId===clientId).map(r=>({ ref:r.ref||"", desc:(r.description||r.categorie||"").slice(0,70), score:(+r.probabilite||0)*(+r.impact||0) })); }
@@ -6378,7 +6382,7 @@ function renderRisks(){
   list.sort((a,b)=>(b.probabilite*b.impact)-(a.probabilite*a.impact));
   document.getElementById("scr-risks").innerHTML=`
     <div class="pagetitle"><div><h1>Matrice des risques</h1><div class="sub">Identification, cotation P×I, niveau & traitement</div></div>
-      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="openR5Delta(focusClient)" title="Comparaison avec le dernier rapport envoyé : risques aggravés / améliorés / nouveaux, recos soldées (client du Focus)">🔁 Ce qui a bougé</button><button class="cta ghost" onclick="openR5Report(focusClient)" title="Le livrable d'audit : synthèse, matrice, cartographie, plan d'action + tes analyses (client du Focus)">📑 Rapport d'audit</button><button class="cta" onclick="openRiskForm()">+ Nouveau risque</button></div></div>
+      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="openGroupView(focusClient)" title="Vue du groupe : risques et recos par branche (client du Focus)">🏢 Groupe</button><button class="cta ghost" onclick="openR5Delta(focusClient)" title="Comparaison avec le dernier rapport envoyé : risques aggravés / améliorés / nouveaux, recos soldées (client du Focus)">🔁 Ce qui a bougé</button><button class="cta ghost" onclick="openR5Report(focusClient)" title="Le livrable d'audit : synthèse, matrice, cartographie, plan d'action + tes analyses (client du Focus)">📑 Rapport d'audit</button><button class="cta" onclick="openRiskForm()">+ Nouveau risque</button></div></div>
     ${focusBanner()}
     <div class="filters">
       ${clientPickerHtml()}
@@ -6408,7 +6412,8 @@ function openRiskForm(id){
     <h2>${id?"Modifier le risque":"Nouveau risque"}</h2>
     <div class="field row2"><label>Réf & client</label>
       <input id="f-rref" value="${esc(r.ref||nextRef('R',DB.risks))}">
-      <select id="f-rclient"><option value="">— Client —</option>${DB.clients.map(c=>`<option value="${c.id}" ${r.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+      <select id="f-rclient" onchange="var b=document.getElementById('f-rbranch');if(b)b.innerHTML=branchOptions('',this.value)"><option value="">— Client —</option>${DB.clients.map(c=>`<option value="${c.id}" ${r.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+    <div class="field"><label>Branche / secteur <span style="font-weight:400;color:var(--muted);font-size:11.5px">— cloisonnement intra-client ; « commun » = tout le groupe</span></label><select id="f-rbranch">${branchOptions(r.secteur,r.clientId)}</select></div>
     <div class="field row2"><label>Famille & catégorie</label>
       <select id="f-rfam">${RISK_FAMILIES.map(x=>`<option ${r.famille===x?'selected':''}>${x}</option>`).join("")}</select>
       <select id="f-rcat">${RISK_CATEGORIES.map(x=>`<option ${r.categorie===x?'selected':''}>${x}</option>`).join("")}</select></div>
@@ -6434,6 +6439,7 @@ function saveRisk(id){
     mesures:val("f-rmes"),recoBSM:val("f-rreco"),responsable:val("f-rresp"),delai:val("f-rdelai"),status:val("f-rstatus"),
     clientDecision:val("f-rdecision"),lastReview:val("f-rreview")};
   if(obj.status==="traite" && !obj.lastReview) obj.lastReview=todayISO(); // 1re mise sous contrôle = 1re revue
+  obj.secteur=val("f-rbranch")||"";
   if(id){Object.assign(DB.risks.find(x=>x.id===id),obj);}else{obj.id=uid();obj.dateSaisie=todayISO();DB.risks.push(obj);
     const crit=(obj.probabilite*obj.impact)>=15;
     notify("risk", crit?"⚠️ Risque critique identifié":"Nouveau risque", (obj.description||obj.categorie||obj.ref||"Risque")+" · "+clientName(obj.clientId), {clientId:obj.clientId}); }
@@ -6484,6 +6490,27 @@ function renderCarto(){
 }
 
 /* ----------------------------- Recommandations & suivi ----------------------------- */
+/* ---- CLOISONNEMENT INTRA-CLIENT : branches (secteur principal + additionnels) ----
+   Un risque/une reco peut être rattaché à UNE branche du client, ou rester « commun/groupe ».
+   Le rapport d'audit peut alors être émis PAR BRANCHE : chaque direction ne voit que son périmètre
+   + le commun. Sans branche choisie : vue et rapport du groupe entier. */
+function clientBranches(cid){ const c=DB.clients.find(x=>x.id===cid); if(!c) return []; return [c.sector].concat(c.sectors2||[]).filter(Boolean); }
+function branchOptions(sel,cid){ return `<option value="">— Commun / groupe entier —</option>`+clientBranches(cid).map(b=>`<option ${sel===b?'selected':''}>${esc(b)}</option>`).join(""); }
+function openGroupView(clientId){
+  const c=DB.clients.find(x=>x.id===clientId); if(!c){ toast("Choisis d'abord un client (Focus client)."); return; }
+  const bs=clientBranches(clientId);
+  const seg=[{k:"",label:"🏢 Commun / groupe"}].concat(bs.map(b=>({k:b,label:"🏷️ "+b})));
+  const rows=seg.map(s=>{
+    const rk=DB.risks.filter(r=>r.clientId===clientId&&(r.secteur||"")===s.k);
+    const crit=rk.filter(r=>(+r.probabilite||0)*(+r.impact||0)>=15).length;
+    const rc=DB.recommendations.filter(r=>r.clientId===clientId&&(r.secteur||"")===s.k&&r.status!=="fait"&&r.clientDecision!=="refuse").length;
+    return `<div class="li"><span><b>${esc(s.label)}</b></span><span>${rk.length} risque(s)${crit?` · <b style="color:var(--red)">${crit} critique(s)</b>`:""} · ${rc} reco(s) ouverte(s)</span></div>`;
+  }).join("");
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🏢 Vue du groupe — ${esc(c.company)}</h2>
+    <div class="msub">${bs.length} branche(s) exploitée(s). Le « commun » s'applique à tout le groupe ; chaque rapport d'audit peut être émis <b>par branche</b> (fenêtre 📑 Rapport → Branche) — chaque direction ne reçoit que son périmètre + le commun.</div>
+    <div class="mini-list" style="margin-top:8px">${rows}</div>
+    <div class="modal-actions"><button class="cta" onclick="closeModal()">OK</button></div>`);
+}
 let recoFilter="tous";
 function recoPrioBadge(p){return {"Critique":"b-red","Élevée":"b-orange","Modérée":"b-amber","Faible":"b-grey"}[p]||"b-grey";}
 function renderRecos(){
@@ -6517,7 +6544,8 @@ function openRecoForm(id){
     <h2>${id?"Modifier la recommandation":"Nouvelle recommandation"}</h2>
     <div class="field row2"><label>Réf & client</label>
       <input id="f-xref" value="${esc(r.ref||nextRef('REC',DB.recommendations))}">
-      <select id="f-xclient"><option value="">— Client —</option>${DB.clients.map(c=>`<option value="${c.id}" ${r.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+      <select id="f-xclient" onchange="var b=document.getElementById('f-xbranch');if(b)b.innerHTML=branchOptions('',this.value)"><option value="">— Client —</option>${DB.clients.map(c=>`<option value="${c.id}" ${r.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+    <div class="field"><label>Branche / secteur <span style="font-weight:400;color:var(--muted);font-size:11.5px">— cloisonnement intra-client ; « commun » = tout le groupe</span></label><select id="f-xbranch">${branchOptions(r.secteur,r.clientId)}</select></div>
     <div class="field"><label>Recommandation</label><textarea id="f-xtexte" rows="2">${esc(r.texte||'')}</textarea></div>
     <div class="field"><label>Risque lié</label><select id="f-xrisk"><option value="">— Aucun —</option>${DB.risks.map(x=>`<option value="${x.id}" ${r.riskId===x.id?'selected':''}>${esc(x.ref||x.categorie)} — ${clientName(x.clientId)}</option>`).join("")}</select></div>
     <div class="field row2"><label>Horizon & priorité</label>
@@ -6546,7 +6574,7 @@ function openRecoForm(id){
 function saveReco(id){
   const obj={ref:val("f-xref").trim(),clientId:val("f-xclient"),texte:val("f-xtexte"),riskId:val("f-xrisk"),
     horizon:val("f-xhorizon"),priorite:val("f-xprio"),responsable:val("f-xresp"),moyens:val("f-xmoyens"),indicateur:val("f-xind"),
-    invest:val("f-xinvest"),gain:val("f-xgain"),
+    invest:val("f-xinvest"),gain:val("f-xgain"),secteur:val("f-xbranch")||"",
     status:val("f-xstatus"),avancement:Math.max(0,Math.min(100,parseInt(val("f-xav"))||0)),clientDecision:val("f-xdecision"),dateCible:val("f-xcible"),dateReal:val("f-xreal"),commentaire:val("f-xcom")};
   if(id){Object.assign(DB.recommendations.find(x=>x.id===id),obj);}else{obj.id=uid();DB.recommendations.push(obj);
     notify("reco","Nouvelle recommandation", (obj.texte||obj.ref||"Recommandation")+" · "+clientName(obj.clientId), {clientId:obj.clientId}); }
