@@ -538,7 +538,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.27.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.28.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -1252,7 +1252,7 @@ async function refreshNotifPanel(){
   if(error && error.code && error.code!=="PGRST116"){ // PGRST116 = 0 ligne (normal la 1re fois)
     el.innerHTML=`<div class="hint" style="color:var(--red)">Erreur : ${esc(error.message)}<br><span style="color:var(--muted)">As-tu exécuté la migration 0003_notifications.sql ?</span></div>`; return;
   }
-  const s=data||{ email:(DB.meta.reportEmail||""), enabled:true, digest_enabled:true, digest_freq:"daily", digest_hour:6, digest_weekday:1, instant_enabled:true, rdv_enabled:true, rdv_days_ahead:1 };
+  const s=data||{ email:(DB.meta.reportEmail||""), enabled:true, digest_enabled:true, digest_freq:"daily", digest_hour:6, digest_weekday:1, instant_enabled:true, rdv_enabled:true, rdv_days_ahead:1, monthly_enabled:true, monthly_day:1 };
   const days=[["1","lundi"],["2","mardi"],["3","mercredi"],["4","jeudi"],["5","vendredi"],["6","samedi"],["0","dimanche"]];
   const hours=Array.from({length:24},(_,h)=>`<option value="${h}" ${(+s.digest_hour)===h?"selected":""}>${String(h).padStart(2,"0")}h</option>`).join("");
   el.innerHTML=`
@@ -1265,6 +1265,14 @@ async function refreshNotifPanel(){
         <span style="font-size:12px;color:var(--muted)">à</span><select id="nf-hour">${hours}</select>
         <span style="font-size:12px;color:var(--muted)">(heure de Tana)</span>
         <select id="nf-weekday" title="Jour (si hebdomadaire)">${days.map(d=>`<option value="${d[0]}" ${(+s.digest_weekday)===(+d[0])?"selected":""}>${d[1]}</option>`).join("")}</select>
+      </div>
+    </div>
+    <div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:6px">
+      <label style="display:flex;gap:6px;align-items:center;font-size:12.5px"><input type="checkbox" id="nf-monthly" ${s.monthly_enabled!==false?"checked":""}> 📆 Bilan mensuel (le mois écoulé en chiffres : entrées/dépenses/solde par devise, CA par client, rappel de clôture)</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 2px 22px;align-items:center">
+        <span style="font-size:12px;color:var(--muted)">envoyé le</span>
+        <select id="nf-monthlyday">${Array.from({length:28},(_,i)=>`<option value="${i+1}" ${(+(s.monthly_day||1))===(i+1)?"selected":""}>${i+1}</option>`).join("")}</select>
+        <span style="font-size:12px;color:var(--muted)">du mois, à l'heure du récap</span>
       </div>
     </div>
     <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin-top:6px"><input type="checkbox" id="nf-instant" ${s.instant_enabled!==false?"checked":""}> 🔴 Alertes instantanées (risque critique, encaissement/charge en retard)</label>
@@ -1284,7 +1292,8 @@ async function saveNotifSettings(){
   const row={ organization_id:cloudOrgId, email:(g("nf-email")||"").trim(), enabled:ck("nf-enabled"),
     digest_enabled:ck("nf-digest"), digest_freq:g("nf-freq")||"daily", digest_hour:parseInt(g("nf-hour"))||6,
     digest_weekday:parseInt(g("nf-weekday")), instant_enabled:ck("nf-instant"), rdv_enabled:ck("nf-rdv"),
-    rdv_days_ahead:parseInt(g("nf-rdvdays")), updated_at:new Date().toISOString() };
+    rdv_days_ahead:parseInt(g("nf-rdvdays")), monthly_enabled:ck("nf-monthly"), monthly_day:parseInt(g("nf-monthlyday"))||1,
+    updated_at:new Date().toISOString() };
   try{
     const c=await sbClient();
     const { error }=await c.from("notification_settings").upsert(row,{ onConflict:"organization_id" });
