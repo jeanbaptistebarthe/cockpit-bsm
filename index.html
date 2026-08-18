@@ -642,7 +642,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.50.2";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.51.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -8208,7 +8208,11 @@ async function a1ExecReport(kind){
     secs.push(["Pour aller plus loin — méthode BSM R5®",
       `<p style="font-size:12.5px;line-height:1.7">Le présent audit est une photographie à l'instant T. Les constats qui précèdent relèvent de causes que la méthode R5® de ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")} traite en profondeur — modules recommandés au vu de votre diagnostic :</p>`
       +bridgeItems.map(b=>`<div style="border:1px solid #E5E7EB;border-left:3px solid #102A43;padding:10px 14px;margin:8px 0;page-break-inside:avoid"><b style="color:#102A43">R5® · ${esc(b[0])}</b><div style="font-size:12.5px;margin-top:3px;line-height:1.6">${esc(b[1])}</div></div>`).join("")
-      +(openRecs.length?`<div style="font-size:11.5px;color:#374151;margin-top:8px;padding:8px 12px;background:#FCFBF7;border-left:2px solid #B7891A;page-break-inside:avoid"><b>Plan d'action BSM déjà engagé avec vous :</b> ${openRecs.map(r=>esc((r.ref||"")+(r.texte?" — "+String(r.texte).slice(0,60):""))).join(" · ")}</div>`:"")
+      +(openRecs.length?`<div style="margin-top:16px;page-break-inside:avoid">
+        <div style="font-family:Georgia,serif;font-size:15px;color:#102A43;margin:4px 0 6px"><b>Votre plan d'action — décisions attendues</b></div>
+        <p style="font-size:12px;color:#374151;line-height:1.6;margin:0 0 8px">Les pistes qui précèdent sont issues de l'analyse de la période ; les recommandations ci-dessous sont celles <b>déjà formalisées à votre registre</b> — ce sont elles qui attendent votre décision (bouton « Donner mes décisions » de l'e-mail).</p>
+        ${openRecs.map(r=>`<div style="border:1px solid #E5E7EB;border-left:3px solid #B7891A;padding:10px 14px;margin:8px 0;page-break-inside:avoid"><b style="color:#102A43">${esc(r.ref||"")}</b>${/programme a1/i.test(r.commentaire||"")?' <span style="font-size:10px;color:#B5923A;font-weight:bold">PROGRAMME A1</span>':""}<div style="font-size:12.5px;margin-top:3px;line-height:1.6">${esc(r.texte||"")}</div>${(r.invest||r.gain)?`<div style="font-size:11px;margin-top:4px;color:#6B7280">${r.invest?"Investissement : <b>"+esc(r.invest)+"</b>":""}${r.invest&&r.gain?" → ":""}${r.gain?'<span style="color:#2F855A">Gain attendu : <b>'+esc(r.gain)+"</b></span>":""}</div>`:""}</div>`).join("")}
+      </div>`:"")
       +passNote]);
   }
   // Lexique dirigeant : le rapport doit se lire sans traducteur — le patron comme le responsable technique.
@@ -8444,16 +8448,29 @@ function openA1ExecSend(id){
     ${!serverEnabled?`<div class="hint" style="color:#A6641A;background:#FDF1E3;border:1px solid #F3D8B4;border-radius:8px;padding:9px;margin-top:6px">🖥️ L'<b>envoi e-mail</b> se fait depuis le <b>Cockpit local</b> (serveur). Bascule en local pour envoyer.</div>`:''}
     <div class="modal-actions">${r.onServer&&serverEnabled?`<button class="cta ghost" onclick="a1ViewExecReport('${r.id}')">👁 Relire</button>`:""}<button class="cta ghost" onclick="closeModal()">Annuler</button>${st==="brouillon"?`<button class="cta gold" onclick="a1ExecValidate('${r.id}','send')">✅ Valider (puis envoyer)</button>`:(serverEnabled&&r.onServer?`<button class="cta" onclick="a1ExecSendGo('${r.id}')">${r.sentAt?"Renvoyer":"Envoyer"} au client</button>`:'')}</div>`);
 }
+/* URL de la page de décision EN LIGNE (servie par le récepteur Apps Script, doGet?d=…) : le client
+   coche Valider/Différer/Refuser et envoie — réponse formatée dans la boîte BSM + archive « DECISIONS
+   RECUES » du Sheet R5. Même encodage que le circuit du rapport de suivi R5. Vide si récepteur absent. */
+function decisionPageUrl(clientId){
+  const hook=(DB.meta.decisionWebhook||"").trim(); if(!hook) return "";
+  const c=DB.clients.find(x=>x.id===clientId)||{};
+  const recos=(DB.recommendations||[]).filter(r=>r.clientId===clientId&&r.status!=="fait"&&r.clientDecision!=="refuse");
+  if(!recos.length) return "";
+  const payload={ c:c.company||"", r:recos.slice(0,12).map(r=>[r.ref||"",String(r.texte||"").slice(0,90),String(r.invest||"").slice(0,40),String(r.gain||"").slice(0,40)]) };
+  const b64=btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  return hook+"?d="+b64;
+}
 /* Bloc « 🗳 Vos décisions » injecté dans les mails de rapport (A1 et audit R5) : les recommandations
-   OUVERTES du client — mêmes références que la fiche 360 et la fiche de décision — avec réponse par
-   simple reply (« REC-001 : VALIDER »), le format que « 📥 Décisions reçues » sait relire.
-   Les recommandations issues du programme A1 sont étiquetées. */
+   OUVERTES du client — mêmes références que la fiche 360 et la fiche de décision. Bouton principal =
+   page de décision EN LIGNE (un clic, réponse dans la boîte BSM + archive Sheet) ; repli mailto
+   pré-rempli si le récepteur n'est pas configuré. Les recos issues du programme A1 sont étiquetées. */
 function recoDecisionMailBlockHtml(clientId){
   if(!clientId) return "";
   const recos=(DB.recommendations||[]).filter(r=>r.clientId===clientId&&r.status!=="fait"&&r.clientDecision!=="refuse");
   if(!recos.length) return "";
-  // Bouton « Envoyer mes décisions » : mailto pré-adressé à BSM, corps pré-rempli (réfs à compléter —
-  // volontairement SANS choix pré-écrit pour ne pas fausser la relecture automatique).
+  const pageUrl=decisionPageUrl(clientId);
+  // Repli mailto : pré-adressé à BSM, corps pré-rempli (réfs à compléter — volontairement SANS choix
+  // pré-écrit pour ne pas fausser la relecture automatique de « 📥 Décisions reçues »).
   const bsmMail=(docIdentity().email||"").trim();
   const cName=clientName(clientId)||"";
   const mailBody="DECISIONS R5 — "+cName+" — "+frDate(todayISO())
@@ -8470,7 +8487,9 @@ function recoDecisionMailBlockHtml(clientId){
     <p style="font-size:13px;line-height:1.6;color:#111827"><b>BSM propose, vous décidez.</b> Répondez simplement à cet e-mail en indiquant votre décision pour chaque référence, par exemple :<br><code style="background:#F6F1E8;padding:2px 6px;border-radius:4px">${esc(recos[0].ref||"REC-001")} : VALIDER</code></p>
     <table style="width:100%;border-collapse:collapse;margin:8px 0">
       <tr style="background:#F6F1E8"><th style="padding:6px 9px;border:1px solid #E5E7EB;font-size:10px;text-align:left">RÉF.</th><th style="padding:6px 9px;border:1px solid #E5E7EB;font-size:10px;text-align:left">RECOMMANDATION</th><th style="padding:6px 9px;border:1px solid #E5E7EB;font-size:10px;text-align:left">VOS OPTIONS</th></tr>${rows}</table>
-    ${mailtoHref?`<div style="margin:14px 0"><a href="${mailtoHref}" style="background:#0D1F45;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:700;display:inline-block">✅ Envoyer mes décisions</a>
+    ${pageUrl?`<div style="margin:14px 0"><a href="${pageUrl}" style="background:#B5923A;color:#ffffff;text-decoration:none;padding:13px 28px;border-radius:6px;font-size:14px;font-weight:700;display:inline-block">➡️ Donner mes décisions</a>
+      <div style="font-size:11.5px;color:#6B7280;margin-top:6px">Le bouton ouvre votre <b>page de décision sécurisée</b> : cochez Valider / Différer / Refuser puis « Envoyer » — c'est tout. Vous pouvez aussi répondre directement à ce message.</div></div>`
+    :mailtoHref?`<div style="margin:14px 0"><a href="${mailtoHref}" style="background:#0D1F45;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:700;display:inline-block">✅ Envoyer mes décisions</a>
       <div style="font-size:11.5px;color:#6B7280;margin-top:6px">Le bouton ouvre votre messagerie avec l'e-mail pré-rempli — complétez chaque ligne puis envoyez. Vous pouvez aussi répondre directement à ce message.</div></div>`:""}
     <p style="font-size:11.5px;color:#6B7280">Vos réponses sont intégrées à votre dossier de suivi R5 ; BSM assure ensuite la mise en œuvre et le suivi.</p></div>`;
 }
