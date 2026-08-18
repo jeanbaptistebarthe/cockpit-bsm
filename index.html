@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://docs.google.com; connect-src 'self' https://api.mistral.ai https://api.mammouth.ai https://api.anthropic.com https://*.supabase.co https://cdn.jsdelivr.net https://script.google.com https://docs.google.com; frame-src 'self' https://docs.google.com https://www.google.com; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://docs.google.com; connect-src 'self' https://api.anthropic.com https://*.supabase.co https://cdn.jsdelivr.net https://script.google.com https://docs.google.com; frame-src 'self' https://docs.google.com https://www.google.com; object-src 'none'; base-uri 'self'; form-action 'self'">
 <title>BSM Cockpit — Outil interne de pilotage</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#102A43">
@@ -236,7 +236,6 @@
   .heat .xl{font-size:9px;color:var(--muted);text-align:center;padding-top:4px;}
   .heat .cell{border-radius:5px;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:2px;padding:2px;}
   .rdot{width:26px;height:26px;border-radius:50%;background:var(--navy);color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.25);}
-  iframe.formframe{width:100%;height:68vh;border:1px solid var(--line);border-radius:8px;background:#fff;}
   .infobox{background:#F0F5FA;border:1px solid #D6E2EE;border-radius:8px;padding:12px 14px;font-size:12.5px;color:var(--navy);line-height:1.55;margin-bottom:14px;}
   .imp-modes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
   .imp-mode{border:1.5px solid var(--line);border-radius:10px;padding:12px;cursor:pointer;transition:.15s;}
@@ -525,6 +524,8 @@
     <div class="navitem" data-scr="a1suivi" onclick="setScreen('a1suivi')"><span class="ic">📆</span><span class="lbl">Suivi du mois</span></div>
     <div class="navitem" data-scr="clients" onclick="setScreen('clients')"><span class="ic">👥</span><span class="lbl">Clients</span></div>
     <div class="navitem" data-scr="agenda" onclick="setScreen('agenda')"><span class="ic">📅</span><span class="lbl">Agenda</span></div>
+    <div class="navitem" data-scr="reports" onclick="setScreen('reports')"><span class="ic">📋</span><span class="lbl">Rapports</span></div>
+    <div class="navitem" data-scr="aireport" onclick="setScreen('aireport')"><span class="ic">📊</span><span class="lbl">Usage & coûts IA</span></div>
     <div class="navgroup">FINANCES</div>
     <div class="navitem" data-scr="budget" onclick="setScreen('budget')"><span class="ic">💶</span><span class="lbl">Budget</span></div>
     <div class="navitem" data-scr="ca" onclick="setScreen('ca')"><span class="ic">📈</span><span class="lbl">Chiffre d'affaires</span></div>
@@ -537,10 +538,6 @@
     <div class="navitem" data-scr="recos" onclick="setScreen('recos')"><span class="ic">✅</span><span class="lbl">Recommandations</span></div>
     <div class="navitem" data-scr="audit" onclick="setScreen('audit')"><span class="ic">📝</span><span class="lbl">Audit terrain</span></div>
     <div class="navitem" data-scr="analyses" onclick="setScreen('analyses')"><span class="ic">🧠</span><span class="lbl">Analyses & Conseils</span><span id="nav-advice-badge" class="badge-nav" style="display:none">0</span></div>
-    <div class="navgroup">INTELLIGENCE IA</div>
-    <div class="navitem" data-scr="aiassist" onclick="setScreen('aiassist')"><span class="ic">🧩</span><span class="lbl">Assistants IA</span></div>
-    <div class="navitem" data-scr="reports" onclick="setScreen('reports')"><span class="ic">📋</span><span class="lbl">Rapports ZEUS</span></div>
-    <div class="navitem" data-scr="aireport" onclick="setScreen('aireport')"><span class="ic">🤖</span><span class="lbl">Usage & coûts IA</span></div>
     <div class="navgroup">COMMERCIAL</div>
     <div class="navitem" data-scr="commercial" onclick="setScreen('commercial')"><span class="ic">💼</span><span class="lbl">Simulateur</span></div>
     <div class="navitem" data-scr="documentation" onclick="setScreen('documentation')"><span class="ic">🗂️</span><span class="lbl">Documentation</span></div>
@@ -645,7 +642,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.47.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.48.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -821,6 +818,20 @@ function load(){
   if(!DB.meta.a1suiviPermV1){
     try{ (DB.users||[]).forEach(u=>{ if(Array.isArray(u.allowed) && u.allowed.indexOf("a1suivi")<0 && (u.role==="admin"||u.role==="direction")) u.allowed.push("a1suivi"); }); }catch(e){}
     DB.meta.a1suiviPermV1=true;
+  }
+  // Allègement 18/08 : les programmes A1 (analyses IA incluses) passent sous permissions → direction par défaut,
+  // extensibles par utilisateur dans « Utilisateurs & accès ». Un employé « audit » n'y entre plus par ricochet.
+  if(!DB.meta.a1ProgPermV1){
+    try{ (DB.users||[]).forEach(u=>{ if(Array.isArray(u.allowed) && (u.role==="admin"||u.role==="direction")){ ["a1fleet","a1genset"].forEach(k=>{ if(u.allowed.indexOf(k)<0) u.allowed.push(k); }); } }); }catch(e){}
+    DB.meta.a1ProgPermV1=true;
+  }
+  // Allègement 18/08 : la démo A1 est retirée du produit — purge unique d'un éventuel client de démo résiduel.
+  if(!DB.meta.a1DemoPurgeV1){
+    try{
+      ["clients","a1vehicles","a1logs","a1gensets","a1genlogs","a1gpslogs","a1invoices","events","missions","risks","recommendations","transactions"].forEach(col=>{ if(Array.isArray(DB[col])) DB[col]=DB[col].filter(x=>!x||x._demo!=="a1demo"); });
+      DB.a1docs=(DB.a1docs||[]).filter(d=>d.clientId!=="demo-client");
+    }catch(e){}
+    DB.meta.a1DemoPurgeV1=true;
   }
   // Correction tarifaire 08/2026 : les anciens défauts Claude étaient faux (Opus 5 à 15/75 au lieu de 5/25…) → purge des overrides Claude + recalcul de tout l'historique de coûts.
   if(!DB.meta.aiPriceFixV1){
@@ -2754,7 +2765,7 @@ function clientA1Card(cid){
   return `<div class="card" style="border-left:3px solid var(--gold)">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <h2 style="margin:0">⚡ Programme A1 — énergie & flotte</h2>
-      <div style="display:flex;gap:6px">${nv?`<button class="cta ghost sm" onclick="a1GoFleet('${cid}')">🚗 ${nv} véhicule${nv>1?"s":""}</button>`:""}${ng?`<button class="cta ghost sm" onclick="a1GoEnergy('${cid}')">🔌 ${ng} groupe${ng>1?"s":""}</button>`:""}</div>
+      <div style="display:flex;gap:6px">${nv&&can('a1fleet')?`<button class="cta ghost sm" onclick="a1GoFleet('${cid}')">🚗 ${nv} véhicule${nv>1?"s":""}</button>`:""}${ng&&can('a1genset')?`<button class="cta ghost sm" onclick="a1GoEnergy('${cid}')">🔌 ${ng} groupe${ng>1?"s":""}</button>`:""}</div>
     </div>
     <div class="kpis" style="margin-top:8px">
       ${nv?`<div class="kpi"><div class="v">${fmtD(fuelFleet)}</div><div class="l">Carburant flotte</div></div>`:""}
@@ -5734,17 +5745,10 @@ function openSettings(){
     <div class="field"><label>Assistant IA — Clé API Claude (Anthropic) <span style="color:var(--gold)">(prioritaire — recommandé pour les rapports)</span></label>${aiKeyInputHtml("s-claude", DB.meta.claudeKey, _srvAI.claude, "Colle ta clé Claude (sk-ant-…)")}</div>
     <div class="field"><label>Modèle Claude</label><select id="s-claude-model">
       ${[["claude-sonnet-5","Claude Sonnet 5 (équilibré — recommandé)"],["claude-opus-5","Claude Opus 5 (meilleure qualité, rapports)"],["claude-haiku-4-5-20251001","Claude Haiku 4.5 (rapide / éco)"]].map(m=>`<option value="${m[0]}" ${(DB.meta.claudeModel||'claude-sonnet-5')===m[0]?'selected':''}>${m[1]}</option>`).join("")}</select></div>
-    <div class="hint">Clé <b>Anthropic</b> (console.anthropic.com). Si saisie, Claude est utilisé <b>en priorité</b> pour toutes les analyses/rapports (repli automatique sur Mammouth/Mistral). ${serverEnabled&&_srvAI.checked?'🔐 <b>Stockage sécurisé :</b> la clé est conservée sur le serveur BSM, jamais dans le navigateur — ton associé peut utiliser l\'IA sans voir la clé.':'⚠️ Sans serveur local, la clé est stockée dans ce navigateur — à n\'utiliser que sur un poste de confiance.'}</div>
-    <hr style="border:none;border-top:1px dashed var(--line);margin:12px 0">
-    <div class="field"><label>Assistant IA — Clé API Mammouth <span style="color:var(--muted)">(repli multi-modèles)</span></label>${aiKeyInputHtml("s-mammouth", DB.meta.mammouthKey, _srvAI.mammouth, "Colle ta clé Mammouth (sk-…)")}</div>
-    <div class="field"><label>Modèle Mammouth</label><select id="s-aimodel-mam">
-      ${AI_MODELS_MAMMOUTH.map(m=>`<option value="${m}" ${(DB.meta.aiModelMammouth||'mammouth-recommended')===m?'selected':''}>${m}</option>`).join("")}</select></div>
-    <div class="hint">Si une clé Mammouth est saisie, elle est utilisée en priorité (sinon repli sur Mistral ci-dessous). Chaque appel est compté (tokens + coût estimé) → onglet <b>Reporting IA</b>, et alimente automatiquement la ligne budget « Intelligence artificielle ». ⚠️ Pense à allouer un budget à ta clé dans ton compte Mammouth.</div>
-    <hr style="border:none;border-top:1px dashed var(--line);margin:12px 0">
-    <div class="field"><label>Assistant IA — Clé API Mistral <span style="color:var(--muted)">(repli)</span></label>${aiKeyInputHtml("s-mistral", DB.meta.mistralKey, _srvAI.mistral, "Colle ta clé Mistral")}</div>
-    <div class="field"><label>Modèle Mistral</label><select id="s-aimodel">
-      ${[["mistral-small-latest","Mistral Small (rapide / éco)"],["mistral-medium-latest","Mistral Medium"],["mistral-large-latest","Mistral Large (recommandé)"]].map(m=>`<option value="${m[0]}" ${(DB.meta.aiModel||'mistral-large-latest')===m[0]?'selected':''}>${m[1]}</option>`).join("")}</select></div>
-    <div class="hint">${serverEnabled&&_srvAI.checked?'🔐 Clés conservées sur le <b>serveur BSM</b> (fichier local du PC, jamais publié ni synchronisé).':'Clés stockées localement, jamais publiées.'} Les données envoyées à l'IA servent uniquement à générer les conseils.</div>
+    <div class="hint">Clé <b>Anthropic</b> (console.anthropic.com) — Claude est l'unique moteur d'analyse du Cockpit. Chaque appel est compté (tokens + coût estimé) → onglet <b>Usage & coûts IA</b>. ${serverEnabled&&_srvAI.checked?'🔐 <b>Stockage sécurisé :</b> la clé est conservée sur le serveur BSM, jamais dans le navigateur — ton associé peut utiliser l\'IA sans voir la clé.':'⚠️ Sans serveur local, la clé est stockée dans ce navigateur — à n\'utiliser que sur un poste de confiance.'}</div>
+    <div class="field" style="margin-top:10px"><label>Assistant « Bras droit » (agent unique)</label>
+      <button type="button" class="cta ghost sm" onclick="closeModal();setScreen('aiassist')">🤖 Ouvrir le réglage de l'assistant</button>
+      <div class="hint">Prompt métier et périmètre de l'agent — l'écran a quitté le menu pour alléger la navigation.</div></div>
     <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
     <div class="field"><label>Intégrations Google (Sheet R5 · Agenda · e-mail)</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -5815,23 +5819,22 @@ function saveSettings(){
     if(typeof logEvent==="function") logEvent("action","Taux du mois mis à jour : 1 € = "+DB.meta.rateEurMga+" Ar · 1 $ = "+DB.meta.rateUsdMga+" Ar", true);
   }
   DB.meta.cabinetName=val("s-cabinet");
-  DB.meta.aiModel=val("s-aimodel"); DB.meta.aiModelMammouth=val("s-aimodel-mam"); DB.meta.claudeModel=val("s-claude-model")||"claude-sonnet-5";
-  const _k={claude:(val("s-claude")||"").trim(), mammouth:(val("s-mammouth")||"").trim(), mistral:(val("s-mistral")||"").trim()};
+  DB.meta.claudeModel=val("s-claude-model")||"claude-sonnet-5";
+  // Claude seul fournisseur (18/08) : les anciennes clés Mammouth/Mistral du navigateur sont purgées.
+  DB.meta.mammouthKey=""; DB.meta.mistralKey="";
+  const _k={claude:(val("s-claude")||"").trim()};
   if(serverEnabled&&_srvAI.checked){
-    // Clés → serveur uniquement (jamais dans le navigateur). Champ vide = conserver l'existante ; taper EFFACER = supprimer.
-    DB.meta.claudeKey=""; DB.meta.mammouthKey=""; DB.meta.mistralKey="";
-    const payload={};
-    [["claudeKey",_k.claude],["mammouthKey",_k.mammouth],["mistralKey",_k.mistral]].forEach(([key,v])=>{
-      if(v) payload[key]=(v.toUpperCase()==="EFFACER")?"":v;
-    });
-    if(Object.keys(payload).length){
+    // Clé → serveur uniquement (jamais dans le navigateur). Champ vide = conserver l'existante ; taper EFFACER = supprimer.
+    DB.meta.claudeKey="";
+    if(_k.claude){
+      const payload={claudeKey:(_k.claude.toUpperCase()==="EFFACER")?"":_k.claude};
       fetch("/api/ai-config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)})
         .then(r=>r.json()).then(j=>{
-          if(j&&j.ok){ _srvAI={checked:true,claude:!!j.providers.claude,mammouth:!!j.providers.mammouth,mistral:!!j.providers.mistral,any:!!(j.providers.claude||j.providers.mammouth||j.providers.mistral)}; toast("🔐 Clé(s) IA enregistrée(s) sur le serveur."); }
-          else toast("⚠️ Enregistrement des clés sur le serveur impossible.");
-        }).catch(()=>toast("⚠️ Enregistrement des clés sur le serveur impossible."));
+          if(j&&j.ok){ _srvAI={checked:true,claude:!!j.providers.claude,mammouth:!!j.providers.mammouth,mistral:!!j.providers.mistral,any:!!(j.providers.claude||j.providers.mammouth||j.providers.mistral)}; toast("🔐 Clé IA enregistrée sur le serveur."); }
+          else toast("⚠️ Enregistrement de la clé sur le serveur impossible.");
+        }).catch(()=>toast("⚠️ Enregistrement de la clé sur le serveur impossible."));
     }
-  } else { DB.meta.claudeKey=_k.claude; DB.meta.mammouthKey=_k.mammouth; DB.meta.mistralKey=_k.mistral; }
+  } else { DB.meta.claudeKey=_k.claude; }
   DB.meta.reportEmail=val("s-reportmail").trim();
   DB.meta.mailCopyTo=(val("s-mailcopy")||"").trim();
   const rm=parseInt(val("s-reviewmonths")); if([3,6,12].includes(rm)) DB.meta.reviewMonths=rm;
@@ -7431,13 +7434,13 @@ function renderAudit(){
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">${chips}</div>
     ${extraCards}
-    <div class="card" style="border-left:3px solid var(--navy);margin-bottom:12px">
-      <div><h2 style="margin:0">🧮 Programmes d'analyse A1</h2><div class="msub" style="margin:2px 0 6px">Analyse de données opérationnelles à valeur ajoutée — prestation vendable au client (calcul + IA + conseils + rapport).</div></div>
+    ${(can('a1fleet')||can('a1genset'))?`<div class="card" style="border-left:3px solid var(--navy);margin-bottom:12px">
+      <div><h2 style="margin:0">🧮 Programmes d'analyse A1</h2><div class="msub" style="margin:2px 0 6px">Analyse de données opérationnelles à valeur ajoutée — prestation vendable au client (calcul + conseils + rapport).</div></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button class="cta" onclick="setScreen('a1fleet')">🚗 Flotte & carburant + GPS →</button>
-        <button class="cta" onclick="setScreen('a1genset')">🔌 Groupes électrogènes / JIRAMA →</button>
+        ${can('a1fleet')?`<button class="cta" onclick="setScreen('a1fleet')">🚗 Flotte & carburant + GPS →</button>`:""}
+        ${can('a1genset')?`<button class="cta" onclick="setScreen('a1genset')">🔌 Groupes électrogènes / JIRAMA →</button>`:""}
       </div>
-    </div>
+    </div>`:""}
     ${url? ``
     : `<div class="card"><div class="empty">Aucun formulaire d'audit configuré.${isDirection()?` Cliquez « ⚙ Configurer les formulaires » et collez le lien de votre Google Form à sections.`:` Demandez à la direction de le configurer.`}</div></div>`}`;
 }
@@ -10101,69 +10104,6 @@ function a1ControlPrint(kind){ if(!_a1CtlLast){ toast("Lance d'abord un contrôl
   const body=`<p><b>Impact financier potentiel (sur-facturation) :</b> ${fmtD(rec.impact||0)}.</p>${intrHtml}${rowsHtml}<h2 class="docsec">À vérifier / recommandations</h2><p style="color:#4B5563">Rapprocher les écarts ci-dessus avec les bons de livraison et le contrat fournisseur ; demander un avoir sur les montants facturés au-delà de la référence ; corriger les erreurs de calcul ; supprimer les doublons.</p>`;
   openPrintable(docChrome(body, { title:"Contrôle & écarts — "+(kind==="jirama"?"JIRAMA":"carburant"), typeLabel:"Contrôle documentaire", date:frLong(todayISO()), clientName: client?clientName(client):"Tous clients", objet:"Contrôle des factures & écarts" }));
 }
-/* ================== CLIENT DE DÉMONSTRATION (test grandeur nature, retirable) ================== */
-function seedA1Demo(){
-  removeA1Demo(true); // repart propre
-  const TAG="a1demo"; const tag=o=>{ o._demo=TAG; return o; }; const rid=()=>"demo-"+Math.random().toString(36).slice(2,10);
-  const email="jeanbaptiste.barthe@bsmconseils.com"; const cid="demo-client";
-  DB.clients.push(tag({ id:cid, company:"DÉMO — Transport & Énergie SA", sector:"Transport / Logistique", status:"actif",
-    contactName:"Jean-Baptiste Barthe", contactEmail:email, contactPhone:"+261 34 00 000 00", signatureDate:"2026-01-15", createdAt:todayISO(),
-    notes:"Client de démonstration (test grandeur nature) — supprimable via « Retirer la démo »." }));
-  const months=["2026-01","2026-02","2026-03","2026-04","2026-05","2026-06"];
-  const price={ "2026-01":4670,"2026-02":4800,"2026-03":4660,"2026-04":4660,"2026-05":4745,"2026-06":4860 };
-  DB.meta.fuelPriceHistory=DB.meta.fuelPriceHistory||{}; months.forEach(m=>{ DB.meta.fuelPriceHistory[m]={gasoil:price[m],essence:5500}; });
-  DB.meta.fuelPrices={gasoil:4860,essence:5500};
-  DB.meta.jiramaHistory=DB.meta.jiramaHistory||{}; DB.meta.jiramaKwhPrice=612;
-  const jt={ "2026-03":600,"2026-04":606,"2026-05":612,"2026-06":612 }; Object.keys(jt).forEach(m=>DB.meta.jiramaHistory[m]=jt[m]);
-  const rnd=(a,b)=>a+Math.round((b-a)*Math.random());
-  const vehs=[
-    {id:"dv1",name:"Hilux 1",type:"Voiture / VHL",plate:"1234 TAA",marque:"Toyota",modele:"Hilux 2.4 D-4D",annee:2020,motor:"Diesel",consoTheo:8.0,reservoir:80,gps:"GPS-001",km:1500,l100:8.6,driver:"Rakoto",station:"GALANA Ivato"},
-    {id:"dv2",name:"Land Cruiser 76",type:"Voiture / VHL",plate:"5678 TBB",marque:"Toyota",modele:"Land Cruiser 76",annee:2018,motor:"Diesel",consoTheo:11.5,reservoir:130,gps:"GPS-002",km:1200,l100:12.4,driver:"Jean"},
-    {id:"dv3",name:"Camion Hino 1",type:"Camion",plate:"9012 TCC",marque:"Toyota",modele:"Hino 300",annee:2019,motor:"Diesel",consoTheo:16,reservoir:100,gps:"GPS-003",km:1100,l100:17.8,driver:"Naina",station:"GALANA Tana"},
-    {id:"dv4",name:"Hiace navette",type:"Utilitaire",plate:"3456 TDD",marque:"Toyota",modele:"Hiace 2.8",annee:2021,motor:"Diesel",consoTheo:9.5,reservoir:70,km:900,l100:10.2,idlePct:0.42},
-    {id:"dv5",name:"Ranger 5",type:"Voiture / VHL",plate:"7890 TEE",marque:"Ford",modele:"Ranger 2.2",annee:2020,motor:"Diesel",consoTheo:8.0,reservoir:80,gps:"GPS-005",km:1300,l100:8.4,driver:"Tovo"},
-    {id:"dv6",name:"Moto Boxer 1",type:"Moto",plate:"MT-100",marque:"Bajaj",modele:"Boxer 100",annee:2022,motor:"Essence",consoTheo:2.2,reservoir:12,km:800,l100:2.4},
-    {id:"dv7",name:"Moto YBR 2",type:"Moto",plate:"MT-125",marque:"Yamaha",modele:"YBR 125",annee:2023,motor:"Essence",consoTheo:2.3,reservoir:13,km:700,l100:2.6},
-    {id:"dv8",name:"Corolla direction",type:"Voiture / VHL",plate:"1122 TFF",marque:"Toyota",modele:"Corolla 1.5",annee:2019,motor:"Essence",consoTheo:6.5,reservoir:50,km:1000,l100:7.0},
-    {id:"dv9",name:"Canter livraison",type:"Camion",plate:"3344 TGG",marque:"Mitsubishi",modele:"Canter 3.0",annee:2018,motor:"Diesel",consoTheo:15,reservoir:100,gps:"GPS-009",km:1000,l100:16.5,idlePct:0.55},
-    {id:"dv10",name:"Duster terrain",type:"Voiture / VHL",plate:"5566 THH",marque:"Renault",modele:"Duster 1.5 dCi",annee:2021,motor:"Diesel",consoTheo:6.0,reservoir:50,km:1100,l100:6.5}
-  ];
-  vehs.forEach(v=>{ DB.a1vehicles.push(tag({ id:v.id,name:v.name,type:v.type,plate:v.plate,marque:v.marque,modele:v.modele,annee:v.annee,motorisation:v.motor,consoTheo:v.consoTheo,reservoir:v.reservoir,gpsId:v.gps||"",gpsProvider:v.gps?"Ultimate":"",clientId:cid,driver:v.driver||"",station:v.station||"" })); });
-  vehs.forEach(v=>{ months.forEach(m=>{ const km=Math.round(v.km*(0.9+0.2*Math.random())); let liters=Math.max(1,Math.round(km*v.l100/100));
-      if(v.id==="dv1" && m==="2026-06") liters=300; // anomalie : plein excessif -> carburant fantôme (recoupement GPS)
-      const unit=(v.motor==="Essence")?5500:(price[m]||4860); const log={ id:rid(), vehicleId:v.id, date:m+"-12", km, liters, cost:Math.round(liters*unit), unitPrice:unit, currency:"MGA", station:v.station||"GALANA", driver:v.driver||"" };
-      if(v.idlePct){ log.hours=Math.max(1,Math.round(km/40)); log.idle=Math.round(log.hours*v.idlePct); }
-      if(v.id==="dv1" && m==="2026-05") log.litersReal=liters-25; // écart jauge (anti-siphonnage)
-      DB.a1logs.push(tag(log)); }); });
-  vehs.filter(v=>v.gps).forEach(v=>{ months.forEach(m=>{ let gkm=Math.round(v.km*(0.9+0.2*Math.random()));
-      if(v.id==="dv1" && m==="2026-06") gkm=1400; // GPS ne voit que 1400 km alors que 300 L ~ 3500 km
-      DB.a1gpslogs.push(tag({ id:rid(), vehicleId:v.id, clientId:cid, date:m+"-28", gpsKm:gkm, idleH:rnd(3,9), moveH:Math.round(gkm/45), maxSpeed:rnd(85,115), stops:rnd(80,200), source:"import" })); }); });
-  const gens=[
-    {id:"dg1",name:"Groupe siège SDMO 300",marque:"SDMO / Kohler",modele:"D300",kva:300,kw:240,conso:60,res:600,h:120,kwh:8600,charge:15},
-    {id:"dg2",name:"Groupe entrepôt HFW-200",marque:"Himoinsa",modele:"HFW-200 T5",kva:200,kw:160,conso:43,res:400,h:90,kwh:6800,charge:30},
-    {id:"dg3",name:"Groupe agence CAT 110",marque:"Caterpillar",modele:"DE110E3",kva:110,kw:88,conso:23,res:300,h:60,kwh:3800,charge:45}
-  ];
-  gens.forEach(g=>{ DB.a1gensets.push(tag({ id:g.id,name:g.name,marque:g.marque,modele:g.modele,puissanceKva:g.kva,puissanceKw:g.kw,consoTheoLh:g.conso,reservoirL:g.res,annee:2018,carburant:"Diesel",clientId:cid,specsSource:"Fiche technique : "+g.marque+" "+g.modele }));
-    months.forEach(m=>{ const h=Math.round(g.h*(0.9+0.2*Math.random())); const kwh=Math.round(g.kwh*(0.9+0.2*Math.random())); const liters=Math.round(h*g.conso*(0.9+0.15*Math.random()));
-      DB.a1genlogs.push(tag({ id:rid(), gensetId:g.id, date:m+"-05", hours:h, liters, kwh, chargePct:g.charge, cost:Math.round(liters*(price[m]||4860)), currency:"MGA" })); }); });
-  // Factures carburant GALANA — anomalies VOLONTAIRES (démo du module Contrôle & écarts)
-  months.forEach(m=>{ const liters=rnd(1200,1400); const unit=(m==="2026-06")?5100:(price[m]||4860); let amount=Math.round(liters*unit);
-    if(m==="2026-05") amount+=250000; // erreur de calcul (montant > qté × PU)
-    DB.a1invoices.push(tag({id:rid(),kind:"fuel",clientId:cid,supplier:"GALANA",currency:"MGA",fuelType:"Gasoil",period:m,date:m+"-30",ref:"INV-"+m.replace("-",""),liters,unit,amount})); });
-  DB.a1invoices.push(tag({id:rid(),kind:"fuel",clientId:cid,supplier:"GALANA",currency:"MGA",fuelType:"Gasoil",period:"2026-04",date:"2026-04-30",ref:"INV-202603",liters:1250,unit:4660,amount:Math.round(1250*4660)})); // doublon n° de mars
-  ["2026-03","2026-04","2026-05","2026-06"].forEach(m=>{ const kwh=rnd(7000,8500); const unit=DB.meta.jiramaHistory[m]||612;
-    DB.a1invoices.push(tag({id:rid(),kind:"jirama",clientId:cid,supplier:"JIRAMA",period:m,date:m+"-28",ref:"JIR-"+m.replace("-",""),kwh,unit,amount:Math.round(kwh*unit),currency:"MGA",targetKind:"gen",targetId:"dg1"})); });
-  a1Client=cid; a1genClient=cid; if(typeof focusClient!=="undefined") focusClient=cid;
-  save();
-  toast("Client de démonstration chargé ✅ ("+vehs.length+" véhicules, "+gens.length+" groupes, factures + GPS).");
-  setScreen("a1fleet");
-}
-function removeA1Demo(silent){
-  ["clients","a1vehicles","a1logs","a1gensets","a1genlogs","a1gpslogs","a1invoices","events","missions","risks","recommendations","transactions"].forEach(col=>{ if(Array.isArray(DB[col])) DB[col]=DB[col].filter(x=>x._demo!=="a1demo"); });
-  DB.a1docs=(DB.a1docs||[]).filter(d=>d.clientId!=="demo-client");
-  if(a1Client==="demo-client") a1Client=""; if(a1genClient==="demo-client") a1genClient=""; if(typeof focusClient!=="undefined" && focusClient==="demo-client") focusClient="";
-  if(!silent){ save(); if(typeof currentScreen!=="undefined" && String(currentScreen).indexOf("a1")===0) a1RefreshCurrent(); else if(typeof refreshAll==="function") refreshAll(); toast("Client de démonstration retiré."); }
-}
 /* ================== BARRE DE CHAT IA A1 — analyse par question précise, rendu propre, export PDF ================== */
 let _a1ChatLog=[];
 function openA1Chat(kind){ kind=kind||"fleet"; if(!Array.isArray(_a1ChatLog)) _a1ChatLog=[];
@@ -11886,11 +11826,9 @@ function printPortfolioReport(){
 let lastAIAdvice="";
 /* Liste des fournisseurs IA configurés, par ordre de priorité (Mammouth puis Mistral). */
 function aiProvidersList(){
-  const cla=(DB.meta.claudeKey||"").trim(), mam=(DB.meta.mammouthKey||"").trim(), mis=(DB.meta.mistralKey||"").trim(); const list=[];
-  // Claude prioritaire s'il est configuré (meilleure rédaction analytique + respect strict des consignes) — repli Mammouth/Mistral.
+  // Allègement 18/08 : Claude est le SEUL fournisseur (décision JB) — les replis Mammouth/Mistral sont retirés.
+  const cla=(DB.meta.claudeKey||"").trim(); const list=[];
   if(cla.length>=10) list.push({ name:"claude", url:"https://api.anthropic.com/v1/messages", key:cla, model:DB.meta.claudeModel||"claude-sonnet-5" });
-  if(mam.length>=10) list.push({ name:"mammouth", url:"https://api.mammouth.ai/v1/chat/completions", key:mam, model:DB.meta.aiModelMammouth||"mammouth-recommended" });
-  if(mis.length>=10) list.push({ name:"mistral", url:"https://api.mistral.ai/v1/chat/completions", key:mis, model:DB.meta.aiModel||"mistral-large-latest" });
   return list;
 }
 function aiProviderConf(){ return aiProvidersList()[0]||null; } // compat (1er fournisseur)
@@ -11924,7 +11862,7 @@ async function aiComplete(messages, maxTokens, sector, modelOverride){
   const providers=aiProvidersList();
   if(!providers.length) throw new Error(serverEnabled&&_srvAI.checked
     ? "Aucune clé IA configurée sur le serveur — ouvre ⚙ Paramètres et enregistre ta clé (stockage sécurisé côté serveur)."
-    : "Aucune clé API IA configurée — ouvre ⚙ Paramètres (Claude, Mammouth ou Mistral).");
+    : "Aucune clé API IA configurée — ouvre ⚙ Paramètres et renseigne ta clé Claude.");
   let lastErr=null;
   for(let i=0;i<providers.length;i++){ const p=providers[i];
     const model=(p.name==="mammouth" && AI_MODELS_MAMMOUTH.includes(modelOverride)) ? modelOverride : p.model; // override Mammouth uniquement, et seulement pour un modèle Mammouth valide
@@ -12226,54 +12164,39 @@ function readAiassistInputs(){
     a.name=val("as-name-"+a.id)||a.name; a.model=val("as-model-"+a.id); a.maxClassif=val("as-classif-"+a.id);
     a.systemPrompt=val("as-prompt-"+a.id); const ac=document.getElementById("as-active-"+a.id); a.active=ac?ac.checked:a.active; } });
 }
-function saveAiassist(){ readAiassistInputs(); save(); toast("Assistants IA enregistrés."); renderAiassist(); }
-function addAssistant(){ readAiassistInputs(); DB.assistants.push({ id:uid(), name:"Nouvel assistant", icon:"🤖", model:"mammouth-recommended", maxClassif:"confidentiel", active:true, systemPrompt:"" }); save(); renderAiassist(); }
-function deleteAssistant(id){ readAiassistInputs(); DB.assistants=(DB.assistants||[]).filter(a=>a.id!==id);
-  const st=aiSettings(), fb=(DB.assistants[0]&&DB.assistants[0].id)||""; Object.keys(st.routing||{}).forEach(k=>{ if(st.routing[k]===id) st.routing[k]=fb; });
-  save(); renderAiassist(); toast("Assistant supprimé."); }
-function resetAssistants(){ confirmModal("Réinitialiser les assistants ?","Rétablit les assistants et le routage par défaut (Claude pour rédaction/analyse, GPT pour direction/RH/commercial).", ()=>{ DB.assistants=defaultAssistants(); const st=aiSettings(); st.basePrompt=defaultAiBasePrompt(); st.routing=defaultAiRouting(); save(); closeModal(); renderAiassist(); toast("Assistants réinitialisés."); }); }
+function saveAiassist(){ readAiassistInputs(); save(); toast("Assistant enregistré."); renderAiassist(); }
+function resetAssistants(){ confirmModal("Réinitialiser l'assistant ?","Rétablit le « Bras droit » et son prompt par défaut (agent unique, moteur Claude).", ()=>{ DB.assistants=defaultAssistants(); const st=aiSettings(); st.basePrompt=defaultAiBasePrompt(); st.routing=defaultAiRouting(); save(); closeModal(); renderAiassist(); toast("Assistant réinitialisé."); }); }
 function renderAiassist(){
   const host=document.getElementById("scr-aiassist"); if(!host) return;
   if(!(isAdmin()||can("aiassist"))){ host.innerHTML=""; return; }
-  const st=aiSettings(), prov=aiProviderConf();
-  const sectors=[["conseils","Conseils portefeuille (Analyses)"],["client-advice","Conseil client (fiche 360°)"],["qa","Questions / réponses"],["a1","Programme A1 (flotte)"],["_default","Chatbot & autres demandes"]];
-  const asOpts=(sel)=>(DB.assistants||[]).map(a=>`<option value="${a.id}" ${sel===a.id?"selected":""}>${esc(a.name)}${a.active?"":" (inactif)"}</option>`).join("");
-  const modelOpts=(sel)=>AI_MODELS_MAMMOUTH.map(m=>`<option value="${m}" ${sel===m?"selected":""}>${m}</option>`).join("");
-  const routeRows=sectors.map(s=>`<tr><td>${esc(s[1])}</td><td><select id="route-${s[0]}">${asOpts((st.routing||{})[s[0]])}</select></td></tr>`).join("");
-  const cards=(DB.assistants||[]).map(a=>`
+  const st=aiSettings();
+  const a=(DB.assistants||[])[0];
+  if(!a){ host.innerHTML='<div class="card"><div class="empty">Assistant introuvable — recharge la page.</div></div>'; return; }
+  const CLAUDE_MODELS=[["claude-sonnet-5","Claude Sonnet 5 (équilibré)"],["claude-opus-5","Claude Opus 5 (qualité maximale — recommandé)"],["claude-haiku-4-5-20251001","Claude Haiku 4.5 (rapide / éco)"]];
+  const modelOpts=(sel)=>CLAUDE_MODELS.map(m=>`<option value="${m[0]}" ${sel===m[0]?"selected":""}>${m[1]}</option>`).join("");
+  host.innerHTML=`
+    <div class="pagetitle"><div><h1>Assistant « Bras droit »</h1><div class="sub">L'agent unique du Cockpit (moteur Claude) — analyses, rapports, chat. Accès : ⚙ Paramètres.</div></div>
+      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="resetAssistants()">↺ Défaut</button><button class="cta" onclick="saveAiassist()">💾 Enregistrer</button></div></div>
+    <div class="card" style="border-left:3px solid ${aiAvailable()?'var(--green)':'var(--orange)'}">
+      ${aiAvailable()?`Moteur : <b>✦ Claude</b> · modèle <b>${esc(aiActiveModelLabel()||a.model||"")}</b>.`:`⚠️ Aucun accès IA sur ce poste — <a href="#" onclick="openSettings();return false">ouvrir les Paramètres</a> (clé Claude ou serveur local).`}
+    </div>
     <div class="card" style="border-left:3px solid var(--gold)">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:20px">${a.icon||"🤖"}</span>
-          <input id="as-name-${a.id}" value="${esc(a.name)}" style="font-weight:700;font-size:14px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;min-width:220px"></div>
-        <label style="font-size:12px;display:flex;align-items:center;gap:5px"><input type="checkbox" id="as-active-${a.id}" ${a.active?"checked":""}> actif</label>
-      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:20px">${a.icon||"🤖"}</span>
+        <input id="as-name-${a.id}" value="${esc(a.name)}" style="font-weight:700;font-size:14px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;min-width:220px">
+        <label style="font-size:12px;display:flex;align-items:center;gap:5px;margin-left:auto"><input type="checkbox" id="as-active-${a.id}" ${a.active?"checked":""}> actif</label></div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px">
-        <div class="field" style="margin:0"><label>Modèle (Mammouth)</label><select id="as-model-${a.id}">${modelOpts(a.model)}</select></div>
+        <div class="field" style="margin:0"><label>Modèle (Claude)</label><select id="as-model-${a.id}">${modelOpts(a.model)}</select></div>
         <div class="field" style="margin:0"><label>Confidentialité max envoyée</label><select id="as-classif-${a.id}">${aiClassifOpts(a.maxClassif||"confidentiel")}</select></div>
       </div>
       <div class="field" style="margin:8px 0 0"><label>Prompt métier (instructions spécifiques)</label>
-        <textarea id="as-prompt-${a.id}" rows="3" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:12.5px">${esc(a.systemPrompt||"")}</textarea></div>
-      <div style="text-align:right;margin-top:6px"><button class="cta ghost sm" style="color:var(--red)" onclick="deleteAssistant('${a.id}')">🗑 Supprimer</button></div>
-    </div>`).join("");
-  host.innerHTML=`
-    <div class="pagetitle"><div><h1>Assistants IA</h1><div class="sub">Calibre tes assistants une fois — chaque tâche part vers le bon modèle. Le chatbot s'appuie dessus.</div></div>
-      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="resetAssistants()">↺ Défaut</button><button class="cta" onclick="saveAiassist()">💾 Enregistrer</button></div></div>
-    <div class="card" style="border-left:3px solid ${prov?'var(--green)':'var(--orange)'}">
-      ${prov?`Fournisseur actif : <b>${prov.name==='mammouth'?'☁️ Mammouth':'Mistral'}</b>. ${prov.name==='mammouth'?'Le routage par modèle ci-dessous est actif.':'⚠️ Le routage par modèle nécessite Mammouth (Mistral ne propose que ses propres modèles) — configure une clé Mammouth dans les Paramètres.'}`:`⚠️ Aucune clé IA configurée — <a href="#" onclick="openSettings();return false">ouvrir les Paramètres</a>.`}
+        <textarea id="as-prompt-${a.id}" rows="5" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:12.5px">${esc(a.systemPrompt||"")}</textarea></div>
     </div>
     <div class="card">
       <h2>Prompt de base (identité & règles — toujours injecté)</h2>
-      <div class="hint" style="margin:2px 0 8px">Le socle commun à tous les assistants : qui est BSM, la méthode R5, le ton, la confidentialité. Réglé une fois.</div>
+      <div class="hint" style="margin:2px 0 8px">Le socle : qui est BSM, la méthode R5, le ton, la confidentialité. Réglé une fois.</div>
       <textarea id="ai-baseprompt" rows="6" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:12.5px">${esc(st.basePrompt||defaultAiBasePrompt())}</textarea>
     </div>
-    <div class="card">
-      <h2>Routage — quelle tâche va vers quel assistant</h2>
-      <div class="hint" style="margin:2px 0 8px">Chaque type de demande est traité par l'assistant (donc le modèle) le mieux adapté.</div>
-      <table><thead><tr><th>Type de demande</th><th>Assistant (→ modèle)</th></tr></thead><tbody>${routeRows}</tbody></table>
-    </div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin:6px 2px"><h2 style="margin:0">Assistants (${(DB.assistants||[]).length})</h2><button class="cta ghost sm" onclick="addAssistant()">+ Ajouter un assistant</button></div>
-    ${cards||'<div class="card"><div class="empty">Aucun assistant.</div></div>'}
-    <div class="hint" style="margin:10px 2px">💡 « Confidentialité max envoyée » prépare le cloisonnement : un assistant ne recevra que les données jusqu'à ce niveau (application stricte avec la future couche de protection des données). Les coûts par assistant apparaissent dans <b>Reporting IA</b>.</div>`;
+    <div class="hint" style="margin:10px 2px">Un seul agent traite toutes les demandes (décision du 16/08) — le routage multi-assistants a été retiré. Les coûts apparaissent dans <b>Usage & coûts IA</b>.</div>`;
 }
 /* ---- Rapports ZEUS : plusieurs types, générés par l'IA, datés, classés, archivés, exportables (PDF / copie / mail) ---- */
 const REPORT_TYPES=[
@@ -12375,7 +12298,7 @@ function startAuditReport(clientId){
   const ms=DB.missions.filter(m=>m.clientId===clientId);
   const audit=ms.find(m=>/audit/i.test(m.type||"")) || ms.find(m=>DB.risks.some(r=>r.missionId===m.id)) || ms[0];
   if(!audit){ toast("Crée d'abord une mission d'audit pour ce client."); openMissionForm(null,clientId); return; }
-  if(!aiProviderConf()){ toast("Configure une clé IA (Claude, Mammouth ou Mistral) dans ⚙ Paramètres."); openSettings(); return; }
+  if(!aiAvailable()){ toast("Configure ta clé Claude dans ⚙ Paramètres (ou ouvre via le serveur local)."); openSettings(); return; }
   setScreen("reports"); window.repGenType="audit"; renderReports();
   generateReport("audit","",audit.id);
 }
@@ -12383,7 +12306,7 @@ function repSetType(v){ window.repGenType=v; renderReports(); }
 function repSetFilter(v){ window.repFilter=v; renderReports(); }
 async function generateReport(typeKey, clientId, missionId){
   const rt=REPORT_TYPES.find(t=>t.key===typeKey); if(!rt) return;
-  if(!aiProviderConf()){ toast("Configure une clé IA (Claude, Mammouth ou Mistral) dans ⚙ Paramètres."); openSettings(); return; }
+  if(!aiAvailable()){ toast("Configure ta clé Claude dans ⚙ Paramètres (ou ouvre via le serveur local)."); openSettings(); return; }
   let ctx, title=rt.label, repClient=clientId||"", repMission="";
   if(rt.needsMission){ const m=DB.missions.find(x=>x.id===missionId); if(!m){ toast("Choisis une mission d'audit."); return; } ctx=buildMissionAuditContext(m); title=rt.label+" — "+clientName(m.clientId)+(m.ref?" ("+m.ref+")":""); repClient=m.clientId; repMission=m.id; }
   else if(rt.needsClient){ const c=DB.clients.find(x=>x.id===clientId); if(!c){ toast("Choisis un client."); return; } ctx=buildClientContext(c); title=rt.label+" — "+c.company; repClient=c.id; }
@@ -12577,7 +12500,7 @@ function deleteReport(id){ confirmModal("Supprimer ce rapport ?","Il sera retir�
 function renderReports(){
   const host=document.getElementById("scr-reports"); if(!host) return;
   // Rapports IA réservés à la DIRECTION : les collaborateurs apprennent le métier, ils ne « génèrent » pas un rapport tout fait.
-  if(!isDirection()){ host.innerHTML=`<div class="pagetitle"><div><h1>Rapports ZEUS</h1><div class="sub">Rapports IA</div></div></div><div class="card"><div class="empty">🔒 Réservé à la direction. Les rapports IA (audit, client, synthèse) sont générés et validés par la direction avant diffusion.</div></div>`; return; }
+  if(!isDirection()){ host.innerHTML=`<div class="pagetitle"><div><h1>Rapports</h1><div class="sub">Rapports du cabinet</div></div></div><div class="card"><div class="empty">🔒 Réservé à la direction. Les rapports (audit, client, synthèse) sont générés et validés par la direction avant diffusion.</div></div>`; return; }
   if(window.repGenType==null) window.repGenType="hebdo"; window.repFilter=window.repFilter||"";
   const rt=REPORT_TYPES.find(t=>t.key===window.repGenType)||REPORT_TYPES[0];
   const typeOpts=REPORT_TYPES.map(t=>`<option value="${t.key}" ${window.repGenType===t.key?"selected":""}>${t.icon} ${esc(t.label)}</option>`).join("");
@@ -12596,7 +12519,7 @@ function renderReports(){
         <button class="cta ghost sm" style="color:var(--red)" onclick="deleteReport('${r.id}')" title="Supprimer">🗑</button></td></tr>`).join("");
   const assistant=aiAssistantForSector(rt.sector); const prov=aiProviderConf();
   host.innerHTML=`
-    <div class="pagetitle"><div><h1>Rapports ZEUS</h1><div class="sub">Rapports générés par l'IA — classés, datés, archivés, exportables (PDF · copie · mail)</div></div></div>
+    <div class="pagetitle"><div><h1>Rapports</h1><div class="sub">Le point central — rapports générés, classés, datés, archivés, exportables (PDF · copie · mail)</div></div></div>
     <div class="card" style="border-left:3px solid var(--gold)">
       <h2 style="margin-top:0">Générer un rapport</h2>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
@@ -12611,7 +12534,26 @@ function renderReports(){
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Archive des rapports (${(DB.reports||[]).length})</h2><div style="display:flex;gap:6px;flex-wrap:wrap">${filterChips}</div></div>
       <table style="margin-top:10px"><thead><tr><th>Date</th><th>Type</th><th>Titre</th><th>Statut</th><th>Confid.</th><th style="text-align:right">Actions</th></tr></thead>
       <tbody>${rows||'<tr><td colspan="6"><div class="empty">Aucun rapport encore. Génère ton premier rapport ci-dessus.</div></td></tr>'}</tbody></table>
-    </div>`;
+    </div>
+    ${a1ExecReportsCardHtml()}`;
+}
+/* Rapports exécutifs A1 (flotte / groupes) agrégés dans le point central — lecture + renvoi vers le module pour gérer. */
+function a1ExecReportsCardHtml(){
+  const list=(DB.a1execreports||[]).slice().reverse();
+  if(!list.length) return "";
+  const kindLbl=k=>k==="gen"?"🔌 Groupes":"🚗 Flotte";
+  const rows=list.map(r=>`<tr>
+    <td style="white-space:nowrap"><b>${esc(r.ref||"—")}</b></td>
+    <td style="white-space:nowrap">${frDate(r.ts)}</td>
+    <td>${esc(clientName(r.clientId)||"—")}</td>
+    <td>${kindLbl(r.kind)}</td>
+    <td>${a1ExecStatusBadge(r)}</td>
+    <td style="text-align:right;white-space:nowrap">${r.onServer?`<button class="cta ghost sm" title="Relire" onclick="a1ViewExecReport('${r.id}')">👁</button> `:""}<button class="cta ghost sm" title="Gérer dans le module (valider, envoyer, supprimer)" onclick="setScreen('${r.kind==="gen"?"a1genset":"a1fleet"}');setTimeout(()=>openA1ExecHistory('${r.kind==="gen"?"gen":"fleet"}'),200)">📚 Gérer</button></td></tr>`).join("");
+  return `<div class="card">
+    <h2 style="margin:0 0 4px">Rapports exécutifs A1 (${list.length})</h2>
+    <div class="hint" style="margin-bottom:6px">Livrables des programmes d'analyse (flotte, groupes électrogènes) — archivés et numérotés. La validation et l'envoi client se font dans le module.</div>
+    <table><thead><tr><th>Référence</th><th>Date</th><th>Client</th><th>Programme</th><th>Statut</th><th style="text-align:right">Actions</th></tr></thead><tbody>${rows}</tbody></table>
+  </div>`;
 }
 function buildAIContext(){
   const a=agg();
@@ -12699,7 +12641,7 @@ async function aiAskQuestion(){
 }
 async function aiClientAdvice(id){
   const c=DB.clients.find(x=>x.id===id); if(!c) return;
-  if(!aiProviderConf()){ toast("Configure une clé IA (Claude, Mammouth ou Mistral) dans ⚙ Paramètres."); openSettings(); return; }
+  if(!aiAvailable()){ toast("Configure ta clé Claude dans ⚙ Paramètres (ou ouvre via le serveur local)."); openSettings(); return; }
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🤖 Conseil IA — ${esc(c.company)}</h2><div class="msub">Généré à partir des données de ce client.</div><div id="cai-out">${aiSkeleton()}</div>`);
   try{
     const sys="Tu es consultant senior en gouvernance des risques chez BSM Advisory & Consulting (méthode R5). Rédige pour ce client : une synthèse de suivi (2-3 phrases) puis 3 conseils d'action priorisés, concrets et actionnables. Concis, orienté décision, sans préambule.";
@@ -12719,11 +12661,11 @@ function aiSaveClientAdvice(){
 
 /* --- Assistant conversationnel + mémoire apprenante --- */
 function cockpitGuide(){ return "=== CARTE DU COCKPIT (tu connais l'outil dans le détail — tu peux guider, dépanner, expliquer) ===\n"
-  +"Menu (gauche) : PILOTAGE (Tableau de bord, Monitoring & suivi, Clients, Agenda) · FINANCES (Budget, Chiffre d'affaires, Compte de résultat, ROI & Investissements) · MÉTHODE R5 (Missions, Matrice des risques, Cartographie, Recommandations, Audit terrain, Analyses & Conseils) · INTELLIGENCE IA (Assistants, Rapports ZEUS, Reporting IA) · COMMERCIAL (Simulateur, Documentation) · CABINET (RH & équipe, Fiches réflexes, Glossaire R5) · ADMINISTRATION (Utilisateurs & accès, Connexions & activité).\n"
-  +"PROGRAMME A1 (depuis « Audit terrain ») = 2 modules : 🚗 Véhicules & GPS et 🔌 Groupes & JIRAMA. Actions : importer des relevés (CSV/Excel), importer GPS, factures pompiste/JIRAMA (PDF conservé comme preuve + validation humaine des chiffres), fiches techniques constructeur (catalogue + import PDF/Excel), Parc complet + export CSV/Excel, Contrôle & écarts (rapproche factures ↔ référence : écarts prix/quantité/montant, erreurs de calcul, doublons), Analyse IA, 💬 Chat IA, Rapport, Tableau de bord, fiche machine 360° (clic sur le nom d'une machine), 💾 Sauvegarde Excel. « Charger le client de démo » crée un jeu de test complet (retirable).\n"
+  +"Menu (gauche) : PILOTAGE (Tableau de bord, Monitoring & suivi, Suivi du mois, Clients, Agenda, Rapports, Usage & coûts IA) · FINANCES (Budget, Chiffre d'affaires, Compte de résultat, ROI & Investissements) · MÉTHODE R5 (Missions, Matrice des risques, Cartographie, Recommandations, Audit terrain, Analyses & Conseils) · COMMERCIAL (Simulateur, Documentation) · CABINET (RH & équipe, Fiches réflexes, Glossaire R5) · ADMINISTRATION (Utilisateurs & accès, Connexions & activité). L'écran « Rapports » est LE point central : rapports du cabinet + rapports exécutifs A1. Réglage de l'assistant : ⚙ Paramètres.\n"
+  +"PROGRAMME A1 (depuis « Audit terrain ») = 2 modules : 🚗 Véhicules & GPS et 🔌 Groupes & JIRAMA. Actions : importer des relevés (CSV/Excel), importer GPS, factures pompiste/JIRAMA (PDF conservé comme preuve + validation humaine des chiffres), fiches techniques constructeur (catalogue + import PDF/Excel), Parc complet + export CSV/Excel, Contrôle & écarts (rapproche factures ↔ référence : écarts prix/quantité/montant, erreurs de calcul, doublons), Analyse IA, 💬 Chat IA, Rapport, Tableau de bord, fiche machine 360° (clic sur le nom d'une machine), 💾 Sauvegarde Excel. Accès réservé aux profils autorisés (direction par défaut).\n"
   +"Fiche client 360° (clic sur un client) : scores R5, missions, budget/CA, risques, recommandations, documents, carte Programme A1, boutons « aller à » ses onglets (données filtrées sur ce client), rapport, portail client. Un seul client de contexte (focus) est partagé par tous les onglets.\n"
   +"Données & synchro : app locale (navigateur) · serveur local http://localhost:3000 (nécessaire pour envoyer mails/rapports via le pont Google) · en ligne github.io. La connexion Cloud (Supabase) = synchro 2 sens automatique + cloisonnement par organisation (RLS). Sauvegardes : ⬇ Sauvegarde JSON + export Excel A1 ; rappel de sauvegarde automatique.\n"
-  +"IA : clé dans ⚙ Paramètres (Claude prioritaire, repli Mammouth/Mistral). Règle absolue : aucun chiffre inventé. Notifications e-mail (récap + alertes + rappels RDV) tournent côté Supabase (Resend + cron), même PC éteint. Agenda : nouvel événement envoyé auto à Google Agenda (rappel téléphone) ; « Importer Google Agenda » = sens retour ; supprimer un RDV le retire aussi de Google.\n"
+  +"IA : moteur Claude uniquement (clé dans ⚙ Paramètres ou sur le serveur local) ; agent unique « Bras droit », réservé à la direction — les employés ne voient aucun outil IA. Règle absolue : aucun chiffre inventé. Notifications e-mail (récap + alertes + rappels RDV) tournent côté Supabase (Resend + cron), même PC éteint. Agenda : nouvel événement envoyé auto à Google Agenda (rappel téléphone) ; « Importer Google Agenda » = sens retour ; supprimer un RDV le retire aussi de Google.\n"
   +"Dépannage courant : « EADDRINUSE 3000 » = serveur déjà lancé (le nouveau Demarrer_serveur.bat libère le port tout seul). « Action inconnue » côté pont Google = redéployer une NOUVELLE version du script Apps Script. Rendu IA en markdown brut = fonction mdToHtml/.ai-md. Écran vide = souvent réservé à un utilisateur connecté (rôle).\n"; }
 function aiSystemPrompt(){
   const fmt="\n\n=== MISE EN FORME (impératif) ===\nRéponds en français, ton premium sobre orienté dirigeant. Structure clairement : titres courts (## / ###), listes à puces, et tableaux markdown quand c'est pertinent. La mise en forme est rendue proprement à l'écran — n'ajoute jamais de préambule inutile, va à l'essentiel, sois complet mais concis. Ne t'annonce pas, ne renvoie jamais vers un autre assistant : traite la demande toi-même.";
@@ -12748,7 +12690,7 @@ function renderAiChat(){
 async function sendAiChat(){
   const inp=document.getElementById("ai-chat-input"); const q=((inp&&inp.value)||"").trim();
   if(!q) return;
-  if(!aiProviderConf()){ toast("Configure une clé IA (Claude, Mammouth ou Mistral) dans ⚙ Paramètres."); openSettings(); return; }
+  if(!aiAvailable()){ toast("Configure ta clé Claude dans ⚙ Paramètres (ou ouvre via le serveur local)."); openSettings(); return; }
   if(inp) inp.value="";
   DB.aiChat.push({id:uid(),role:"user",content:q}); save(); renderAiChat();
   const el=document.getElementById("ai-msgs");
@@ -12873,8 +12815,8 @@ const PERMSCREENS=[
   {key:"monitoring",label:"Monitoring & suivi",grp:"PILOTAGE"},
   {key:"a1suivi",  label:"Suivi du mois (production A1)",grp:"PILOTAGE"},
   {key:"aireport", label:"Usage & coûts IA",grp:"PILOTAGE",fin:true},
-  {key:"aiassist", label:"Assistants IA",grp:"PILOTAGE",fin:true},
-  {key:"reports",  label:"Rapports ZEUS",grp:"PILOTAGE",fin:true},
+  {key:"aiassist", label:"Assistant IA (réglage)",grp:"PILOTAGE",fin:true},
+  {key:"reports",  label:"Rapports",grp:"PILOTAGE",fin:true},
   {key:"missions", label:"Missions (R5)",grp:"MÉTHODE R5"},
   {key:"risks",    label:"Matrice des risques (R5)",grp:"MÉTHODE R5"},
   {key:"carto",    label:"Cartographie (R5)",grp:"MÉTHODE R5"},
@@ -12882,6 +12824,8 @@ const PERMSCREENS=[
   {key:"commercial",label:"Simulateur / Devis",grp:"COMMERCIAL",fin:true},
   {key:"rh",       label:"RH & équipe",grp:"CABINET",fin:true},
   {key:"audit",    label:"Audit terrain",grp:"CABINET"},
+  {key:"a1fleet",  label:"Programme A1 — Flotte & carburant",grp:"CABINET"},
+  {key:"a1genset", label:"Programme A1 — Groupes électrogènes",grp:"CABINET"},
   {key:"documentation",label:"Documentation",grp:"CABINET"},
   {key:"fiches",   label:"Fiches réflexes",grp:"CABINET"},
   {key:"glossaire",label:"Glossaire R5",grp:"CABINET"},
@@ -12891,7 +12835,7 @@ function permAll(){ return PERMSCREENS.map(p=>p.key); }
 /* Modèles de rôle = accès par défaut (élargissables ensuite, par utilisateur). clientFinance = voir CA/contrats/devis dans la fiche client. */
 const ROLE_TEMPLATES={
   admin:       { label:"Administrateur", allowed:"*", clientFinance:true },
-  direction:   { label:"Direction",      allowed:["dashboard","clients","agenda","budget","ca","resultat","roi","aireport","aiassist","reports","monitoring","a1suivi","missions","risks","carto","recos","commercial","rh","audit","documentation","fiches","glossaire","analyses"], clientFinance:true },
+  direction:   { label:"Direction",      allowed:["dashboard","clients","agenda","budget","ca","resultat","roi","aireport","aiassist","reports","monitoring","a1suivi","missions","risks","carto","recos","commercial","rh","audit","a1fleet","a1genset","documentation","fiches","glossaire","analyses"], clientFinance:true },
   analyste:    { label:"Analyste R5",     allowed:["clients","monitoring","missions","risks","carto","recos","audit","documentation","fiches","glossaire"], clientFinance:false },
   commercial:  { label:"Commercial",      allowed:["clients","agenda","monitoring","commercial","documentation","fiches","glossaire"], clientFinance:true },
   rh:          { label:"RH",              allowed:["rh","agenda","monitoring","documentation","fiches","glossaire"], clientFinance:false },
