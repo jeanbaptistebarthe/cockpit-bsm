@@ -414,6 +414,7 @@
   body.dark .mtab.active{color:var(--gold);} /* le navy est illisible sur fond sombre */
   body.present .mtabs,body.present .mnav-backdrop{display:none!important;}
   body:has(.portal.show) .mtabs{display:none!important;} /* pas de barre d'onglets tant qu'on n'est pas connecté */
+  body:has(.portal.show) #ai-fab{display:none!important;} /* pas d'assistant IA sur l'écran de connexion */
   .qa-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 14px;}
   .qa{display:flex;flex-direction:column;align-items:center;gap:5px;padding:13px 6px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:21px;font-family:inherit;transition:background .13s ease,border-color .13s ease;}
   .qa span{font-size:11.5px;font-weight:600;color:var(--navy);}
@@ -644,7 +645,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.46.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.47.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -781,8 +782,9 @@ function load(){
   // Consolidation DÉFINITIVE des assistants (demande JB 2026-08-16) : les anciens agents (ZEUS/ORION/ATLAS/HERMÈS/HÉPHAÏSTOS…)
   // revenaient par la synchro serveur/cloud → on force UN SEUL agent expert « Bras droit », qui répond avec Claude (modèle des ⚙ Paramètres).
   // AUTO-RÉPARATRICE (pas seulement un drapeau) : la synchro serveur/cloud peut ramener les anciens agents — on revérifie à CHAQUE démarrage.
-  const _actifs=(DB.assistants||[]).filter(a=>a&&a.active!==false);
-  if(!DB.meta.aiExpertV2 || _actifs.length!==1 || _actifs[0].id!=="a-expert" || !/^claude/.test(_actifs[0].model||"")){
+  window.enforceSingleExpert=function(){
+    const actifs=(DB.assistants||[]).filter(a=>a&&a.active!==false);
+    if(DB.meta.aiExpertV2 && actifs.length===1 && actifs[0].id==="a-expert" && /^claude/.test(actifs[0].model||"")) return false;
     try{
       const expert=defaultAssistants()[0]; expert.model=DB.meta.claudeModel||"claude-opus-5";
       DB.assistants=[expert];
@@ -790,7 +792,9 @@ function load(){
       if(st){ st.routing=defaultAiRouting(); } else { DB.aiSettings=[{id:"main",basePrompt:defaultAiBasePrompt(),routing:defaultAiRouting()}]; }
     }catch(e){}
     DB.meta.aiExpertV2=true;
-  }
+    return true; // il y avait quelque chose à réparer
+  };
+  window.enforceSingleExpert();
   if(!Array.isArray(DB.trash)) DB.trash=[];   // corbeille 30 jours (P4)
   if(!DB.a1targets) DB.a1targets={};                       // objectifs par client (Lot D)
   if(!Array.isArray(DB.a1execreports)) DB.a1execreports=[]; // archivage numéroté des rapports exécutifs (Lot D)
@@ -1123,7 +1127,10 @@ async function cloudAutoPull(){
   const ov=document.getElementById("overlay"); if(ov && ov.classList.contains("show")) return;
   if(Date.now()-_cloudLastPull < 8000) return;
   _cloudPulling=true; _applyingRemote=true;
-  try{ await cloudPullAll(); _cloudLastPull=Date.now(); if(typeof refreshAll==="function") refreshAll(); }
+  try{ await cloudPullAll(); _cloudLastPull=Date.now();
+    // Le cloud peut ramener les anciens agents (ZEUS/HERMÈS…) : on re-consolide AUSSITÔT sur l'unique « Bras droit ».
+    if(typeof enforceSingleExpert==="function" && enforceSingleExpert()) save();
+    if(typeof refreshAll==="function") refreshAll(); }
   catch(e){ /* silencieux : le prochain tick réessaiera */ }
   finally{ _applyingRemote=false; _cloudPulling=false; }
 }
@@ -2228,12 +2235,12 @@ function dashPriorityBand(a, critR, lateR, missionsEC, upcoming){
 }
 /* IA proactive : synthèse stratégique du portefeuille, mise en cache par jour, actualisable (jamais d'appel auto = coût maîtrisé). */
 function dashAIBriefingCard(){
-  const has=(typeof aiProviderConf==="function") ? !!aiProviderConf() : !!DB.meta.mistralKey;
+  const has=(typeof aiAvailable==="function") ? aiAvailable() : !!aiProviderConf();
   if(!has){
     return `<div class="card" style="border-left:3px solid var(--gold)">
       <h2 style="margin:0">🔮 Éclairage IA</h2>
-      <div class="hint" style="margin-top:6px">Obtenez une <b>synthèse stratégique</b> de votre portefeuille en un clic (CA, risques, recommandations, alertes). Activez-la en renseignant votre clé IA.
-        <div style="margin-top:10px"><button class="cta ghost sm" onclick="openSettings()">⚙ Configurer la clé IA</button></div></div></div>`;
+      <div class="hint" style="margin-top:6px">Obtenez une <b>synthèse stratégique</b> de votre portefeuille en un clic (CA, risques, recommandations, alertes). Ouvre le Cockpit via le <b>serveur local</b> ou renseigne une clé Claude dans ⚙ Paramètres.
+        <div style="margin-top:10px"><button class="cta ghost sm" onclick="openSettings()">⚙ Ouvrir les paramètres</button></div></div></div>`;
   }
   const b=DB.meta.aiBriefing; const stale = b && b.date!==todayISO();
   return `<div class="card" style="border-left:3px solid var(--gold)">
@@ -2775,14 +2782,14 @@ function renderClientFiche(){
     <button class="backlink" onclick="setScreen('clients')">← Retour aux clients</button>
     <div class="pagetitle">
       <div><h1>${esc(c.company)}</h1><div class="sub">${esc(c.sector||'—')} · <span class="badge ${statusBadge(c.status)}">${cap(c.status)}</span>${c.classification?' · '+classifBadge(c.classification):''}${c.contactName?' · '+esc(c.contactName):''}${c.contactPhone?' · '+esc(c.contactPhone):''}${c.contactEmail?' · '+esc(c.contactEmail):''}</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${canFinance()?`<button class="cta ghost" onclick="aiClientAdvice('${c.id}')">🤖 Conseil IA</button><button class="cta ghost" onclick="printClientReport('${c.id}')">🖨 Rapport</button>`:""}<button class="cta ghost" onclick="openClientPortal('${c.id}')" title="Page à envoyer au client (lecture seule)">🔗 Portail client</button><button class="cta ghost" onclick="openClientForm('${c.id}')">✎ Modifier</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${isDirection()?`<button class="cta ghost" onclick="aiClientAdvice('${c.id}')">🤖 Conseil IA</button>`:""}${canFinance()?`<button class="cta ghost" onclick="printClientReport('${c.id}')">🖨 Rapport</button>`:""}<button class="cta ghost" onclick="openClientPortal('${c.id}')" title="Page à envoyer au client (lecture seule)">🔗 Portail client</button><button class="cta ghost" onclick="openClientForm('${c.id}')">✎ Modifier</button></div>
     </div>
     <div class="card" style="padding:12px 14px">
       <div style="font-size:11px;color:var(--muted);letter-spacing:.04em;margin-bottom:8px">✦ ACTIONS — tout pour ce client, ici</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
         ${can("missions")?`<button class="cta sm" onclick="openMissionForm(null,'${c.id}')">＋ Mission / abonnement</button>`:""}
         ${isDirection()?`<button class="cta sm" onclick="startAuditReport('${c.id}')">🛡️ Rapport d'audit IA</button>`:""}
-        ${canFinance()?`<button class="cta ghost sm" onclick="aiClientAdvice('${c.id}')">🤖 Conseil IA</button>`:""}
+        ${isDirection()?`<button class="cta ghost sm" onclick="aiClientAdvice('${c.id}')">🤖 Conseil IA</button>`:""}
         <button class="cta ghost sm" onclick="openClientPortal('${c.id}')">🔗 Portail client</button>
         ${canFinance()?`<button class="cta ghost sm" onclick="printClientReport('${c.id}')">🖨 Rapport interne</button>`:""}
         ${can("agenda")?`<button class="cta ghost sm" onclick="focusGo('${c.id}','agenda');openEventForm(null)">📅 Planifier un RDV</button>`:""}
@@ -5591,18 +5598,18 @@ function renderAnalyses(){
       ${adv.length? adv.map(adviceHtml).join("") : `<div class="empty">Aucune recommandation : le pilotage est à jour ✅</div>`}
     </div>
     <div class="card">
-      <h2>🤖 Assistant IA (Mistral)</h2>
-      ${DB.meta.mistralKey?`
+      <h2>🤖 Assistant d'analyse</h2>
+      ${aiAvailable()?`
       <div style="margin-bottom:10px"><button class="cta" id="ai-gen-btn" onclick="aiGenerateAdvice()">✦ Générer des conseils IA</button></div>
       <div id="ai-advice-out" style="margin-bottom:14px"></div>
       <div class="field"><label>Poser une question sur ton portefeuille</label>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="ai-q" placeholder="Ex. Quels sont mes 3 clients les plus à risque ?" style="flex:1;min-width:200px;padding:9px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;font-family:inherit" onkeydown="if(event.key==='Enter')aiAskQuestion()">
         <button class="cta ghost" id="ai-ask-btn" onclick="aiAskQuestion()">Demander</button></div></div>
       <div id="ai-answer-out"></div>
-      <div class="hint" style="margin-top:8px">L'IA s'appuie sur tes données (clients, risques, CA…) pour proposer des conseils modifiables et répondre à tes questions. Modèle : ${esc(DB.meta.aiModel||'mistral-large-latest')}.</div>
+      <div class="hint" style="margin-top:8px">L'assistant s'appuie sur tes données (clients, risques, CA…) pour proposer des conseils modifiables et répondre à tes questions.${aiActiveModelLabel()?` Modèle : ${esc(aiActiveModelLabel())}.`:""}</div>
       `:`
-      <div class="infobox">Configure ta <b>clé API Mistral</b> dans ⚙ Paramètres pour activer l'assistant : génération de conseils sur mesure et questions en langage naturel sur ton portefeuille.
-        <div style="margin-top:10px"><button class="cta ghost sm" onclick="openSettings()">⚙ Configurer la clé IA</button></div></div>
+      <div class="infobox">Aucun accès IA détecté sur ce poste : ouvre le Cockpit via le <b>serveur local</b> (clés sur le PC serveur) ou renseigne une <b>clé Claude</b> dans ⚙ Paramètres.
+        <div style="margin-top:10px"><button class="cta ghost sm" onclick="openSettings()">⚙ Ouvrir les paramètres</button></div></div>
       `}
     </div>`;
   markAdviceRead(); // consulter l'onglet marque les alertes comme lues → le badge se vide
@@ -7431,16 +7438,7 @@ function renderAudit(){
         <button class="cta" onclick="setScreen('a1genset')">🔌 Groupes électrogènes / JIRAMA →</button>
       </div>
     </div>
-    <div class="card" style="border-left:3px solid var(--gold);margin-bottom:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <div><h2 style="margin:0">🎬 Démonstration grandeur nature</h2><div class="msub" style="margin:2px 0 0">Charge un <b>client de test complet</b> (véhicules, motos, GPS, groupes, factures + anomalies volontaires) pour présenter le programme. Retire-le en un clic après.</div></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="cta gold" onclick="seedA1Demo()">🎬 Charger le client de démo</button><button class="cta ghost" onclick="removeA1Demo()">🧹 Retirer la démo</button></div>
-      </div>
-    </div>
-    ${url? `<div class="card">
-      <iframe class="formframe" src="${embed}" title="Audit R5">Chargement…</iframe>
-      <div class="hint" style="margin-top:8px">Si le formulaire ne s'affiche pas ici (selon le navigateur), utilise le bouton « Ouvrir ↗ ».</div>
-    </div>`
+    ${url? ``
     : `<div class="card"><div class="empty">Aucun formulaire d'audit configuré.${isDirection()?` Cliquez « ⚙ Configurer les formulaires » et collez le lien de votre Google Form à sections.`:` Demandez à la direction de le configurer.`}</div></div>`}`;
 }
 // Sync « à la demande » : tire l'onglet REPONSES FORMS via le pont Google et rattache aux clients/missions d'audit.
@@ -11896,6 +11894,12 @@ function aiProvidersList(){
   return list;
 }
 function aiProviderConf(){ return aiProvidersList()[0]||null; } // compat (1er fournisseur)
+/* Disponibilité réelle de l'IA : clé locale (mode en ligne) OU proxy du serveur local (clés sur le PC serveur). */
+function aiAvailable(){ return !!aiProviderConf() || (serverEnabled && _srvAI.any); }
+function aiActiveModelLabel(){
+  if(serverEnabled && _srvAI.claude) return DB.meta.claudeModel||"claude-sonnet-5";
+  const p=aiProviderConf(); return p ? p.model : "";
+}
 async function aiComplete(messages, maxTokens, sector, modelOverride){
   // 1) VOIE SÉCURISÉE : proxy du serveur local — la clé API ne quitte jamais le PC serveur.
   if(serverEnabled && _srvAI.any){
@@ -13054,6 +13058,8 @@ function lockPortal(){ // déconnexion
 /* --- Cloisonnement de l'interface selon le rôle --- */
 function applyRoleUI(){
   const admin=isAdmin();
+  // 0) IA invisible pour les employés : le « Bras droit » n'existe que pour la direction (les analyses, elles, restent servies à tous)
+  const fab=document.getElementById("ai-fab"); if(fab) fab.style.display=(currentUser&&isDirection())?"":"none";
   // 1) éléments réservés admin (espace administration)
   document.querySelectorAll(".admin-only").forEach(el=>{ el.style.display=admin?"":"none"; });
   // 2) modules du pilotage : visibles selon les permissions du rôle
