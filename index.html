@@ -526,7 +526,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.23.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.24.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -646,7 +646,7 @@ function load(){
   }
   if(!DB.meta.fuelPriceHistory) DB.meta.fuelPriceHistory={}; // { "YYYY-MM": {gasoil:Ar/L, essence:Ar/L} } — prix mensuels (factures pompiste) ; fallback = DB.meta.fuelPrices
   if(!DB.meta.jiramaHistory) DB.meta.jiramaHistory={};        // { "YYYY-MM": Ar/kWh } — tarif réseau mensuel (factures JIRAMA) ; fallback = DB.meta.jiramaKwhPrice
-  DB.a1offers.forEach(o=>{ if(!o.product) o.product="flotte"; }); // migration : offres existantes = programme flotte
+  DB.a1offers.forEach(o=>{ if(!o.product) o.product="flotte"; if(!o.mode) o.mode="abonnement"; }); // migrations : offres existantes = programme flotte / mode abonnement (l'Audit Flash ponctuel est arrivé après)
   if(!DB.meta.fuelPrices) DB.meta.fuelPrices={gasoil:0,essence:0};
   if(!DB.meta.a1Thresholds) DB.meta.a1Thresholds={driftFleet:10,driftGen:15,idle:35,plausFactor:1.5};
   DB.docTemplates=DB.docTemplates||[]; DB.clientDocs=DB.clientDocs||[]; DB.aiUsage=DB.aiUsage||[];
@@ -743,6 +743,11 @@ function load(){
       if(!(DB.docTemplates||[]).some(t=>t.type==="echeancier")) DB.docTemplates.push(docEcheancierTemplate());
     }catch(e){}
     DB.meta.billingDocsSeededV1=true;
+  }
+  // v5.24 : proposition « Audit Flash A1 » à la charte (bases existantes, une fois)
+  if(!DB.meta.a1FlashDocSeededV1){
+    try{ if(!(DB.docTemplates||[]).some(t=>/audit flash/i.test(t.title||""))) DB.docTemplates.push(docAuditFlashTemplate()); }catch(e){}
+    DB.meta.a1FlashDocSeededV1=true;
   }
   generateRecurring();
 }
@@ -2939,6 +2944,37 @@ Toutes les clauses du contrat initial non modifiées par le présent avenant dem
   docEcheancierTemplate()
 ]; }
 /* Facturation de base à la charte — pour les prestations ponctuelles ; les factures d'échéances d'abonnement restent automatiques (Budget). */
+/* Proposition Audit Flash A1 — la porte d'entrée commerciale : analyse ponctuelle payante, crédit-passerelle vers les packs R5. */
+function docAuditFlashTemplate(){ return {id:uid(),type:"proposition",title:"Proposition — Audit Flash A1 (porte d'entrée)",active:true,body:
+`Remettez-nous vos factures et relevés des derniers mois : sous 2 à 3 semaines, vous savez exactement où partent vos litres et vos kWh — et le montant de l'audit est intégralement déduit si vous nous confiez la suite.
+
+## Le principe
+L'Audit Flash A1 est une analyse ponctuelle, à l'instant T, de votre poste énergie et carburant : {{client}} nous remet ses documents en vrac (factures carburant, factures JIRAMA, relevés, données GPS le cas échéant) — la saisie et la structuration sont entièrement réalisées par {{cabinet}}. Aucun abonnement, aucun engagement de suivi.
+
+## Déroulé (2 à 3 semaines)
+- Signature de la présente proposition et remise des documents.
+- Saisie, structuration et analyse par nos soins : écarts chiffrés par rapport aux références constructeur, diagnostic par causes (mécanique, conduite, exploitation, pertes ou détournements probables), rendement et coût du kWh produit pour les groupes électrogènes.
+- Restitution en rendez-vous : rapport exécutif complet à la charte BSM + orientations concrètes, hiérarchisées et chiffrées.
+
+## Périmètre analysé
+{{objet}}
+
+## Investissement (forfait unique, hors taxes)
+{{montant}}
+Repères de gamme : TPE (jusqu'à 5 véhicules, 1 groupe) · PME (6 à 20 véhicules ou 2 à 3 groupes) · ETI / grand compte (flotte 20+, multi-sites) : sur devis.
+
+## Crédit-passerelle
+100 % du forfait de l'audit est déduit de tout accompagnement BSM R5® (pack Essentiel, Structuré ou Stratégique) signé dans les 6 mois suivant la restitution. L'audit est ainsi remboursé rétroactivement si vous poursuivez avec nous.
+
+## Conditions
+- Saisie incluse jusqu'à 6 mois d'historique (environ 30 documents) ; au-delà, supplément de saisie sur devis préalable.
+- Objectif de la mission : identifier des écarts supérieurs au montant de l'audit. Il s'agit d'un objectif, non d'une garantie.
+- Les préconisations de redimensionnement ou de permutation de groupes sont émises en règle prudente et se confirment par une mesure de pointe sur site.
+- Contrôle périodique re-proposable ensuite (annuel ou semestriel) à tarif réduit : vos données restent structurées dans nos outils, sans aucun engagement.
+- Confidentialité totale : documents et résultats ne sont jamais partagés ; les comparatifs éventuels sont strictement anonymisés.
+
+## Validité
+La présente proposition est valable {{validite}} jours à compter du {{date}}.`};}
 function docFactureTemplate(){ return {id:uid(),type:"facture",title:"Facture de prestation",active:true,body:
 `Facture émise par {{cabinet}} à l'attention de {{client}}.
 
@@ -4826,10 +4862,23 @@ function generateAdvice(){
     add("soonout-"+x.id,"warn","🔔","Charge à payer bientôt",
       `« ${x.label} » (${fmt(x.amount,x.currency)}${x.category?", "+x.category:""}) : échéance le ${frDate(x.dueDate||x.date)}.`);
   });
-  // 1e. Programme A1 : fin de période offerte proche → passer au tarif normal
-  (DB.a1offers||[]).forEach(o=>{ if(o.offert && o.offertEnd && o.offertEnd>=t && o.offertEnd<=in7){
+  // 1e. Programme A1 (abonnement) : fin de période offerte proche → passer au tarif normal
+  (DB.a1offers||[]).forEach(o=>{ if(o.mode!=="ponctuel" && o.offert && o.offertEnd && o.offertEnd>=t && o.offertEnd<=in7){
     add("a1offer-"+(o.id||o.clientId),"warn","🎁","Fin de période offerte (Programme A1)",
       `${clientName(o.clientId)} : la période offerte se termine le ${frDate(o.offertEnd)}. La facturation au tarif normal (${fmt(o.monthlyFee||0,o.currency)}/mois) démarrera automatiquement — prévenir le client.`);
+  }});
+  // 1f. Audit Flash A1 (ponctuel) : crédit-passerelle qui expire sous 30 j → dernière fenêtre pour vendre le pack R5 ;
+  //     et date anniversaire du contrôle périodique → re-proposer un audit (le parc est déjà structuré dans le Cockpit).
+  const in30=isoOffset(30);
+  (DB.a1offers||[]).forEach(o=>{ if(o.mode==="ponctuel" && o.prestaDate){
+    const pe=a1PassEnd(o);
+    if(o.passCredit!==false && pe && pe>=t && pe<=in30)
+      add("a1pass-"+o.id,"warn","🎯","Crédit-passerelle Audit Flash — dernière fenêtre",
+        `${clientName(o.clientId)} : le crédit de ${fmt(o.setupFee||0,o.currency)} (déductible de tout pack R5®) expire le ${frDate(pe)}. Relancer maintenant pour transformer l'audit en contrat.`);
+    const rv=a1ReviewDate(o);
+    if(rv && rv>=t && rv<=in30)
+      add("a1review-"+o.id,"warn","🔄","Contrôle périodique A1 à proposer",
+        `${clientName(o.clientId)} : audit flash restitué le ${frDate(o.prestaDate)} — la date anniversaire du contrôle périodique arrive (${frDate(rv)}). Ses données sont déjà dans le Cockpit : proposer le contrôle à tarif réduit, et rouvrir la conversation R5®.`);
   }});
   // 2. Trésorerie du mois : dépenses > entrées
   const mk=t.slice(0,7);
@@ -7041,6 +7090,28 @@ async function a1ExecReport(kind){
         <b>${i+1}. ${esc(r.titre||"")}</b><div style="font-size:12.5px;margin-top:4px;line-height:1.6">${esc(r.detail||"")}</div>
         ${r.impact?`<div style="font-size:12px;color:#6B7280;margin-top:4px"><b>Impact attendu :</b> ${esc(r.impact)}</div>`:""}
       </div>`).join("")]);
+  // Pont commercial R5 : chaque cause diagnostiquée oriente vers le module R5 correspondant —
+  // le rapport d'audit est aussi le vendeur de la mission suivante (stratégie Audit Flash porte d'entrée).
+  {
+    const causesSeen=[...new Set(arr.map(p=>p.diag&&p.diag.top&&p.diag.top.key).filter(k=>k&&k!=="ras"))];
+    const R5B={
+      mecanique:["Renforcer","Plan de maintenance préventive et carnet d'entretien structuré : traiter l'usure avant la panne, sécuriser la disponibilité des équipements."],
+      conduite:["Renforcer","Sensibilisation et charte conducteurs, suivi d'éco-conduite : réduire durablement la dérive liée aux usages."],
+      exploitation:["Connecter","Cartographie des flux et de la charge : réorganiser l'exploitation pour éliminer les surcoûts structurels."],
+      vol:["Répondre","Protocoles de contrôle interne et fiches réflexes anti-détournement : fermer les fuites identifiées et dissuader la récidive."],
+      perte:["Répondre","Procédures de justification des consommations et contrôles croisés : chaque litre doit avoir une destination."]
+    };
+    let bridgeItems=causesSeen.map(k=>R5B[k]).filter(Boolean);
+    if(isGen) bridgeItems.push(["Continuité d'activité","Dimensionnement et permutation des groupes, mesure de pointe sur site, plan de continuité face aux coupures réseau : sécuriser l'énergie au meilleur coût."]);
+    if(!bridgeItems.length) bridgeItems.push(["Réviser","Contrôle périodique à date anniversaire : revalider les acquis — vos données restent structurées dans nos outils, le contrôle est rapide et à tarif réduit."]);
+    const oFlash=a1Offer(clientId, isGen?"genset":"flotte");
+    const passNote=(oFlash&&oFlash.mode==="ponctuel"&&oFlash.passCredit!==false&&a1PassEnd(oFlash)&&todayISO()<=a1PassEnd(oFlash))
+      ?`<div style="border:1px solid rgba(181,146,58,.35);background:#FFF9F0;padding:10px 14px;margin-top:10px;font-size:12px;page-break-inside:avoid"><b>Crédit-passerelle :</b> le forfait du présent audit (${fmt(oFlash.setupFee||0,oFlash.currency)}) est intégralement déduit de tout accompagnement R5® signé avant le ${frDate(a1PassEnd(oFlash))}.</div>`:"";
+    secs.push(["Pour aller plus loin — méthode BSM R5®",
+      `<p style="font-size:12.5px;line-height:1.7">Le présent audit est une photographie à l'instant T. Les constats qui précèdent relèvent de causes que la méthode R5® de ${esc(DB.meta.cabinetName||"BSM Advisory & Consulting")} traite en profondeur — modules recommandés au vu de votre diagnostic :</p>`
+      +bridgeItems.map(b=>`<div style="border:1px solid #E5E7EB;border-left:3px solid #102A43;padding:10px 14px;margin:8px 0;page-break-inside:avoid"><b style="color:#102A43">R5® · ${esc(b[0])}</b><div style="font-size:12.5px;margin-top:3px;line-height:1.6">${esc(b[1])}</div></div>`).join("")
+      +passNote]);
+  }
   // Lexique dirigeant : le rapport doit se lire sans traducteur — le patron comme le responsable technique.
   const lexique=isGen
     ?[["kWh (kilowattheure)","l'unité d'énergie : ce que vos bâtiments consomment réellement."],
@@ -7957,7 +8028,7 @@ function renderA1Fleet(){
         <button class="cta" onclick="openA1Actions('fleet')" title="Toutes les actions du programme">☰ Actions</button></div></div>
     ${a1BackupReminderCard()}
     <div class="filters">${a1ClientPicker()}<span style="font-size:12px;color:var(--muted)">${a1Client?"Données de "+esc(clientName(a1Client)):"Vue toutes flottes confondues"}</span></div>
-    ${a1Client?a1OfferCard(a1Client,"flotte"):`<div class="infobox">Sélectionne un <b>client</b> ci-dessus pour gérer ses données séparément et lui associer une <b>offre programme</b> (forfait + tarif, période offerte).</div>`}
+    ${a1Client?a1OfferCard(a1Client,"flotte"):`<div class="infobox">Sélectionne un <b>client</b> ci-dessus pour gérer ses données séparément et lui associer une offre : <b>⚡ Audit Flash</b> (ponctuel, porte d'entrée — crédit-passerelle vers les packs R5®) ou abonnement de suivi.</div>`}
     ${a1CrossLinkBanner("fleet")}
     ${a1ExecBannerHtml('fleet')}
     ${a1BenchCard('fleet')}
@@ -9239,6 +9310,30 @@ const A1_PRODUCTS={
     scope:"• Inventaire et caractérisation des groupes (puissance, âge, conso constructeur)\n• Suivi de la consommation (L/h), du rendement (kWh/L) et du taux de charge\n• Comparatif du coût du kWh produit vs tarif réseau JIRAMA\n• Détection des dérives, sous-charges et anomalies (IA)\n• Rapport d'optimisation énergétique avec recommandations chiffrées"}
 };
 function a1ProductDef(p){ return A1_PRODUCTS[p||"flotte"]||A1_PRODUCTS.flotte; }
+/* ---- Mode « prestation ponctuelle » (Audit Flash A1) : forfait unique, crédit-passerelle vers les packs R5, contrôle périodique re-proposable. Pas d'abonnement : le client ne suivrait pas — on analyse son historique à l'instant T. ---- */
+function a1AddMonths(iso,n){ const p=(iso||todayISO()).split("-"); const d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2])); d.setUTCMonth(d.getUTCMonth()+n); return d.toISOString().slice(0,10); }
+function a1PassEnd(o){ return o.prestaDate?a1AddMonths(o.prestaDate,o.passMonths||6):""; }
+function a1ReviewDate(o){ return o.prestaDate?a1AddMonths(o.prestaDate,o.reviewMonths||12):""; }
+function a1FlashDefaults(product){ const g=product==="genset"; return {
+  label:"Audit Flash A1 — "+(g?"Groupes électrogènes & énergie":"Flotte & carburant"),
+  intro:"Analyse ponctuelle de votre historique ("+(g?"factures JIRAMA et carburant, relevés d'exploitation des groupes":"factures carburant, relevés kilométriques, données GPS le cas échéant")+") : sous 2 à 3 semaines, vous savez où partent vos "+(g?"kWh et vos litres":"litres")+" — écarts chiffrés, diagnostic par causes et pistes d'amélioration, restitués en rendez-vous. Prestation complémentaire qui prépare, si vous le souhaitez, un accompagnement complet selon notre méthode BSM R5®.",
+  scope:g?"• Remise des documents en vrac — la saisie et la structuration sont effectuées par BSM\n• Analyse de l'historique (jusqu'à 6 mois, ~30 documents inclus)\n• Rendement (kWh/L), taux de charge et coût du kWh produit vs tarif réseau JIRAMA\n• Détection des dérives, sous-charges et anomalies · préconisation de permutation le cas échéant\n• Rapport exécutif + restitution en rendez-vous avec orientations BSM R5®"
+        :"• Remise des documents en vrac — la saisie et la structuration sont effectuées par BSM\n• Analyse de l'historique (jusqu'à 6 mois, ~30 factures incluses)\n• Tableau de bord : consommation, coût au km, dérive vs données constructeur\n• Diagnostic par causes : mécanique, conduite, exploitation, pertes ou détournements probables\n• Rapport exécutif + restitution en rendez-vous avec orientations BSM R5®",
+  terms:"Prestation ponctuelle facturée en une fois, hors taxes. Saisie incluse jusqu'à 6 mois d'historique (~30 documents) ; au-delà, supplément de saisie sur devis. Objectif de la mission : identifier des écarts supérieurs au montant de l'audit (objectif, non garanti). Crédit-passerelle : 100 % du forfait déduit de tout pack BSM R5® signé dans les 6 mois suivant la restitution. Contrôle périodique re-proposable ensuite à tarif réduit, vos données restant structurées dans nos outils." }; }
+function a1OfferModeUI(m){
+  const p=m==="ponctuel";
+  show("ao-flash-wrap",p); show("ao-offert-wrap",!p);
+  const offertCb=document.getElementById("ao-offert");
+  show("ao-offdates", !p && !!(offertCb&&offertCb.checked));
+  const mi=document.getElementById("ao-monthly"); if(mi) mi.style.display=p?"none":"";
+  const fl=document.getElementById("ao-fee-lbl"); if(fl) fl.textContent=p?"Forfait unique (audit flash)":"Forfait mise en place & tarif mensuel";
+  // Bascule des textes : si les champs contiennent encore les défauts de l'autre mode, on les remplace (jamais un texte personnalisé).
+  const product=val("ao-product")||"flotte", def=a1ProductDef(product), fl2=a1FlashDefaults(product);
+  const ABO_TERMS="Offre valable 30 jours à compter de son émission. Tarifs hors taxes en "+curName(DB.meta.defaultCurrency)+". Facturation mensuelle à terme échu. Engagement minimum de 3 mois, reconductible et résiliable ensuite avec un préavis d'un mois.";
+  const swap=(id,fromV,toV)=>{ const el=document.getElementById(id); if(el && el.value.trim()===fromV.trim()) el.value=toV; };
+  if(p){ swap("ao-label",def.label,fl2.label); swap("ao-intro",def.pitch,fl2.intro); swap("ao-scope",def.scope,fl2.scope); swap("ao-terms",ABO_TERMS,fl2.terms); }
+  else { swap("ao-label",fl2.label,def.label); swap("ao-intro",fl2.intro,def.pitch); swap("ao-scope",fl2.scope,def.scope); swap("ao-terms",fl2.terms,ABO_TERMS); }
+}
 function a1Offer(clientId, product){ product=product||"flotte"; return (DB.a1offers||[]).find(o=>o.clientId===clientId && (o.product||"flotte")===product); }
 function a1MonthStartAfter(dstr){ const p=(dstr||todayISO()).split("-"); let y=+p[0], m=+p[1]; m++; if(m>12){ m=1; y++; } return y+"-"+String(m).padStart(2,"0")+"-01"; }
 function a1OfferBillingStart(o){ return (o.offert && o.offertEnd) ? a1MonthStartAfter(o.offertEnd) : (o.offertStart||(todayISO().slice(0,7)+"-01")); }
@@ -9248,6 +9343,25 @@ function a1OfferCard(clientId, product){
   if(!o) return `<div class="card" style="border-left:3px solid var(--gold)"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0">💼 ${def.icon} Offre — ${esc(def.label)}</h2><div class="msub" style="margin:2px 0 0">Associe une offre commerciale à ${esc(clientName(clientId))} : forfait de mise en place + tarif récurrent, éditable, exportable PDF et envoyable par mail.</div></div><button class="cta" onclick="openA1Offer('${clientId}','${product}')">Créer l'offre</button></div></div>`;
   const inOffert = o.offert && o.offertEnd && todayISO()<=o.offertEnd && todayISO()>=(o.offertStart||"");
   const bill=a1OfferBillingStart(o);
+  if((o.mode||"abonnement")==="ponctuel"){
+    const passEnd=a1PassEnd(o), review=a1ReviewDate(o);
+    const passLive=o.passCredit!==false && passEnd && todayISO()<=passEnd;
+    return `<div class="card" style="border-left:3px solid var(--gold)">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div><h2 style="margin:0">⚡ ${esc(o.label||def.label)}</h2><div class="msub" style="margin:2px 0 0">${esc(clientName(clientId))} · ${entityShort(o.entity)}${o.ref?" · "+esc(o.ref):""}${o.emailedAt?" · ✉️ envoyée le "+frDate(o.emailedAt):""} · <b>prestation ponctuelle</b></div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="cta ghost sm" onclick="openA1Offer('${clientId}','${product}')">✎ Modifier</button>
+          <button class="cta ghost sm" onclick="printA1Offer('${o.id}')">🖨 PDF</button>
+          <button class="cta sm" onclick="mailA1Offer('${o.id}')">✉️ Envoyer</button></div></div>
+      <div class="mini-list" style="margin-top:8px">
+        <div class="li"><span>Forfait audit flash (unique)</span><b>${o.setupFee?fmt(o.setupFee,o.currency):"—"}</b></div>
+        <div class="li"><span>Prestation / restitution</span><b>${frDate(o.prestaDate||"")||"—"}</b></div>
+        ${o.passCredit!==false?`<div class="li"><span>Crédit-passerelle (100 % → pack R5®)</span><b style="color:${passLive?'var(--green)':'var(--muted)'}">${passEnd?"valable jusqu'au "+frDate(passEnd)+(passLive?"":" (expiré)"):"—"}</b></div>`:""}
+        ${review?`<div class="li"><span>Contrôle périodique conseillé</span><b>${frDate(review)}</b></div>`:""}
+      </div>
+      ${passLive?`<div class="hint" style="color:var(--green)">🎯 Fenêtre passerelle ouverte : tout pack R5® signé avant le ${frDate(passEnd)} est crédité de ${fmt(o.setupFee||0,o.currency)}.</div>`:""}
+    </div>`;
+  }
   return `<div class="card" style="border-left:3px solid ${inOffert?'var(--green)':'var(--gold)'}">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <div><h2 style="margin:0">💼 ${esc(o.label||def.label)}</h2><div class="msub" style="margin:2px 0 0">${esc(clientName(clientId))} · ${entityShort(o.entity)}${o.ref?" · "+esc(o.ref):""}${o.emailedAt?" · ✉️ envoyée le "+frDate(o.emailedAt):""}</div></div>
@@ -9265,29 +9379,50 @@ function a1OfferCard(clientId, product){
   </div>`;
 }
 function openA1Offer(clientId, product){
-  product=product||"flotte"; const def=a1ProductDef(product);
-  const o=a1Offer(clientId,product)||{clientId,product,entity:entityFilter||"bsmac",currency:DB.meta.defaultCurrency,offert:false,offertStart:todayISO(),offertEnd:"",
-    label:def.label, intro:def.pitch, scope:def.scope, validite:"", terms:"Offre valable 30 jours à compter de son émission. Tarifs hors taxes en "+curName(DB.meta.defaultCurrency)+". Facturation mensuelle à terme échu. Engagement minimum de 3 mois, reconductible et résiliable ensuite avec un préavis d'un mois."};
+  product=product||"flotte"; const def=a1ProductDef(product); const flash=a1FlashDefaults(product);
+  let o=a1Offer(clientId,product);
+  const isNew=!o;
+  // Les NOUVELLES offres démarrent en Audit Flash (stratégie porte d'entrée) ; les offres existantes restent en abonnement.
+  if(isNew) o={clientId,product,mode:"ponctuel",entity:entityFilter||"bsmac",currency:DB.meta.defaultCurrency,offert:false,offertStart:todayISO(),offertEnd:"",
+    prestaDate:todayISO(), passCredit:true, passMonths:6, reviewMonths:12,
+    label:flash.label, intro:flash.intro, scope:flash.scope, validite:"30 jours", terms:flash.terms};
+  const mode0=o.mode||"abonnement", isFlash=mode0==="ponctuel";
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>${def.icon} Offre — ${esc(clientName(clientId))}</h2>
     <div class="msub" style="margin-top:-4px">${esc(def.label)}</div>
+    <input type="hidden" id="ao-product" value="${esc(product)}">
+    <div class="field"><label>Type d'offre</label><select id="ao-mode" onchange="a1OfferModeUI(this.value)">
+      <option value="ponctuel" ${isFlash?"selected":""}>⚡ Audit Flash — prestation ponctuelle (porte d'entrée)</option>
+      <option value="abonnement" ${!isFlash?"selected":""}>📅 Abonnement — forfait + mensualité (suivi dans la durée)</option>
+    </select></div>
     <div class="field"><label>Intitulé de l'offre</label><input id="ao-label" value="${esc(o.label||'')}" placeholder="${esc(def.label)}"></div>
     <div class="field"><label>Introduction / présentation (éditable)</label><textarea id="ao-intro" rows="3" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">${esc(o.intro||'')}</textarea></div>
     <div class="field"><label>Prestations incluses (une par ligne)</label><textarea id="ao-scope" rows="6" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">${esc(o.scope||'')}</textarea></div>
-    <div class="field row2"><label>Forfait mise en place & tarif mensuel</label>
-      <input type="number" id="ao-setup" value="${o.setupFee!=null?o.setupFee:''}" placeholder="forfait (une fois)"><input type="number" id="ao-monthly" value="${o.monthlyFee!=null?o.monthlyFee:''}" placeholder="tarif / mois"></div>
+    <div class="field row2"><label id="ao-fee-lbl">${isFlash?"Forfait unique (audit flash)":"Forfait mise en place & tarif mensuel"}</label>
+      <input type="number" id="ao-setup" value="${o.setupFee!=null?o.setupFee:''}" placeholder="forfait (une fois)"><input type="number" id="ao-monthly" value="${o.monthlyFee!=null?o.monthlyFee:''}" placeholder="tarif / mois" style="${isFlash?'display:none':''}"></div>
     <div class="field row2"><label>Devise & entité</label><select id="ao-cur">${curOptions(o.currency)}</select><select id="ao-entity">${entityOptions(o.entity)}</select></div>
+    <div id="ao-flash-wrap" style="${isFlash?'':'display:none'}">
+      <div class="field"><label>Date de la prestation / restitution prévue</label><input type="date" id="ao-presta" value="${o.prestaDate||todayISO()}"></div>
+      <div class="field"><label style="display:flex;align-items:center;gap:8px;font-weight:600"><input type="checkbox" id="ao-passcredit" ${o.passCredit!==false?'checked':''}> Crédit-passerelle : 100 % du forfait déduit d'un pack R5® signé dans les…</label></div>
+      <div class="field row2"><label>…mois qui suivent & contrôle périodique conseillé (mois)</label>
+        <input type="number" id="ao-passmonths" value="${o.passMonths||6}" placeholder="6"><input type="number" id="ao-review" value="${o.reviewMonths||12}" placeholder="12"></div>
+      <div class="hint">Le Cockpit te préviendra <b>30 jours avant l'expiration du crédit</b> (dernière fenêtre pour vendre le pack) puis <b>à la date anniversaire</b> pour proposer le contrôle périodique.</div>
+    </div>
+    <div id="ao-offert-wrap" style="${isFlash?'display:none':''}">
     <div class="field"><label style="display:flex;align-items:center;gap:8px;font-weight:600"><input type="checkbox" id="ao-offert" ${o.offert?'checked':''} onchange="document.getElementById('ao-offdates').style.display=this.checked?'':'none'"> Offert (période gratuite avant le tarif normal)</label></div>
     <div class="field row2" id="ao-offdates" style="${o.offert?'':'display:none'}"><label>Début & fin de la période offerte</label>
       <input type="date" id="ao-offstart" value="${o.offertStart||todayISO()}"><input type="date" id="ao-offend" value="${o.offertEnd||''}"></div>
+    </div>
     <div class="field"><label>Validité (facultatif) & conditions</label><input id="ao-validite" value="${esc(o.validite||'')}" placeholder="Ex : 30 jours" style="margin-bottom:6px"><textarea id="ao-terms" rows="3" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">${esc(o.terms||'')}</textarea></div>
     <div class="hint">À l'enregistrement : le forfait et le tarif mensuel deviennent des <b>entrées</b> liées à ce client (Budget / CA / Compte de résultat). L'offre reste <b>éditable</b>, <b>exportable en PDF</b> et <b>envoyable par mail</b> depuis sa fiche.</div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveA1Offer('${clientId}','${product}')">Enregistrer l'offre</button></div>`);
 }
 function saveA1Offer(clientId, product){
   product=product||"flotte"; let o=a1Offer(clientId,product);
-  const obj={ clientId, product, label:val("ao-label"), intro:val("ao-intro"), scope:val("ao-scope"), validite:val("ao-validite"), terms:val("ao-terms"),
+  const obj={ clientId, product, mode:val("ao-mode")||"abonnement", label:val("ao-label"), intro:val("ao-intro"), scope:val("ao-scope"), validite:val("ao-validite"), terms:val("ao-terms"),
     setupFee:Math.round(parseFloat(val("ao-setup"))||0), monthlyFee:Math.round(parseFloat(val("ao-monthly"))||0),
-    currency:val("ao-cur"), entity:val("ao-entity"), offert:document.getElementById("ao-offert").checked, offertStart:val("ao-offstart"), offertEnd:val("ao-offend") };
+    currency:val("ao-cur"), entity:val("ao-entity"), offert:document.getElementById("ao-offert").checked, offertStart:val("ao-offstart"), offertEnd:val("ao-offend"),
+    prestaDate:val("ao-presta")||todayISO(), passCredit:document.getElementById("ao-passcredit").checked, passMonths:parseInt(val("ao-passmonths"))||6, reviewMonths:parseInt(val("ao-review"))||12 };
+  if(obj.mode==="ponctuel"){ obj.monthlyFee=0; obj.offert=false; } // audit flash : forfait unique, jamais de mensualité ni de période offerte
   if(o){ Object.assign(o,obj); } else { obj.id=uid(); obj.created=todayISO(); obj.ref=a1OfferRefNext(); DB.a1offers.push(obj); o=obj; }
   if(!o.ref) o.ref=a1OfferRefNext();
   syncA1OfferRecurring(o);
@@ -9305,8 +9440,10 @@ function syncA1OfferRecurring(o){
   } else if(rc){ rc.active=false; }
   generateRecurring();
   if(o.setupFee>0 && !o.setupTxId){
-    const tx={ id:uid(), sens:"entrant", label:"Mise en place — "+(o.label||"Programme A1")+" · "+clientName(o.clientId), amount:o.setupFee, currency:o.currency,
-      category:"Honoraires mission", clientId:o.clientId, entity:o.entity, nature:"client", status:"prevu", date:o.offertStart||todayISO(), dueDate:o.offertStart||todayISO(), method:"" };
+    const flash=o.mode==="ponctuel";
+    const when=flash?(o.prestaDate||todayISO()):(o.offertStart||todayISO());
+    const tx={ id:uid(), sens:"entrant", label:(flash?"Audit Flash — ":"Mise en place — ")+(o.label||"Programme A1")+" · "+clientName(o.clientId), amount:o.setupFee, currency:o.currency,
+      category:"Honoraires mission", clientId:o.clientId, entity:o.entity, nature:"client", status:"prevu", date:when, dueDate:when, method:"" };
     DB.transactions.push(tx); o.setupTxId=tx.id;
   }
 }
@@ -9315,9 +9452,16 @@ function a1OfferBody(o){
   const cur=o.currency||DB.meta.defaultCurrency;
   const bill=a1OfferBillingStart(o);
   const scopeHtml=(o.scope||"").split(/\n+/).filter(Boolean).map(l=>`<li>${esc(l.replace(/^[•\-\s]+/,""))}</li>`).join("");
-  let rows=`<tr><td>Mise en place (forfait unique)</td><td style="text-align:right">${o.setupFee?fmt(o.setupFee,cur):"—"}</td></tr>`
-    +`<tr><td>Abonnement mensuel</td><td style="text-align:right">${o.monthlyFee?fmt(o.monthlyFee,cur)+" / mois":"—"}</td></tr>`;
-  if(o.offert && o.offertEnd) rows+=`<tr><td>Période offerte</td><td style="text-align:right;color:#128a45">${frDate(o.offertStart)} → ${frDate(o.offertEnd)} (facturation au ${frDate(bill)})</td></tr>`;
+  let rows;
+  if((o.mode||"abonnement")==="ponctuel"){
+    rows=`<tr><td>Forfait audit flash (prestation unique)</td><td style="text-align:right">${o.setupFee?fmt(o.setupFee,cur):"—"}</td></tr>`;
+    if(o.passCredit!==false && a1PassEnd(o)) rows+=`<tr><td>Crédit-passerelle</td><td style="text-align:right;color:#128a45">100 % du forfait déduit de tout pack BSM R5® signé avant le ${frDate(a1PassEnd(o))}</td></tr>`;
+    if(a1ReviewDate(o)) rows+=`<tr><td>Contrôle périodique (optionnel, sans engagement)</td><td style="text-align:right">re-proposable à partir du ${frDate(a1ReviewDate(o))}</td></tr>`;
+  } else {
+    rows=`<tr><td>Mise en place (forfait unique)</td><td style="text-align:right">${o.setupFee?fmt(o.setupFee,cur):"—"}</td></tr>`
+      +`<tr><td>Abonnement mensuel</td><td style="text-align:right">${o.monthlyFee?fmt(o.monthlyFee,cur)+" / mois":"—"}</td></tr>`;
+    if(o.offert && o.offertEnd) rows+=`<tr><td>Période offerte</td><td style="text-align:right;color:#128a45">${frDate(o.offertStart)} → ${frDate(o.offertEnd)} (facturation au ${frDate(bill)})</td></tr>`;
+  }
   return `<p>${esc(o.intro||a1ProductDef(o.product).pitch)}</p>`
     +`<h2 class="docsec">Prestations incluses</h2><ul>${scopeHtml||"<li>—</li>"}</ul>`
     +`<h2 class="docsec">Conditions financières</h2>`
@@ -9446,7 +9590,7 @@ function renderA1Genset(){
         <button class="cta" onclick="openA1Actions('gen')" title="Toutes les actions du programme">☰ Actions</button></div></div>
     ${a1BackupReminderCard()}
     <div class="filters">${a1GenClientPicker()}<span style="font-size:12px;color:var(--muted)">${a1genClient?"Données de "+esc(clientName(a1genClient)):"Vue tous groupes confondus"}</span></div>
-    ${a1genClient?a1OfferCard(a1genClient,"genset"):`<div class="infobox">Sélectionne un <b>client</b> pour gérer ses groupes séparément et lui associer une <b>offre programme</b> énergie (forfait + tarif, éditable, PDF, mail).</div>`}
+    ${a1genClient?a1OfferCard(a1genClient,"genset"):`<div class="infobox">Sélectionne un <b>client</b> pour gérer ses groupes séparément et lui associer une offre énergie : <b>⚡ Audit Flash</b> (ponctuel, porte d'entrée) ou abonnement de suivi — éditable, PDF, mail.</div>`}
     ${a1CrossLinkBanner("gen")}
     ${a1ExecBannerHtml('gen')}
     ${a1BenchCard('gen')}
