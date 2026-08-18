@@ -547,7 +547,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.44.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.45.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -1848,7 +1848,25 @@ function notify(type,title,detail,opts){
     detail:detail||"", clientId:opts.clientId||"", go:opts.go||(NOTIF_META[type]&&NOTIF_META[type].go)||"",
     forUser:opts.forUser||"", forRole:opts.forRole||"", read:false });
   if(DB.notifications.length>400) DB.notifications=DB.notifications.slice(-400);
+  // Vigilance renforcée : les événements critiques sortent du Cockpit (bip + notification système)
+  if(type==="report"||type==="risk"||type==="login") bsmDesktopAlert(title, detail);
   // pas de save() ici : la fonction appelante persiste (évite les doubles écritures)
+}
+/* ---- VIGILANCE RENFORCÉE : bip sonore + notification SYSTÈME (visible même Cockpit en arrière-plan
+   ou navigateur réduit). Activable/désactivable dans ⚙ Paramètres. Types couverts : demande de
+   validation de rapport, risque critique, sécurité des comptes. ---- */
+function bsmBeep(){
+  try{ const a=new (window.AudioContext||window.webkitAudioContext)();
+    const o=a.createOscillator(), g=a.createGain();
+    o.connect(g); g.connect(a.destination); o.frequency.value=880; g.gain.value=.12; o.start();
+    setTimeout(()=>{ o.frequency.value=660; },160); setTimeout(()=>{ o.stop(); a.close(); },340);
+  }catch(e){}
+}
+function bsmDesktopAlert(title,text){
+  if(DB.meta && DB.meta.desktopAlerts===false) return;
+  bsmBeep();
+  try{ if("Notification" in window && Notification.permission==="granted")
+    new Notification("BSM Cockpit — "+title, { body:String(text||"").slice(0,140), icon:"icon.svg", tag:"bsm-"+title }); }catch(e){}
 }
 // Une notif ciblée n'est visible que par son destinataire (utilisateur précis ou rôle direction).
 function notifVisible(n){
@@ -5495,6 +5513,8 @@ function openSettings(){
       <input id="s-decweb" value="${esc(DB.meta.decisionWebhook||'')}" placeholder="https://script.google.com/…/exec"></div>
     <div class="field"><label>🔒 Verrouillage auto après inactivité (minutes) <span style="font-weight:400;color:var(--muted);font-size:11.5px">— session fermée si un poste reste sans activité ; 0 = désactivé</span></label>
       <input type="number" id="s-autolock" min="0" max="240" value="${DB.meta.autoLockMin!=null?DB.meta.autoLockMin:20}"></div>
+    <div class="field"><label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="s-desktopalerts" ${DB.meta.desktopAlerts!==false?'checked':''}> 🔔 Vigilance renforcée — bip sonore + notification système</label>
+      <div class="hint">Pour les événements critiques (demande de validation de rapport, risque critique, sécurité des comptes) : un bip + une notification qui <b>sort du Cockpit</b>, visible même navigateur en arrière-plan. À l'enregistrement, le navigateur demandera l'autorisation de notifier (accepte-la une fois).</div></div>
     <div class="field"><label>Accès & utilisateurs</label>
       ${isAdmin()?`<button type="button" class="cta ghost sm" onclick="closeModal();setScreen('admin-users')">🔐 Gérer les utilisateurs & rôles</button>`:`<div class="hint">La gestion des comptes est réservée aux administrateurs (Espace administrateur).</div>`}</div>
     <div class="hint">Chaque compte a son identifiant, son code et son rôle. Les connexions et l'activité sont tracées dans l'Espace administrateur → Connexions & activité. 1re couche locale ; sécurité inviolable avec la version cloud.</div>
@@ -5596,6 +5616,8 @@ function saveSettings(){
   const ru=parseFloat(val("s-rateusd")); DB.meta.rateUsdMga=(!isNaN(ru)&&ru>0)?ru:DB.meta.rateUsdMga;
   DB.meta.decisionWebhook=(val("s-decweb")||"").trim();
   DB.meta.autoLockMin=Math.max(0,Math.min(240,parseInt(val("s-autolock"))||0)); idleReset();
+  DB.meta.desktopAlerts=!!(document.getElementById("s-desktopalerts")&&document.getElementById("s-desktopalerts").checked);
+  if(DB.meta.desktopAlerts && "Notification" in window && Notification.permission==="default") Notification.requestPermission();
   // Taux du mois : chaque enregistrement vaut vérification (horodatée) ; chaque CHANGEMENT est archivé (traçable sur devis/contrats).
   DB.meta.ratesUpdatedAt=todayISO();
   if(DB.meta.rateEurMga!==oldEur || DB.meta.rateUsdMga!==oldUsd){
