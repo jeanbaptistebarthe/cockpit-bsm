@@ -538,7 +538,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.29.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.30.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -8603,6 +8603,65 @@ function runA1GpsImport(){
   });
   save(); closeModal(); renderA1Fleet(); toast(ng+" relevé(s) GPS importé(s)"+(nv?", "+nv+" véhicule(s) créé(s)":"")+".");
 }
+/* ================== COLLAGE DE TABLEAU (industrialisation A1) : relevés en masse ==================
+   Le client envoie ses relevés en tableau (Excel, WhatsApp, mail) → on COLLE, le Cockpit détecte les
+   colonnes, montre ce qu'il a compris, et importe en un clic. Flotte (km/litres/coût) et groupes
+   (heures/litres/kWh). Même philosophie que l'import GPS : rapprochement par nom/plaque, création optionnelle. */
+function a1ParsePasteRows(text, isGen){
+  const lines=String(text||"").split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  if(lines.length<2) return [];
+  const sep=(lines[0].match(/\t/g)||[]).length>=1?"\t":((lines[0].match(/;/g)||[]).length>=(lines[0].match(/,/g)||[]).length?";":",");
+  const head=lines[0].split(sep).map(h=>norm(h));
+  const idx=alts=>head.findIndex(h=>alts.some(a=>h.indexOf(a)>=0));
+  const iName=idx(isGen?["groupe","generateur","genset","nom","site"]:["vehicule","engin","immat","plaque","nom"]);
+  const iDate=idx(["date","jour","mois","periode"]);
+  const iKm=idx(["km","compteur","kilom","odometre"]);
+  const iL=idx(["litre","carburant","gasoil","plein","conso"]);
+  const iCost=idx(["cout","montant","prix","total","ar"]);
+  const iH=idx(["heure","hour","fonctionnement","marche"]);
+  const iKwh=idx(["kwh","energie","production"]);
+  const iSta=idx(["station","pompiste","fournisseur"]);
+  const num=s=>parseFloat(String(s==null?"":s).replace(/\s/g,"").replace(/[^\d.,-]/g,"").replace(",","."))||0;
+  const out=[];
+  for(let r=1;r<lines.length;r++){ const c=lines[r].split(sep); if(!c.length) continue;
+    out.push({ name:(iName>=0?c[iName]:"").trim(), date:(iDate>=0?String(c[iDate]).trim():"")||todayISO(),
+      km:iKm>=0?num(c[iKm]):0, liters:iL>=0?num(c[iL]):0, cost:iCost>=0?num(c[iCost]):0,
+      hours:iH>=0?num(c[iH]):0, kwh:iKwh>=0?num(c[iKwh]):0, station:(iSta>=0?c[iSta]:"").trim() }); }
+  return out.filter(r=>r.name);
+}
+function openA1Paste(kind){ const isGen=kind==="gen"; const client=isGen?a1genClient:a1Client;
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📋 Coller un tableau de relevés — ${isGen?"groupes électrogènes":"flotte"}</h2>
+    <div class="msub">Colle les lignes reçues du client (Excel, WhatsApp, mail — 1ʳᵉ ligne = en-têtes). Colonnes reconnues : <b>${isGen?"groupe, date, heures, litres, kWh":"véhicule/plaque, date, km (compteur), litres, coût, station"}</b>. Aperçu avant import, rien n'est inventé.</div>
+    <div class="field"><textarea id="a1p-txt" rows="8" placeholder="${isGen?'groupe;date;heures;litres;kwh\nGE-250;2026-08-15;120;340;1450':'véhicule;date;km;litres;coût\nHilux 1;2026-08-15;45210;62;310000'}" style="width:100%;font-family:monospace;font-size:12px;padding:8px;border:1px solid var(--line);border-radius:8px" oninput="a1PastePreview('${kind}')"></textarea>
+      <div id="a1p-preview" class="hint" style="color:var(--navy)"></div></div>
+    <div class="field row2"><label>Client & option</label>
+      <select id="a1p-client"><option value="">— Aucun client —</option>${DB.clients.map(c=>`<option value="${c.id}" ${client===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px"><input type="checkbox" id="a1p-create" checked> Créer ${isGen?"le groupe":"le véhicule"} s'il n'existe pas</label></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="runA1Paste('${kind}')">Importer</button></div>`);
+}
+function a1PastePreview(kind){ const rows=a1ParsePasteRows(val("a1p-txt"), kind==="gen"); const el=document.getElementById("a1p-preview");
+  if(el) el.innerHTML=rows.length?`✓ <b>${rows.length}</b> ligne(s) comprises — ex. : ${esc(rows[0].name)} · ${esc(rows[0].date)}${rows[0].liters?" · "+rows[0].liters+" L":""}${rows[0].km?" · "+rows[0].km+" km":""}${rows[0].hours?" · "+rows[0].hours+" h":""}`:"Aucune ligne exploitable pour l'instant (vérifie la ligne d'en-têtes)."; }
+function runA1Paste(kind){
+  const isGen=kind==="gen"; const rows=a1ParsePasteRows(val("a1p-txt"), isGen);
+  const cid=val("a1p-client")||""; const create=(document.getElementById("a1p-create")||{}).checked;
+  if(!rows.length){ toast("Aucune ligne exploitable (vérifie l'en-tête)."); return; }
+  let n=0, created=0;
+  rows.forEach(r=>{ const key=norm(r.name);
+    if(isGen){
+      let g=DB.a1gensets.find(x=>(!cid||x.clientId===cid)&&norm(x.name)===key);
+      if(!g && create){ g={id:uid(),name:r.name,clientId:cid,fuel:"Diesel"}; DB.a1gensets.push(g); created++; }
+      if(!g) return;
+      DB.a1genlogs.push({ id:uid(), gensetId:g.id, date:r.date, hours:r.hours, liters:r.liters, kwh:r.kwh, chargePct:0, expectedLiters:0, costGap:0, cost:r.cost, currency:DB.meta.defaultCurrency, jiramaPrice:0, litersReal:0, unitPrice:(r.liters>0&&r.cost>0)?r.cost/r.liters:0, operator:"", site:"", station:r.station||"", source:"collage" }); n++;
+    } else {
+      let v=DB.a1vehicles.find(x=>(!cid||x.clientId===cid)&&(norm(x.name)===key||norm(x.plate||"")===key));
+      if(!v && create){ v={id:uid(),name:r.name,type:"Autre",plate:"",clientId:cid}; if(typeof a1AutoSpecApply==="function") a1AutoSpecApply(v,"fleet"); DB.a1vehicles.push(v); created++; }
+      if(!v) return;
+      DB.a1logs.push({ id:uid(), vehicleId:v.id, date:r.date, km:r.km, liters:r.liters, cost:r.cost, unitPrice:(r.liters>0&&r.cost>0)?r.cost/r.liters:0, currency:DB.meta.defaultCurrency, hours:0, idle:0, litersReal:0, station:r.station||"", source:"collage" }); n++;
+    }
+  });
+  save(); closeModal(); if(isGen) renderA1Genset(); else renderA1Fleet();
+  toast("📋 "+n+" relevé(s) importé(s)"+(created?", "+created+(isGen?" groupe(s)":" véhicule(s)")+" créé(s)":"")+".");
+}
 /* ================== FICHIERS LOURDS (factures scannées) → IndexedDB (hors localStorage) ================== */
 function a1idb(){ return new Promise((res,rej)=>{ try{ const rq=indexedDB.open("bsm_a1files",1); rq.onupgradeneeded=e=>{ if(!e.target.result.objectStoreNames.contains("files")) e.target.result.createObjectStore("files"); }; rq.onsuccess=e=>res(e.target.result); rq.onerror=()=>rej(rq.error); }catch(e){ rej(e); } }); }
 function a1FileToDataURL(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(r.error); r.readAsDataURL(blob); }); }
@@ -8634,9 +8693,15 @@ async function a1FileOpen(id){
 }
 /* ================== FACTURES (pompiste / JIRAMA) : PDF preuve + validation humaine ================== */
 let _a1InvoiceFile=null;
+/* Gabarits par client (industrialisation A1) : le Cockpit mémorise, par client et par type de facture,
+   le dernier fournisseur, carburant et l'affectation — chaque nouvelle saisie arrive pré-remplie. */
+function a1InvoicePrefs(cid, kind){ const m=DB.meta.a1InvoicePrefs||{}; return m[(cid||"")+"|"+kind]||null; }
+function a1InvoicePrefsSave(inv){ DB.meta.a1InvoicePrefs=DB.meta.a1InvoicePrefs||{};
+  DB.meta.a1InvoicePrefs[(inv.clientId||"")+"|"+inv.kind]={ supplier:inv.supplier||"", fuelType:inv.fuelType||"", target:(inv.targetKind&&inv.targetId)?(inv.targetKind+":"+inv.targetId):"" }; }
 function openA1InvoiceImport(kind){ // kind = 'fuel' | 'jirama'
   const isJ=kind==="jirama"; _a1InvoiceFile=null;
   const client=isJ?a1genClient:a1Client;
+  const prefs=a1InvoicePrefs(client, kind);
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🧾 ${isJ?"Facture JIRAMA (réseau)":"Facture pompiste (carburant)"}</h2>
     <div class="msub">Charge le PDF (ou photo/Excel) : il est <b>conservé comme preuve</b> et rattaché à la période. ⚡ <b>Saisie en rafale</b> : sélectionne <b>plusieurs fichiers d'un coup</b> — ils s'enchaîneront un par un, pré-remplis, en gardant client, affectation et fournisseur. Les factures scannées n'ayant pas de texte, tu <b>valides/corriges les chiffres à la main</b> (traçabilité BSM).</div>
     <div class="field"><label>📎 Fichier(s) facture (PDF idéalement — photo/Excel/CSV acceptés · plusieurs = rafale)</label>
@@ -8646,25 +8711,25 @@ function openA1InvoiceImport(kind){ // kind = 'fuel' | 'jirama'
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 8px"><button class="cta ghost sm" onclick="a1InvoiceTryExtract('${kind}')">✨ Tenter l'extraction auto (si PDF texte)</button><button class="cta ghost sm" onclick="openA1InvoiceRegister('${kind}')">📚 Registre des factures</button></div>
     <div class="field row2"><label>Client & ${isJ?"groupe (option)":"affecter à (option)"}</label>
       <select id="inv-client"><option value="">— Aucun client —</option>${DB.clients.map(c=>`<option value="${c.id}" ${client===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select>
-      <select id="inv-target">${a1InvoiceTargetOptions(kind, client)}</select></div>
+      <select id="inv-target">${a1InvoiceTargetOptions(kind, client, prefs&&prefs.target)}</select></div>
     <div class="field row2"><label>Période (mois) & date de la facture</label>
       <input type="month" id="inv-period" value="${todayISO().slice(0,7)}"><input type="date" id="inv-date" value="${todayISO()}"></div>
     <div class="field row2"><label>N° de facture & ${isJ?"fournisseur":"pompiste / station"}</label>
-      <input id="inv-ref" placeholder="N° facture"><input id="inv-supplier" value="${isJ?'JIRAMA':''}" placeholder="${isJ?'JIRAMA':'Ex : GALANA, Total…'}"></div>
+      <input id="inv-ref" placeholder="N° facture"><input id="inv-supplier" value="${esc((prefs&&prefs.supplier)||(isJ?'JIRAMA':''))}" placeholder="${isJ?'JIRAMA':'Ex : GALANA, Total…'}"></div>
     ${isJ?`<div class="field row2"><label>kWh consommés & montant TTC (Ar)</label>
       <input type="number" step="0.01" id="inv-kwh" placeholder="kWh" oninput="a1InvoiceCalcUnit('jirama')"><input type="number" step="0.01" id="inv-amount" placeholder="montant TTC" oninput="a1InvoiceCalcUnit('jirama')"></div>
     <div class="field"><label>Prix / kWh (auto = montant ÷ kWh, corrigeable)</label><input type="number" step="0.01" id="inv-unit" placeholder="Ar/kWh" oninput="this.dataset.touched=1"></div>`
     :`<div class="field row2"><label>Litres & montant TTC (Ar)</label>
       <input type="number" step="0.01" id="inv-liters" placeholder="litres" oninput="a1InvoiceCalcUnit('fuel')"><input type="number" step="0.01" id="inv-amount" placeholder="montant TTC" oninput="a1InvoiceCalcUnit('fuel')"></div>
     <div class="field row2"><label>Prix / litre (auto, corrigeable) & carburant</label>
-      <input type="number" step="0.01" id="inv-unit" placeholder="Ar/L" oninput="this.dataset.touched=1"><select id="inv-fuel"><option>Gasoil</option><option>Essence</option></select></div>`}
+      <input type="number" step="0.01" id="inv-unit" placeholder="Ar/L" oninput="this.dataset.touched=1"><select id="inv-fuel"><option ${(!prefs||prefs.fuelType!=="Essence")?'selected':''}>Gasoil</option><option ${(prefs&&prefs.fuelType==="Essence")?'selected':''}>Essence</option></select></div>`}
     <div class="infobox" style="font-size:12px">✔️ En enregistrant : la facture (pièce jointe) est archivée, ${isJ?`le <b>tarif réseau JIRAMA du mois</b> est mémorisé (débloque la comparaison « groupe vs réseau »)`:`le <b>prix du carburant du mois</b> est mémorisé (recalcule les coûts au bon prix)`}${isJ?"":`, et si un véhicule est ciblé un <b>relevé de plein</b> est créé`}. <b>Rien n'est inventé</b> : seuls tes chiffres validés sont enregistrés.</div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveA1Invoice('${kind}')">Enregistrer la facture</button></div>`);
 }
-function a1InvoiceTargetOptions(kind, client){ const isJ=kind==="jirama";
+function a1InvoiceTargetOptions(kind, client, sel){ const isJ=kind==="jirama";
   let o=`<option value="">— ${isJ?"Aucun groupe (tarif global)":"Non affecté (prix global)"} —</option>`;
-  if(!isJ){ const vs=DB.a1vehicles.filter(v=>!client||v.clientId===client); if(vs.length) o+=`<optgroup label="Véhicules">`+vs.map(v=>`<option value="veh:${v.id}">🚗 ${esc(v.name)}</option>`).join("")+`</optgroup>`; }
-  const gs=DB.a1gensets.filter(g=>!client||g.clientId===client); if(gs.length) o+=`<optgroup label="Groupes électrogènes">`+gs.map(g=>`<option value="gen:${g.id}">🔌 ${esc(g.name)}</option>`).join("")+`</optgroup>`;
+  if(!isJ){ const vs=DB.a1vehicles.filter(v=>!client||v.clientId===client); if(vs.length) o+=`<optgroup label="Véhicules">`+vs.map(v=>`<option value="veh:${v.id}" ${sel==="veh:"+v.id?'selected':''}>🚗 ${esc(v.name)}</option>`).join("")+`</optgroup>`; }
+  const gs=DB.a1gensets.filter(g=>!client||g.clientId===client); if(gs.length) o+=`<optgroup label="Groupes électrogènes">`+gs.map(g=>`<option value="gen:${g.id}" ${sel==="gen:"+g.id?'selected':''}>🔌 ${esc(g.name)}</option>`).join("")+`</optgroup>`;
   return o;
 }
 function a1InvoiceCalcUnit(kind){ const isJ=kind==="jirama"; const q=parseFloat(val(isJ?"inv-kwh":"inv-liters"))||0; const amt=parseFloat(val("inv-amount"))||0; const u=document.getElementById("inv-unit");
@@ -8749,6 +8814,7 @@ async function saveA1Invoice(kind){
   // fuel + véhicule ciblé → relevé de plein
   if(!isJ && tk==="veh" && tid && qty>0){ const v=DB.a1vehicles.find(x=>x.id===tid);
     if(v){ DB.a1logs.push({ id:uid(), vehicleId:v.id, date:(period+"-15"), km:0, liters:qty, cost:amount, unitPrice:unit, currency:inv.currency, hours:0, idle:0, litersReal:0, station:inv.supplier, source:"facture", invoiceId:inv.id }); } }
+  a1InvoicePrefsSave(inv); // gabarit client : fournisseur/carburant/affectation mémorisés pour la prochaine saisie
   DB.a1invoices.push(inv);
   // RAFALE : la suivante s'enchaîne sans fermer (client/affectation/fournisseur conservés)
   if(_a1Batch && _a1Batch.i < _a1Batch.files.length-1){
@@ -9391,7 +9457,7 @@ function openA1Actions(kind){ const isGen=kind==="gen";
   const html=`<span class="close" onclick="closeModal()">✕</span><h2>☰ Actions — ${isGen?"Groupes & JIRAMA":"Véhicules & GPS"}</h2>
     <div class="msub">Toutes les actions du programme, regroupées. Choisis ce dont tu as besoin.</div>
     ${G("Analyse",[["🧭 Nouvelle analyse (guidé)","openA1Wizard('"+(isGen?"gen":"fleet")+"')","gold"],["🚦 Prêt à présenter ?","openA1ReadyCheck('"+(isGen?"gen":"fleet")+"')","gold"],["🤖 Analyse IA",isGen?"a1GenAnalyze()":"a1Analyze()"],["💬 Chat IA","openA1Chat('"+(isGen?"gen":"fleet")+"')"],["📕 Rapport exécutif","a1ExecReport('"+(isGen?"gen":"fleet")+"')"],["🎯 Données & fiabilité","openA1DataPanel('"+(isGen?"gen":"fleet")+"')"],["🥅 Objectif client","openA1Target('"+(isGen?"gen":"fleet")+"')"],isGen&&["🔁 Étude de permutation","openA1SwapStudy()"],["📚 Historique des rapports","openA1ExecHistory('"+(isGen?"gen":"fleet")+"')"],["📆 Suivi du mois (tous clients)","setScreen('a1suivi')"],["🎬 Mode démo client","a1DemoMode('"+(isGen?"gen":"fleet")+"')"],["📊 Tableau de bord",isGen?"a1GenDashboard()":"a1FleetDashboard()"],["🖨 Rapport technique",isGen?"printA1GenReport()":"printA1Report()"]])}
-    ${G("Saisie & données",[[isGen?"+ Relevé":"+ Relevé",isGen?"openA1GenLog()":"openA1Log()","gold"],[isGen?"+ Groupe":"+ Véhicule",isGen?"openA1Genset()":"openA1Vehicle()"],["⇊ Importer CSV",isGen?"openA1GenImport()":"openA1Import()"],!isGen&&["📍 Importer GPS","openA1GpsImport()"],["📋 Parc complet","openA1Roster('"+(isGen?"gen":"fleet")+"')"],["📚 Fiches techniques","openA1SpecLibrary('"+(isGen?"gen":"fleet")+"')"]])}
+    ${G("Saisie & données",[[isGen?"+ Relevé":"+ Relevé",isGen?"openA1GenLog()":"openA1Log()","gold"],[isGen?"+ Groupe":"+ Véhicule",isGen?"openA1Genset()":"openA1Vehicle()"],["⇊ Importer CSV",isGen?"openA1GenImport()":"openA1Import()"],["📋 Coller un tableau","openA1Paste('"+(isGen?"gen":"fleet")+"')"],!isGen&&["📍 Importer GPS","openA1GpsImport()"],["📋 Parc complet","openA1Roster('"+(isGen?"gen":"fleet")+"')"],["📚 Fiches techniques","openA1SpecLibrary('"+(isGen?"gen":"fleet")+"')"]])}
     ${G("Factures & contrôle",[["🧾 Facture","openA1InvoiceImport('"+(isGen?"jirama":"fuel")+"')"],["📚 Registre","openA1InvoiceRegister('"+(isGen?"jirama":"fuel")+"')"],["🔎 Contrôle & écarts","openA1Control('"+(isGen?"jirama":"fuel")+"')"]])}
     ${G("Documents & terrain",[["📎 Documents client","openA1Docs('"+(isGen?"gen":"fleet")+"')"],["🗄️ Banque de données","openA1DataBank('"+(isGen?"gen":"fleet")+"')"],["📋 Fiche de relevé (imprimer)","printA1CollectSheet('"+(isGen?"gen":"fleet")+"')"]])}
     ${G("Configuration & sauvegarde",[["⛽ Prix carburant","openFuelPrices()"],["⚙ Seuils","openA1Thresholds()"],["💾 Sauvegarde","openA1DataSafety()"]])}
