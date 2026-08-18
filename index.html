@@ -642,7 +642,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.51.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.51.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -5704,7 +5704,9 @@ function openSettings(){
       <br>💱 <b>Taux BSM du mois</b> — rituel du 1ᵉʳ : relève le cours officiel (BFM / ta banque) et enregistre. Dernière vérification : <b>${DB.meta.ratesUpdatedAt?frDate(DB.meta.ratesUpdatedAt):"jamais"}</b>. Les mouvements déjà saisis gardent leur taux figé.</div>
     ${(DB.meta.rateHistory||[]).length?`<div class="hint" style="margin-top:-4px">Historique : ${DB.meta.rateHistory.slice(-6).reverse().map(h=>`${frDate(h.date)} → 1 € = ${(+h.eurMga).toLocaleString('fr-FR')} Ar`).join(" · ")}</div>`:""}
     <div class="field"><label>📩 Récepteur de décisions client (URL Apps Script /exec) <span style="font-weight:400;color:var(--muted);font-size:11.5px">— fiches de décision « un clic, zéro messagerie » (voir decision_receiver.gs) ; vide = repli e-mail/copier</span></label>
-      <input id="s-decweb" value="${esc(DB.meta.decisionWebhook||'')}" placeholder="https://script.google.com/…/exec"></div>
+      <input id="s-decweb" value="${esc(DB.meta.decisionWebhook||'')}" placeholder="https://script.google.com/…/exec">
+      <div style="margin-top:6px"><button type="button" class="cta ghost sm" onclick="testDecisionPage()">🧪 Tester la page de décision</button></div>
+      <div class="hint">Le test ouvre la page telle que le client la verra (recommandations d'un client réel). Si tu vois « récepteur actif » au lieu de la fiche : le script déployé est l'ancienne version → Apps Script → Déployer → Gérer les déploiements → ✏️ → <b>Nouvelle version</b> → Déployer.</div></div>
     <div class="field"><label>🔒 Verrouillage auto après inactivité (minutes) <span style="font-weight:400;color:var(--muted);font-size:11.5px">— session fermée si un poste reste sans activité ; 0 = désactivé</span></label>
       <input type="number" id="s-autolock" min="0" max="240" value="${DB.meta.autoLockMin!=null?DB.meta.autoLockMin:20}"></div>
     <div class="field"><label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="s-desktopalerts" ${DB.meta.desktopAlerts!==false?'checked':''}> 🔔 Vigilance renforcée — bip sonore + notification système</label>
@@ -8458,7 +8460,22 @@ function decisionPageUrl(clientId){
   if(!recos.length) return "";
   const payload={ c:c.company||"", r:recos.slice(0,12).map(r=>[r.ref||"",String(r.texte||"").slice(0,90),String(r.invest||"").slice(0,40),String(r.gain||"").slice(0,40)]) };
   const b64=btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-  return hook+"?d="+b64;
+  return hook+(hook.indexOf("?")>=0?"&":"?")+"d="+b64; // robuste même si l'URL du récepteur porte déjà des paramètres
+}
+/* 🧪 Test de la page de décision (⚙ Paramètres) : ouvre la page telle que le client la verra,
+   avec les recommandations d'un client réel — pour vérifier le déploiement du récepteur AVANT un envoi. */
+function testDecisionPage(){
+  const hook=((typeof val==="function"&&val("s-decweb"))||DB.meta.decisionWebhook||"").trim();
+  if(!hook){ toast("Colle d'abord l'URL /exec du récepteur dans le champ ci-dessus."); return; }
+  const has=id=>(DB.recommendations||[]).some(r=>r.clientId===id&&r.status!=="fait"&&r.clientDecision!=="refuse");
+  let cid=(typeof focusClient!=="undefined"&&focusClient&&has(focusClient))?focusClient:"";
+  if(!cid){ const c=(DB.clients||[]).find(x=>has(x.id)); cid=c?c.id:""; }
+  if(!cid){ toast("Aucun client avec des recommandations ouvertes — crée d'abord une reco (ou ➕ Reco R5 depuis un constat A1)."); return; }
+  const prev=DB.meta.decisionWebhook; DB.meta.decisionWebhook=hook;
+  const url=decisionPageUrl(cid); DB.meta.decisionWebhook=prev;
+  if(!url){ toast("Lien impossible à construire."); return; }
+  window.open(url,"_blank");
+  toast("🧪 Page ouverte pour "+clientName(cid)+" — si tu vois « récepteur actif » au lieu de la fiche, redéploie une NOUVELLE version du script.");
 }
 /* Bloc « 🗳 Vos décisions » injecté dans les mails de rapport (A1 et audit R5) : les recommandations
    OUVERTES du client — mêmes références que la fiche 360 et la fiche de décision. Bouton principal =
