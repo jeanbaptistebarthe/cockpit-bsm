@@ -547,7 +547,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.42.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.43.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -1634,6 +1634,16 @@ function enterPresentMode(){
   presentMode=true;
   document.body.classList.add("present");
 }
+/* Verrouillage automatique après inactivité — un employé qui oublie de se déconnecter
+   ne laisse pas une session ouverte. Réglable dans ⚙ Paramètres (défaut 20 min, 0 = désactivé). */
+let _idleTimer=null;
+function idleReset(){
+  if(_idleTimer) clearTimeout(_idleTimer);
+  const m=(DB.meta&&DB.meta.autoLockMin!=null)?+DB.meta.autoLockMin:20;
+  if(!m||m<=0||!currentUser) return;
+  _idleTimer=setTimeout(()=>{ try{ if(typeof lockPortal==="function"&&currentUser){ lockPortal(); } }catch(e){} }, m*60000);
+}
+["click","keydown","touchstart"].forEach(ev=>document.addEventListener(ev, idleReset, {passive:true}));
 function exitPresentMode(){
   presentMode=false;
   document.body.classList.remove("present");
@@ -5171,6 +5181,10 @@ function generateAdvice(){
       add("recodue-"+r.id,"warn","📌","Recommandation à échéance",
         `${r.ref?r.ref+" — ":""}${(r.texte||"").slice(0,90)} (${clientName(r.clientId)}) : échéance le ${frDate(r.dateCible)}.`); });
   }
+  // 1m. RAPPORT EN ATTENTE DE VALIDATION DIRECTION (danger → mail instantané sur le téléphone)
+  (DB.r5reports||[]).forEach(r=>{ if(r.status==="brouillon" && r.askValidation)
+    add("r5val-"+r.id,"danger","🔐","Rapport en attente de TA validation",
+      `${clientName(r.clientId)} : rapport préparé par ${r.askBy||"un collaborateur"} le ${frDate(r.askAt||r.date)} — relire (Matrice → 📑 Rapport & suivi) puis envoyer. Aucun document ne sort sans validation de la direction.`); });
   // 1l. RISQUE SOUS CONTRÔLE À RE-VÉRIFIER : un contrôle qui n'est pas revu se relâche —
   //     un risque traité & adopté non re-vérifié depuis > 120 jours doit être re-testé au prochain passage.
   {
@@ -5442,6 +5456,8 @@ function openSettings(){
     ${(DB.meta.rateHistory||[]).length?`<div class="hint" style="margin-top:-4px">Historique : ${DB.meta.rateHistory.slice(-6).reverse().map(h=>`${frDate(h.date)} → 1 € = ${(+h.eurMga).toLocaleString('fr-FR')} Ar`).join(" · ")}</div>`:""}
     <div class="field"><label>📩 Récepteur de décisions client (URL Apps Script /exec) <span style="font-weight:400;color:var(--muted);font-size:11.5px">— fiches de décision « un clic, zéro messagerie » (voir decision_receiver.gs) ; vide = repli e-mail/copier</span></label>
       <input id="s-decweb" value="${esc(DB.meta.decisionWebhook||'')}" placeholder="https://script.google.com/…/exec"></div>
+    <div class="field"><label>🔒 Verrouillage auto après inactivité (minutes) <span style="font-weight:400;color:var(--muted);font-size:11.5px">— session fermée si un poste reste sans activité ; 0 = désactivé</span></label>
+      <input type="number" id="s-autolock" min="0" max="240" value="${DB.meta.autoLockMin!=null?DB.meta.autoLockMin:20}"></div>
     <div class="field"><label>Accès & utilisateurs</label>
       ${isAdmin()?`<button type="button" class="cta ghost sm" onclick="closeModal();setScreen('admin-users')">🔐 Gérer les utilisateurs & rôles</button>`:`<div class="hint">La gestion des comptes est réservée aux administrateurs (Espace administrateur).</div>`}</div>
     <div class="hint">Chaque compte a son identifiant, son code et son rôle. Les connexions et l'activité sont tracées dans l'Espace administrateur → Connexions & activité. 1re couche locale ; sécurité inviolable avec la version cloud.</div>
@@ -5542,6 +5558,7 @@ function saveSettings(){
   const r=parseFloat(val("s-rate")); DB.meta.rateEurMga=(!isNaN(r)&&r>0)?r:DB.meta.rateEurMga;
   const ru=parseFloat(val("s-rateusd")); DB.meta.rateUsdMga=(!isNaN(ru)&&ru>0)?ru:DB.meta.rateUsdMga;
   DB.meta.decisionWebhook=(val("s-decweb")||"").trim();
+  DB.meta.autoLockMin=Math.max(0,Math.min(240,parseInt(val("s-autolock"))||0)); idleReset();
   // Taux du mois : chaque enregistrement vaut vérification (horodatée) ; chaque CHANGEMENT est archivé (traçable sur devis/contrats).
   DB.meta.ratesUpdatedAt=todayISO();
   if(DB.meta.rateEurMga!==oldEur || DB.meta.rateUsdMga!==oldUsd){
@@ -6204,7 +6221,7 @@ function openR5Report(clientId){
       <button class="cta ghost" onclick="r5ReportSaveDraft('${clientId}');closeModal();toast('Brouillon enregistré.')">💾 Brouillon</button>
       <button class="cta ghost" onclick="r5DecisionPage('${clientId}')" title="Fichier HTML interactif à remettre au client : il coche Valider/Différer/Refuser et t'envoie ses décisions en un clic">📩 Fiche de décision</button>
       <button class="cta ghost" onclick="r5ReportPreview('${clientId}')">🖨 Aperçu / PDF</button>
-      <button class="cta" onclick="r5ReportSend('${clientId}')">✉️ Envoyer au client</button></div>`);
+      ${(typeof isDirection!=="function"||isDirection())?`<button class="cta" onclick="r5ReportSend('${clientId}')">✉️ Envoyer au client</button>`:`<button class="cta" onclick="r5AskValidation('${clientId}')" title="L'envoi au client est réservé à la direction — elle est alertée immédiatement (tableau de bord + mail)">📨 Demander validation</button>`}</div>`);
   const ai=document.getElementById("r5r-ai"); if(ai) ai.value=draft.aiText||"";
 }
 function r5ReportSaveDraft(clientId){
@@ -6402,8 +6419,19 @@ function applyR5Decisions(){
 }
 function r5ReportPreview(clientId){ openPrintable(r5ReportHtml(r5ReportSaveDraft(clientId))); }
 function r5ReportPrint(id){ const r=(DB.r5reports||[]).find(x=>x.id===id); if(r) openPrintable(r5ReportHtml(r)); }
-function r5ReportSend(clientId){
+/* 🔐 AUCUN document ne sort sans validation de la direction : un collaborateur prépare,
+   demande validation (alerte instantanée → mail sur le téléphone de la direction), la direction relit et envoie. */
+function r5AskValidation(clientId){
   const d=r5ReportSaveDraft(clientId);
+  d.askValidation=true; d.askBy=(currentUser&&currentUser.login)||""; d.askAt=todayISO();
+  save(); closeModal(); refreshAll();
+  notify("report","Rapport en attente de validation", clientName(clientId)+" — demandé par "+(d.askBy||"un collaborateur"), {clientId});
+  toast("📨 Demande envoyée à la direction — le rapport reste en brouillon jusqu'à sa validation.");
+}
+function r5ReportSend(clientId){
+  if(typeof isDirection==="function" && !isDirection()){ r5AskValidation(clientId); return; }
+  const d=r5ReportSaveDraft(clientId);
+  d.askValidation=false; // la direction envoie : la demande est soldée
   const c=DB.clients.find(x=>x.id===clientId);
   // Rapport de branche → adressé au REPRÉSENTANT de la branche (DG de branche) s'il existe, sinon au contact principal.
   const bc=d.branch?branchContact(clientId,d.branch):null;
@@ -6631,9 +6659,24 @@ function openR5Hub(clientId){
     ${card(1,"🏢","Comprendre le groupe","Scores R5 par branche, risques critiques, recos ouvertes, CA ventilé 12 mois","openGroupView('"+clientId+"')")}
     ${card(2,"🔁","Mesurer l'évolution","Ce qui a bougé depuis le dernier rapport : aggravés, améliorés, nouveaux, recos soldées","openR5Delta('"+clientId+"')")}
     ${card(3,"📑","Émettre LE rapport","Passé · présent · futur — piliers BSM en jauges, analyses, matrice, carto, solutions chiffrées, décision en un clic. Par branche ou groupe entier.","openR5Report('"+clientId+"')")}
+    ${card(4,"📚","Registre des rapports","Tous les rapports émis pour ce client — cloisonné, consultable, réimprimable","openR5Registry('"+clientId+"')")}
     </div>
     <div class="hint">Un seul document par client (ou par branche) et par trimestre — jamais plusieurs rapports dispersés. La fenêtre du rapport gère aussi la fiche de décision et l'archivage.</div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`);
+}
+/* Registre des rapports — cloisonné par client : tout ce qui a été émis, consultable et réimprimable. */
+function openR5Registry(clientId){
+  const c=DB.clients.find(x=>x.id===clientId); if(!c) return;
+  const list=(DB.r5reports||[]).filter(r=>r.clientId===clientId).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📚 Registre des rapports — ${esc(c.company)}</h2>
+    <div class="msub">${list.length} rapport(s) au dossier. Chaque envoi est figé avec sa photo de l'état (base des comparaisons).</div>
+    ${list.length?`<table style="margin-top:10px"><thead><tr><th>Réf.</th><th>Date</th><th>Périmètre</th><th>Statut</th><th></th></tr></thead><tbody>${list.map(r=>`<tr>
+      <td><b>${esc(r.ref||"—")}</b></td><td style="font-size:11.5px">${frDate(r.date)}</td>
+      <td style="font-size:11.5px">${esc(r.branch||"Groupe entier")}</td>
+      <td>${r.status==="brouillon"?(r.askValidation?'<span class="badge b-red">🔐 Attente validation</span>':'<span class="badge b-grey">Brouillon</span>'):(r.sentTo?`<span class="badge b-green">Envoyé</span> <span style="font-size:10.5px;color:var(--muted)">${esc(r.sentTo)}</span>`:'<span class="badge b-blue">Édité</span>')}</td>
+      <td style="text-align:right"><button class="cta ghost sm" onclick="r5ReportPrint('${r.id}')">🖨 Voir</button></td></tr>`).join("")}</tbody></table>`
+    :`<div class="empty" style="margin-top:10px">Aucun rapport pour l'instant.</div>`}
+    <div class="modal-actions"><button class="cta" onclick="closeModal()">Fermer</button></div>`);
 }
 let recoFilter="tous";
 function recoPrioBadge(p){return {"Critique":"b-red","Élevée":"b-orange","Modérée":"b-amber","Faible":"b-grey"}[p]||"b-grey";}
@@ -11373,6 +11416,7 @@ function applyImportAudit(rows){
     if(cl){ if(gv(r,cSect))cl.sector=gv(r,cSect); if(infos)cl.notes=infos; if(cl.status==="prospect")cl.status="actif"; uc++; }
     else { cl={id:uid(),company:ent,sector:gv(r,cSect),contactName:gv(r,cInter),contactEmail:"",contactPhone:"",status:"actif",notes:infos,createdAt:todayISO()}; DB.clients.push(cl); nc++; }
     const dAudit=toISODate(gv(r,cDate));
+    const cBranch=ix("branche"); const rowBranch=cBranch>=0?(gv(r,cBranch)||"").trim():""; // v2 : branche auditée → les risques de la ligne y sont rattachés
     const cTypeAud=ix("type d'audit"); // v2 : le formulaire de SUIVI se déclare — la mission devient « Audit de suivi »
     const misType=(cTypeAud>=0&&/suivi/i.test(gv(r,cTypeAud)))?"Audit de suivi":"Audit initial";
     let mis=DB.missions.find(m=>m.clientId===cl.id&&m.type===misType&&m.startDate===dAudit);
@@ -11384,7 +11428,7 @@ function applyImportAudit(rows){
       if((fam||desc)&&p>=1&&im>=1){
         const dkey=norm(desc||cat||fam);
         let rk=DB.risks.find(x=>x.clientId===cl.id&&norm(x.description||x.categorie||x.famille)===dkey);
-        const data={clientId:cl.id,missionId:mis.id,famille:fam||cat||"Opérationnel",categorie:cat||fam||"Autre",description:desc||cat||fam,probabilite:Math.min(5,Math.max(1,p)),impact:Math.min(5,Math.max(1,im)),lastReview:dAudit||todayISO()};
+        const data={clientId:cl.id,missionId:mis.id,famille:fam||cat||"Opérationnel",categorie:cat||fam||"Autre",description:desc||cat||fam,probabilite:Math.min(5,Math.max(1,p)),impact:Math.min(5,Math.max(1,im)),lastReview:dAudit||todayISO(),secteur:rowBranch};
         if(b.mes>=0&&gv(r,b.mes)) data.mesures=gv(r,b.mes);
         if(b.cout>=0&&gv(r,b.cout)) data.coutEstime=gv(r,b.cout);           // v2 : coût estimé si survenance (texte libre chiffré, repris au rapport)
         if(b.mat>=0&&/oui/i.test(gv(r,b.mat))) data.obs="Déjà matérialisé"; // v2 : antécédent avéré
