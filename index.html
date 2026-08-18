@@ -547,7 +547,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.40.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.41.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -6237,16 +6237,36 @@ function r5ReportBody(clientId, analysis, aiText, excludeFams, branch){
   const rows=risks.map(r=>{ const lv=r5Niveau(r.score), col=R5_LEVEL_COLORS[lv]||"#6B7280";
     return `<tr><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11px">${esc(r.ref||"")}</td><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11.5px"><b>${esc(r.categorie||r.famille||"")}</b><div style="color:#374151;line-height:1.5">${esc(r.description||"")}</div>${r.mesures?`<div style="font-size:10.5px;color:#6B7280">Mesures en place : ${esc(r.mesures)}</div>`:""}${r.coutEstime?`<div style="font-size:10.5px;color:#B7891A;font-weight:600">Coût estimé si survenance : ${esc(r.coutEstime)}</div>`:""}${/matérialis/i.test(r.obs||"")?`<div style="font-size:10px;color:#C0392B">⚠ Déjà matérialisé par le passé</div>`:""}</td><td style="text-align:center;border:1px solid #E5E7EB">${r.probabilite||"—"}</td><td style="text-align:center;border:1px solid #E5E7EB">${r.impact||"—"}</td><td style="text-align:center;border:1px solid #E5E7EB;font-weight:700">${r.score||"—"}</td><td style="text-align:center;border:1px solid #E5E7EB"><span style="color:${col};font-weight:700;font-size:10.5px">${lv}</span></td></tr>`; }).join("");
   const recRows=recos.map(r=>`<tr><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11px">${esc(r.ref||"")}</td><td style="padding:6px 8px;border:1px solid #E5E7EB;font-size:11.5px;line-height:1.5">${esc(r.texte||"")}${(r.invest||r.gain)?`<div style="font-size:10.5px;margin-top:3px;padding:4px 8px;background:#FCFBF7;border-left:2px solid #B7891A">${r.invest?`Investissement : <b>${esc(r.invest)}</b>`:""}${r.invest&&r.gain?" &nbsp;→&nbsp; ":""}${r.gain?`<span style="color:#2F855A">Gain attendu : <b>${esc(r.gain)}</b></span>`:""}</div>`:""}</td><td style="text-align:center;border:1px solid #E5E7EB;font-size:11px">${esc(r.priorite||"—")}</td><td style="text-align:center;border:1px solid #E5E7EB;font-size:11px">${r.dateCible?frDate(r.dateCible):esc(r.horizon||"—")}</td><td style="text-align:center;border:1px solid #E5E7EB;font-size:10.5px;white-space:nowrap">${r.status==="fait"?"✅ Mise en œuvre":(r.clientDecision?esc(decisionLabel(r.clientDecision)):"☐ Valider&nbsp;&nbsp;☐ Différer")}</td></tr>`).join("");
+  // Ordre narratif voulu par BSM : PASSÉ (chemin parcouru) → PRÉSENT (état & analyses) → FUTUR (trajectoire).
+  const lastRep=(DB.r5reports||[]).filter(x=>x.clientId===clientId&&x.status!=="brouillon"&&x.snap).sort((a,b)=>String(b.date).localeCompare(String(a.date)))[0];
+  const pil=r5PillarScores(clientId, branch, lastRep&&lastRep.snap.pillars);
+  const gauge=p=>{ const v=p.score; const col=v==null?"#D1D5DB":(v>=70?"#2F855A":(v>=40?"#D97706":"#C0392B"));
+    const trend=(p.prev!=null&&v!=null)?(v>p.prev?` <span style="color:#2F855A;font-size:10px;font-weight:700">▲ +${v-p.prev}</span>`:(v<p.prev?` <span style="color:#C0392B;font-size:10px;font-weight:700">▼ −${p.prev-v}</span>`:` <span style="color:#6B7280;font-size:10px">=</span>`)):"";
+    return `<div style="margin:8px 0;page-break-inside:avoid"><div style="display:flex;justify-content:space-between;font-size:11.5px"><b>${p.name}</b><span>${v==null?'<i style="color:#6B7280">non évalué — volet à développer avec BSM</i>':`<b>${v} %</b>`}${trend}</span></div>
+    <div style="height:10px;background:#EEE;border-radius:5px;margin-top:3px"><div style="height:10px;width:${v==null?0:v}%;background:${col};border-radius:5px"></div></div></div>`; };
+  let past="";
+  if(lastRep){
+    const prev=lastRep.snap.risks||[], cur=risks.map(r=>({ref:r.ref||"",desc:(r.description||"").slice(0,70),score:r.score}));
+    const key=x=>x.ref||norm(x.desc); const pm={}; prev.forEach(x=>pm[key(x)]=x);
+    let up=0,down=0,neu=0; cur.forEach(x=>{ const p=pm[key(x)]; if(!p) neu++; else if(x.score>p.score) up++; else if(x.score<p.score) down++; });
+    const openNow=allRecos.filter(x=>x.status!=="fait").length;
+    const done=(lastRep.snap.recosOpen!=null)?Math.max(0,lastRep.snap.recosOpen-openNow):null;
+    past=`<p style="font-size:12.5px;line-height:1.7">Depuis le rapport ${esc(lastRep.ref||"précédent")} du ${frDate(lastRep.snap.date||lastRep.date)} : `
+      +[down?`<b style="color:#2F855A">${down} risque(s) amélioré(s)</b>`:"",done?`<b style="color:#2F855A">${done} recommandation(s) mise(s) en œuvre</b>`:"",up?`<b style="color:#C0392B">${up} risque(s) aggravé(s)</b>`:"",neu?`<b style="color:#D97706">${neu} nouveau(x) risque(s) identifié(s)</b>`:""].filter(Boolean).join(" · ")
+      +((!down&&!done&&!up&&!neu)?"situation stable sur la période.":".")+`</p>`;
+  }
   let n=1; const sec=t=>`<h2 class="docsec">${n++}. ${t}</h2>`;
-  return sec("Synthèse")
+  return sec("Synthèse du "+(branch?"périmètre — "+esc(branch):"groupe"))
     +`<table style="width:100%;border-collapse:collapse;page-break-inside:avoid"><tr>${kpi(risks.length,"Risques évalués")}${kpi(counts.CRITIQUE||0,"Critiques","#C0392B")}${kpi(counts.HAUTE||0,"Priorité haute","#D97706")}${kpi(recos.length,"Recommandations")}</tr></table>`
+    +`<div style="margin-top:10px;page-break-inside:avoid"><div style="font-size:10px;font-weight:700;color:#B7891A;text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px">Les trois piliers BSM</div>${pil.map(gauge).join("")}</div>`
+    +(past?sec("Le chemin parcouru")+past:"")
     +(analysis?sec("Analyses & constats de l'auditeur")+docBodyToHtml(analysis):"")
     +(aiText?sec("Analyse complémentaire (assistée, validée par l'auditeur)")+docBodyToHtml(aiText):"")
-    +sec("Matrice des risques (P × I)")
+    +sec("État présent — matrice des risques (P × I)")
     +`<table style="width:100%;border-collapse:collapse">${th(["Réf.","Risque","P","I","Score","Niveau"])}<tbody>${rows||'<tr><td colspan="6" style="padding:10px;text-align:center;color:#6B7280">Aucun risque saisi</td></tr>'}</tbody></table>
      <p style="font-size:10.5px;color:#6B7280">Niveaux : CRITIQUE ≥ 15 · HAUTE 9–14 · MOYENNE 4–8 · FAIBLE &lt; 4.</p>`
     +sec("Cartographie")+carto
-    +sec("Plan d'action — solutions proposées")
+    +sec("Trajectoire — plan d'action & solutions proposées")
     +`<p style="font-size:12px;color:#374151;line-height:1.6"><b>BSM propose, vous décidez.</b> Chaque solution est chiffrée lorsque les données le permettent (investissement → gain attendu). Cochez votre décision, datez : la mise en œuvre et le suivi sont assurés par BSM et revus à chaque audit trimestriel.</p>
      <table style="width:100%;border-collapse:collapse">${th(["Réf.","Recommandation & business case","Priorité","Échéance","Votre décision"])}<tbody>${recRows||'<tr><td colspan="5" style="padding:10px;text-align:center;color:#6B7280">Aucune recommandation</td></tr>'}</tbody></table>`
     +(refused.length?`<p style="font-size:10.5px;color:#6B7280;margin-top:8px">Écartées par décision du client (conservées au dossier, réactivables sur demande) : ${refused.map(r=>esc(r.ref||"")).filter(Boolean).join(", ")||refused.length+" recommandation(s)"}.</p>`:"")
@@ -6378,7 +6398,8 @@ function r5ReportSend(clientId){
   confirmModal("Envoyer le rapport d'audit ?", "Destinataire : "+esc(to)+". Relis l'aperçu d'abord si ce n'est pas fait — après envoi, le rapport est figé et archivé.", async ()=>{
     closeModal();
     if(!d.ref) d.ref=r5ReportRefNext();
-    d.snap={ date:todayISO(), risks:r5Snapshot(clientId), recosOpen:DB.recommendations.filter(x=>x.clientId===clientId&&x.status!=="fait").length }; // photo de l'état — base de la synthèse « ce qui a bougé »
+    d.snap={ date:todayISO(), risks:r5Snapshot(clientId), recosOpen:DB.recommendations.filter(x=>x.clientId===clientId&&x.status!=="fait").length,
+      pillars:(()=>{ const o={}; r5PillarScores(clientId,d.branch||"").forEach(p=>o[p.name]=p.score); return o; })() }; // photo de l'état — « chemin parcouru » + flèches des piliers au prochain rapport
     const html=r5ReportHtml(d);
     // UN SEUL MAIL : si le récepteur est configuré, le corps du mail embarque le bouton
     // « Donner mes décisions » (page en ligne servie par le récepteur) — le PDF joint reste le rapport pur.
@@ -6409,7 +6430,7 @@ function renderRisks(){
   list.sort((a,b)=>(b.probabilite*b.impact)-(a.probabilite*a.impact));
   document.getElementById("scr-risks").innerHTML=`
     <div class="pagetitle"><div><h1>Matrice des risques</h1><div class="sub">Identification, cotation P×I, niveau & traitement</div></div>
-      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="openGroupView(focusClient)" title="Vue du groupe : risques et recos par branche (client du Focus)">🏢 Groupe</button><button class="cta ghost" onclick="openR5Delta(focusClient)" title="Comparaison avec le dernier rapport envoyé : risques aggravés / améliorés / nouveaux, recos soldées (client du Focus)">🔁 Ce qui a bougé</button><button class="cta ghost" onclick="openR5Report(focusClient)" title="Le livrable d'audit : synthèse, matrice, cartographie, plan d'action + tes analyses (client du Focus)">📑 Rapport d'audit</button><button class="cta" onclick="openRiskForm()">+ Nouveau risque</button></div></div>
+      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="openR5Hub(focusClient)" title="LE centre de reporting : vue du groupe, évolution, édition et envoi du rapport — tout au même endroit (client du Focus)">📑 Rapport & suivi</button><button class="cta" onclick="openRiskForm()">+ Nouveau risque</button></div></div>
     ${focusBanner()}
     <div class="filters">
       ${clientPickerHtml()}
@@ -6522,18 +6543,36 @@ function renderCarto(){
    Le rapport d'audit peut alors être émis PAR BRANCHE : chaque direction ne voit que son périmètre
    + le commun. Sans branche choisie : vue et rapport du groupe entier. */
 function clientBranches(cid){ const c=DB.clients.find(x=>x.id===cid); if(!c) return []; return [c.sector].concat(c.sectors2||[]).filter(Boolean); }
+/* Score R5 (formule transparente) : 60 % maîtrise des risques (sévérité P×I inversée, traité & adopté = 25 %)
+   + 40 % recommandations exécutées. Utilisé par la vue Groupe, les piliers du rapport, les branches. */
+function r5ScoreOf(rk,rcAll){ if(!rk.length&&!(rcAll||[]).length) return null;
+  const load=rk.length?rk.reduce((s,r)=>{ const sc=(+r.probabilite||0)*(+r.impact||0);
+    const w=(r.status==="traite"&&clientAccepted(r.clientDecision))?0.25:1; return s+(sc/25)*w; },0)/rk.length:0;
+  const maitrise=Math.max(0,Math.round(100-load*100));
+  const done=(rcAll||[]).length?Math.round(rcAll.filter(x=>x.status==="fait").length/rcAll.length*100):null;
+  return done==null?maitrise:Math.round(0.6*maitrise+0.4*done); }
+/* Les 3 PILIERS BSM (la promesse de l'en-tête : Risk Governance · Operational Resilience · Crisis Management),
+   mesurés par familles de risques. Un pilier sans risque évalué = « non évalué — volet à développer » :
+   on ne met JAMAIS un pilier en standby, on le montre — c'est le vendeur silencieux du rapport. */
+const R5_PILLARS=[["Gouvernance du risque",["Conformité","Juridique","Stratégique","Finance","Réputation"]],
+  ["Résilience opérationnelle",["Opérationnel","IT","Logistique","RH","Environnement"]],
+  ["Gestion de crise",["Sécurité"]]];
+function r5PillarScores(clientId,branch,prevMap){
+  const inBranch=x=>!branch||!x.secteur||x.secteur===branch;
+  return R5_PILLARS.map(P=>{
+    const rk=DB.risks.filter(r=>r.clientId===clientId&&inBranch(r)&&P[1].indexOf(r.famille)>-1);
+    const ids=new Set(rk.map(r=>r.id));
+    const rc=DB.recommendations.filter(r=>r.clientId===clientId&&inBranch(r)&&r.riskId&&ids.has(r.riskId)&&r.clientDecision!=="refuse");
+    return { name:P[0], score:rk.length?r5ScoreOf(rk,rc):null, prev:(prevMap&&prevMap[P[0]]!=null)?prevMap[P[0]]:null };
+  });
+}
 function branchOptions(sel,cid){ return `<option value="">— Commun / groupe entier —</option>`+clientBranches(cid).map(b=>`<option ${sel===b?'selected':''}>${esc(b)}</option>`).join(""); }
 function openGroupView(clientId){
   const c=DB.clients.find(x=>x.id===clientId); if(!c){ toast("Choisis d'abord un client (Focus client)."); return; }
   const bs=clientBranches(clientId);
   // Score R5 de maîtrise (formule transparente) : 60 % maîtrise des risques (sévérité moyenne P×I
   // inversée, un risque traité & adopté ne pèse plus que 25 %) + 40 % exécution des recommandations.
-  const scoreOf=(rk,rcAll)=>{ if(!rk.length&&!rcAll.length) return null;
-    const load=rk.length?rk.reduce((s,r)=>{ const sc=(+r.probabilite||0)*(+r.impact||0);
-      const w=(r.status==="traite"&&clientAccepted(r.clientDecision))?0.25:1; return s+(sc/25)*w; },0)/rk.length:0;
-    const maitrise=Math.max(0,Math.round(100-load*100));
-    const done=rcAll.length?Math.round(rcAll.filter(x=>x.status==="fait").length/rcAll.length*100):null;
-    return done==null?maitrise:Math.round(0.6*maitrise+0.4*done); };
+  const scoreOf=r5ScoreOf;
   const d365=isoOffset(-365);
   const caOf=k=>{ const mids=new Set(DB.missions.filter(m=>m.clientId===clientId&&(m.secteur||"")===k).map(m=>m.id));
     return DB.transactions.filter(t=>t.clientId===clientId&&t.sens==="entrant"&&t.status==="realise"&&t.date>=d365&&mids.has(t.missionId)).reduce((s,t)=>s+txDefault(t),0); };
@@ -6556,6 +6595,30 @@ function openGroupView(clientId){
     ${caNoMission>0?`<div class="hint" style="color:var(--orange)">⚠️ CA non ventilé (encaissements sans mission rattachée, 12 mois) : <b>${fmtD(caNoMission)}</b> — rattache ces mouvements à une mission avec branche pour un CA par branche exact.</div>`:""}
     <div class="hint">Score R5 = 60 % maîtrise des risques (sévérité P×I inversée ; traité & adopté pèse 25 %) + 40 % recommandations exécutées. CA = encaissé 12 mois via les missions de la branche, aux taux figés.</div>
     <div class="modal-actions"><button class="cta" onclick="closeModal()">OK</button></div>`);
+}
+/* ===== CENTRE UNIQUE DE REPORTING « 📑 Rapport & suivi » =====
+   UN bouton, UN rituel en 3 temps — pensé pour les futurs employés BSM : impossible de se perdre.
+   1. Comprendre le groupe → 2. Mesurer l'évolution → 3. Émettre LE rapport (passé · présent · futur). */
+function openR5Hub(clientId){
+  const c=DB.clients.find(x=>x.id===clientId);
+  if(!c){ toast("Choisis d'abord un client (sélecteur « Focus client ») — tout le reporting se pilote par client."); return; }
+  const bs=clientBranches(clientId);
+  const allRk=DB.risks.filter(r=>r.clientId===clientId);
+  const allRc=DB.recommendations.filter(r=>r.clientId===clientId&&r.clientDecision!=="refuse");
+  const g=r5ScoreOf(allRk,allRc);
+  const nSent=(DB.r5reports||[]).filter(r=>r.clientId===clientId&&r.status!=="brouillon").length;
+  const card=(num,icon,title,sub,fn)=>`<div onclick="closeModal();${fn}" style="display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:13px 16px;margin-bottom:8px;cursor:pointer;background:#fff" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--line)'">
+    <div style="width:30px;height:30px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0">${num}</div>
+    <div style="flex:1"><b>${icon} ${title}</b><div style="font-size:12px;color:var(--muted);margin-top:1px">${sub}</div></div><div style="color:var(--muted)">›</div></div>`;
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📑 Rapport & suivi — ${esc(c.company)}</h2>
+    <div class="msub">${g!=null?`Score R5 général : <b>${g} %</b> · `:""}${allRk.length} risque(s) · ${bs.length} branche(s) · ${nSent} rapport(s) émis. Le rituel BSM en 3 temps :</div>
+    <div style="margin-top:10px">
+    ${card(1,"🏢","Comprendre le groupe","Scores R5 par branche, risques critiques, recos ouvertes, CA ventilé 12 mois","openGroupView('"+clientId+"')")}
+    ${card(2,"🔁","Mesurer l'évolution","Ce qui a bougé depuis le dernier rapport : aggravés, améliorés, nouveaux, recos soldées","openR5Delta('"+clientId+"')")}
+    ${card(3,"📑","Émettre LE rapport","Passé · présent · futur — piliers BSM en jauges, analyses, matrice, carto, solutions chiffrées, décision en un clic. Par branche ou groupe entier.","openR5Report('"+clientId+"')")}
+    </div>
+    <div class="hint">Un seul document par client (ou par branche) et par trimestre — jamais plusieurs rapports dispersés. La fenêtre du rapport gère aussi la fiche de décision et l'archivage.</div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`);
 }
 let recoFilter="tous";
 function recoPrioBadge(p){return {"Critique":"b-red","Élevée":"b-orange","Modérée":"b-amber","Faible":"b-grey"}[p]||"b-grey";}
