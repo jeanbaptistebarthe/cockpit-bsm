@@ -547,7 +547,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.39.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.40.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -2226,9 +2226,12 @@ function openClientForm(id){
     <div class="field"><label>Secteur d'intervention BSM (principal) <span style="font-weight:400;color:var(--muted);font-size:11.5px">— exclusivité : un seul client par secteur</span></label><select id="f-sector">${c.sector&&SECTORS.indexOf(c.sector)===-1?`<option selected>${esc(c.sector)}</option>`:""}${SECTORS.map(s=>`<option ${c.sector===s?'selected':''}>${s}</option>`).join("")}</select></div>
     <div class="field"><label>Secteurs additionnels <span style="font-weight:400;color:var(--muted);font-size:11.5px">— si CE client étend BSM à d'autres branches (Ctrl+clic pour choisir/retirer, même règle d'exclusivité)</span></label>
       <select id="f-sectors2" multiple size="4" style="height:auto">${SECTORS.filter(s=>s!=="Autre").map(s=>`<option ${(c.sectors2||[]).indexOf(s)>-1?'selected':''}>${s}</option>`).join("")}</select></div>
-    <div class="field row2"><label>Contact</label>
+    <div class="field row2"><label>Contact principal (groupe)</label>
       <input id="f-cname" placeholder="Nom du contact" value="${esc(c.contactName||'')}">
       <input id="f-cphone" placeholder="Téléphone" value="${esc(c.contactPhone||'')}"></div>
+    <div class="field"><label>👥 Représentants par branche <span style="font-weight:400;color:var(--muted);font-size:11.5px">— le DG de chaque branche ; le rapport de SA branche lui est adressé automatiquement</span></label>
+      <div id="cli-contacts"></div>
+      <button type="button" class="cta ghost sm" onclick="cliContactAdd()">+ Représentant</button></div>
     <div class="field row2"><label>Email & trigramme (n° de facture)</label><input id="f-cemail" placeholder="Email" value="${esc(c.contactEmail||'')}">
       <input id="f-ctrigram" maxlength="4" placeholder="Ex. ACM" value="${esc(c.trigram||'')}" style="text-transform:uppercase" title="3 lettres identifiant le client dans les numéros de facture (ex. FAC-2026-ACM-001). Vide = déduit du nom."></div>
     <div class="field row2"><label>Statut & responsable</label><select id="f-status">
@@ -2256,6 +2259,25 @@ function openClientForm(id){
     <div class="field"><label>Résumé de suivi</label><textarea id="f-fsum" rows="2">${esc(c.followupSummary||'')}</textarea></div>
     <div class="field"><label>Notes</label><textarea id="f-notes" rows="2">${esc(c.notes||'')}</textarea></div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveClient('${id||''}')">Enregistrer</button></div>`);
+  cliContactsInit(c);
+}
+/* Représentants par branche (DG de branche) — lignes dynamiques de la fiche client.
+   Utilisés par le rapport PAR BRANCHE : le destinataire devient le représentant de la branche. */
+let _cliContacts=[];
+function cliContactsInit(c){ _cliContacts=(c.contacts2||[]).map(x=>Object.assign({},x)); cliContactsRender(); }
+function cliContactsRender(){
+  const w=document.getElementById("cli-contacts"); if(!w) return;
+  w.innerHTML=_cliContacts.map((k,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+    <select style="width:170px;flex-shrink:0;padding:7px;border:1px solid var(--line);border-radius:7px;font-size:12px" onchange="_cliContacts[${i}].branch=this.value"><option value="">— Branche —</option>${SECTORS.filter(s=>s!=="Autre").map(s=>`<option ${k.branch===s?'selected':''}>${s}</option>`).join("")}</select>
+    <input style="flex:1;padding:7px;border:1px solid var(--line);border-radius:7px;font-size:12px" placeholder="Nom (DG de branche)" value="${esc(k.name||"")}" oninput="_cliContacts[${i}].name=this.value">
+    <input style="flex:1;padding:7px;border:1px solid var(--line);border-radius:7px;font-size:12px" placeholder="Email" value="${esc(k.email||"")}" oninput="_cliContacts[${i}].email=this.value">
+    <input style="width:120px;flex-shrink:0;padding:7px;border:1px solid var(--line);border-radius:7px;font-size:12px" placeholder="Téléphone" value="${esc(k.phone||"")}" oninput="_cliContacts[${i}].phone=this.value">
+    <button type="button" class="iconbtn del" onclick="_cliContacts.splice(${i},1);cliContactsRender()">✕</button></div>`).join("")||`<div class="hint" style="margin:2px 0 6px">Aucun représentant de branche — le contact principal reçoit tout.</div>`;
+}
+function cliContactAdd(){ _cliContacts.push({branch:"",name:"",email:"",phone:""}); cliContactsRender(); }
+function branchContact(clientId, branch){
+  const c=DB.clients.find(x=>x.id===clientId); if(!c||!branch) return null;
+  return (c.contacts2||[]).find(k=>k.branch===branch && (k.email||k.name))||null;
 }
 function saveClient(id){
   const company=val("f-company").trim();
@@ -2274,6 +2296,7 @@ function saveClient(id){
   // Secteurs additionnels (multi-branches chez un même client) — le principal n'y est jamais dupliqué.
   const s2el=document.getElementById("f-sectors2");
   obj.sectors2=s2el?Array.prototype.slice.call(s2el.selectedOptions).map(o=>o.value).filter(s=>s!==obj.sector):[];
+  obj.contacts2=_cliContacts.filter(k=>(k.name||"").trim()||(k.email||"").trim()); // représentants par branche
   // Règle BSM d'exclusivité sectorielle : jamais deux entreprises sur le même secteur d'intervention
   // (équité, non-concurrence) — vérifiée sur le secteur principal ET les additionnels, des deux côtés.
   const prev=id?(DB.clients.find(x=>x.id===id)||{}):{};
@@ -5754,7 +5777,8 @@ function openMissionForm(id, prefillClientId, prefillAmount, prefillCur){
     <h2>${id?"Modifier la mission":"Nouvelle mission"}</h2>
     <div class="field row2"><label>Référence & client</label>
       <input id="f-ref" value="${esc(m.ref||nextRef('MIS',DB.missions))}">
-      <select id="f-mclient"><option value="">— Client —</option>${DB.clients.map(c=>`<option value="${c.id}" ${m.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+      <select id="f-mclient" onchange="var b=document.getElementById('f-mbranch');if(b)b.innerHTML=branchOptions('',this.value)"><option value="">— Client —</option>${DB.clients.map(c=>`<option value="${c.id}" ${m.clientId===c.id?'selected':''}>${esc(c.company)}</option>`).join("")}</select></div>
+    <div class="field"><label>Branche / secteur <span style="font-weight:400;color:var(--muted);font-size:11.5px">— ventile le CA de la mission sur cette branche du client</span></label><select id="f-mbranch">${branchOptions(m.secteur,m.clientId)}</select></div>
     <div class="field row2"><label>Type & phase R5</label>
       <select id="f-mtype">${MISSION_TYPES.map(x=>`<option ${m.type===x?'selected':''}>${x}</option>`).join("")}</select>
       <select id="f-mphase">${R5_PHASES.map(p=>`<option value="${p}" ${m.phase===p?'selected':''}>${R5_LABELS[p]}</option>`).join("")}</select></div>
@@ -5879,7 +5903,7 @@ function saveMission(id){
     if(isNaN(a)||a<=0){ toast("Abonnement : renseignez un montant par échéance."); return; }
   }
   const obj={ref:val("f-ref").trim(),clientId:val("f-mclient"),type:val("f-mtype"),phase:val("f-mphase"),startDate:val("f-mstart"),endDate:val("f-mend"),
-    montantHT: billing==="ponctuel"?(parseFloat(val("f-mmontant"))||0):0, currency:val("f-mcur"), billing:billing, forfait:forfait,
+    montantHT: billing==="ponctuel"?(parseFloat(val("f-mmontant"))||0):0, currency:val("f-mcur"), billing:billing, forfait:forfait, secteur:val("f-mbranch")||"",
     nda:document.getElementById("f-nda").checked,contrat:document.getElementById("f-contrat").checked,rapport:document.getElementById("f-rapport").checked,
     status:val("f-mstatus"),notes:val("f-mnotes")};
   let mid=id;
@@ -6346,8 +6370,11 @@ function r5ReportPreview(clientId){ openPrintable(r5ReportHtml(r5ReportSaveDraft
 function r5ReportPrint(id){ const r=(DB.r5reports||[]).find(x=>x.id===id); if(r) openPrintable(r5ReportHtml(r)); }
 function r5ReportSend(clientId){
   const d=r5ReportSaveDraft(clientId);
-  const c=DB.clients.find(x=>x.id===clientId); const to=(c&&c.contactEmail)||"";
-  if(!to){ toast("Renseigne l'e-mail du contact dans la fiche client pour envoyer — ou utilise 🖨 Aperçu / PDF."); return; }
+  const c=DB.clients.find(x=>x.id===clientId);
+  // Rapport de branche → adressé au REPRÉSENTANT de la branche (DG de branche) s'il existe, sinon au contact principal.
+  const bc=d.branch?branchContact(clientId,d.branch):null;
+  const to=(bc&&bc.email)||(c&&c.contactEmail)||"";
+  if(!to){ toast("Renseigne l'e-mail du contact (ou du représentant de la branche) dans la fiche client — ou utilise 🖨 Aperçu / PDF."); return; }
   confirmModal("Envoyer le rapport d'audit ?", "Destinataire : "+esc(to)+". Relis l'aperçu d'abord si ce n'est pas fait — après envoi, le rapport est figé et archivé.", async ()=>{
     closeModal();
     if(!d.ref) d.ref=r5ReportRefNext();
@@ -6499,16 +6526,35 @@ function branchOptions(sel,cid){ return `<option value="">— Commun / groupe en
 function openGroupView(clientId){
   const c=DB.clients.find(x=>x.id===clientId); if(!c){ toast("Choisis d'abord un client (Focus client)."); return; }
   const bs=clientBranches(clientId);
+  // Score R5 de maîtrise (formule transparente) : 60 % maîtrise des risques (sévérité moyenne P×I
+  // inversée, un risque traité & adopté ne pèse plus que 25 %) + 40 % exécution des recommandations.
+  const scoreOf=(rk,rcAll)=>{ if(!rk.length&&!rcAll.length) return null;
+    const load=rk.length?rk.reduce((s,r)=>{ const sc=(+r.probabilite||0)*(+r.impact||0);
+      const w=(r.status==="traite"&&clientAccepted(r.clientDecision))?0.25:1; return s+(sc/25)*w; },0)/rk.length:0;
+    const maitrise=Math.max(0,Math.round(100-load*100));
+    const done=rcAll.length?Math.round(rcAll.filter(x=>x.status==="fait").length/rcAll.length*100):null;
+    return done==null?maitrise:Math.round(0.6*maitrise+0.4*done); };
+  const d365=isoOffset(-365);
+  const caOf=k=>{ const mids=new Set(DB.missions.filter(m=>m.clientId===clientId&&(m.secteur||"")===k).map(m=>m.id));
+    return DB.transactions.filter(t=>t.clientId===clientId&&t.sens==="entrant"&&t.status==="realise"&&t.date>=d365&&mids.has(t.missionId)).reduce((s,t)=>s+txDefault(t),0); };
+  const caNoMission=DB.transactions.filter(t=>t.clientId===clientId&&t.sens==="entrant"&&t.status==="realise"&&t.date>=d365&&!t.missionId).reduce((s,t)=>s+txDefault(t),0);
+  const allRk=DB.risks.filter(r=>r.clientId===clientId), allRc=DB.recommendations.filter(r=>r.clientId===clientId&&r.clientDecision!=="refuse");
+  const gScore=scoreOf(allRk,allRc);
   const seg=[{k:"",label:"🏢 Commun / groupe"}].concat(bs.map(b=>({k:b,label:"🏷️ "+b})));
   const rows=seg.map(s=>{
     const rk=DB.risks.filter(r=>r.clientId===clientId&&(r.secteur||"")===s.k);
     const crit=rk.filter(r=>(+r.probabilite||0)*(+r.impact||0)>=15).length;
-    const rc=DB.recommendations.filter(r=>r.clientId===clientId&&(r.secteur||"")===s.k&&r.status!=="fait"&&r.clientDecision!=="refuse").length;
-    return `<div class="li"><span><b>${esc(s.label)}</b></span><span>${rk.length} risque(s)${crit?` · <b style="color:var(--red)">${crit} critique(s)</b>`:""} · ${rc} reco(s) ouverte(s)</span></div>`;
+    const rcAll=DB.recommendations.filter(r=>r.clientId===clientId&&(r.secteur||"")===s.k&&r.clientDecision!=="refuse");
+    const rcOpen=rcAll.filter(r=>r.status!=="fait").length;
+    const sc=scoreOf(rk,rcAll); const ca=caOf(s.k);
+    const scCol=sc==null?"var(--muted)":(sc>=70?"var(--green)":(sc>=40?"var(--orange)":"var(--red)"));
+    return `<div class="li"><span><b>${esc(s.label)}</b>${sc!=null?` <b style="color:${scCol}">· R5 ${sc}%</b>`:""}</span><span>${rk.length} risque(s)${crit?` · <b style="color:var(--red)">${crit} crit.</b>`:""} · ${rcOpen} reco(s) ouv. · CA 12 m : <b>${fmtD(ca)}</b></span></div>`;
   }).join("");
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🏢 Vue du groupe — ${esc(c.company)}</h2>
-    <div class="msub">${bs.length} branche(s) exploitée(s). Le « commun » s'applique à tout le groupe ; chaque rapport d'audit peut être émis <b>par branche</b> (fenêtre 📑 Rapport → Branche) — chaque direction ne reçoit que son périmètre + le commun.</div>
+    <div class="msub">${bs.length} branche(s) exploitée(s)${gScore!=null?` · <b>Score R5 général : ${gScore}%</b>`:""}. Le « commun » s'applique à tout le groupe ; chaque rapport peut être émis <b>par branche</b> (📑 Rapport → Branche) et part au <b>représentant de la branche</b>.</div>
     <div class="mini-list" style="margin-top:8px">${rows}</div>
+    ${caNoMission>0?`<div class="hint" style="color:var(--orange)">⚠️ CA non ventilé (encaissements sans mission rattachée, 12 mois) : <b>${fmtD(caNoMission)}</b> — rattache ces mouvements à une mission avec branche pour un CA par branche exact.</div>`:""}
+    <div class="hint">Score R5 = 60 % maîtrise des risques (sévérité P×I inversée ; traité & adopté pèse 25 %) + 40 % recommandations exécutées. CA = encaissé 12 mois via les missions de la branche, aux taux figés.</div>
     <div class="modal-actions"><button class="cta" onclick="closeModal()">OK</button></div>`);
 }
 let recoFilter="tous";
