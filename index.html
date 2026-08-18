@@ -363,14 +363,22 @@
   .ai-md ul,.ai-md ol{margin:5px 0 5px 18px;padding:0;} .ai-md li{margin:3px 0;}
   .ai-md hr{border:none;border-top:1px solid var(--line);margin:10px 0;}
   .ai-md code{background:#f1efe6;border-radius:4px;padding:1px 5px;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;}
+  /* Charte unique des tableaux markdown (écran = PDF = docs) : en-tête crème/navy, bordures sable — cf. docChrome/reportHtml */
   .ai-md .md-table{border-collapse:collapse;width:100%;margin:8px 0;font-size:12px;display:block;overflow-x:auto;}
-  .ai-md .md-table th{background:var(--navy);color:#fff;text-align:left;padding:6px 8px;font-size:11px;white-space:nowrap;}
-  .ai-md .md-table td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top;}
-  .ai-md .md-table tr:nth-child(even) td{background:#faf8f2;}
+  .ai-md .md-table th{background:#F6F1E8;color:var(--navy);font-weight:700;text-align:left;padding:6px 8px;font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;border:1px solid var(--line);white-space:nowrap;}
+  .ai-md .md-table td{padding:6px 8px;border:1px solid #EDE9DD;vertical-align:top;}
+  .ai-md .md-table tr:nth-child(even) td{background:#FCFBF7;}
+  body.dark .ai-md .md-table th{background:#22304a;color:var(--ink);border-color:#273241;}
+  body.dark .ai-md .md-table td{border-color:#273241;}
+  body.dark .ai-md .md-table tr:nth-child(even) td{background:#1b2736;}
   /* Tableaux markdown premium partout (rapports, aperçus…) */
-  table.md-table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;}
-  table.md-table th{background:#0D1F45;color:#fff;text-align:left;padding:7px 9px;font-size:11.5px;}
-  table.md-table td{padding:7px 9px;border-bottom:1px solid #e5e0d5;vertical-align:top;}
+  table.md-table{border-collapse:collapse;width:100%;margin:10px 0;font-size:12.5px;font-variant-numeric:tabular-nums;}
+  table.md-table th{background:#F6F1E8;color:#102A43;font-weight:700;text-align:left;padding:7px 9px;font-size:10.5px;letter-spacing:.03em;text-transform:uppercase;border:1px solid #E4E0D6;}
+  table.md-table td{padding:7px 9px;border:1px solid #EDE9DD;vertical-align:top;}
+  table.md-table tbody tr:nth-child(even){background:#FCFBF7;}
+  body.dark table.md-table th{background:#22304a;color:var(--ink);border-color:#273241;}
+  body.dark table.md-table td{border-color:#273241;}
+  body.dark table.md-table tbody tr:nth-child(even){background:#1b2736;}
   body.dark .ai-md strong,body.dark .ai-md h1,body.dark .ai-md h2,body.dark .ai-md h3{color:#cfe0f5;}
   body.dark .ai-md code{background:#22303f;}
   .ai-remember{display:block;margin-top:6px;background:none;border:none;color:var(--gold);font-size:11px;cursor:pointer;padding:0;font-weight:600;}
@@ -642,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.51.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.52.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -1544,6 +1552,9 @@ async function serverSyncInit(){
     aiServerInit();                          // proxy IA : détecte les clés serveur + migre les clés locales hors du navigateur
     docsMigrateToServer();                   // pièces jointes : migration douce vers le disque du PC serveur (quota navigateur libéré)
     kbOffloadBig();                          // base de connaissances : texte intégral des gros documents → disque serveur (base 4× plus légère)
+    // 📥 Décisions client : import automatique du Sheet au démarrage puis toutes les 15 min (silencieux — toast seulement s'il y a du nouveau)
+    setTimeout(()=>{ try{ syncDecisionsFromSheet(true); }catch(e){} }, 6000);
+    setInterval(()=>{ try{ syncDecisionsFromSheet(true); }catch(e){} }, 15*60*1000);
   }catch(e){ /* pas de serveur : on reste en local, sans afficher d'erreur */ }
 }
 /* ---- Proxy IA serveur : le navigateur ne stocke plus les clés API ; il sait seulement quels fournisseurs sont prêts. ---- */
@@ -6657,18 +6668,59 @@ function openR5DecisionsPaste(){
     <div class="field"><textarea id="r5dp-txt" rows="8" style="width:100%;font-family:monospace;font-size:12px;padding:8px;border:1px solid var(--line);border-radius:8px" placeholder="DECISIONS R5 — ALTHEA — 18/08/2026&#10;REC-001 : VALIDER&#10;REC-002 : DIFFERER"></textarea></div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="applyR5Decisions()">Appliquer</button></div>`);
 }
-function applyR5Decisions(){
-  const lines=String(val("r5dp-txt")||"").split(/\r?\n/); let nv=0,nd=0,nu=0;
+/* Cœur commun : applique un bloc de décisions (« REC-001 : VALIDER »). Utilisé par le collage manuel
+   ET l'import automatique du Sheet. preferClientId : la réf. est d'abord cherchée chez ce client. */
+function applyDecisionText(text, preferClientId){
+  const lines=String(text||"").split(/\r?\n/); let nv=0,nd=0,nu=0;
   lines.forEach(ln=>{
     const m=ln.match(/^\s*(REC-[\w-]+)\s*[:\-–]\s*(VALIDER|DIFFERER|DIFFÉRER|REFUSER)/i); if(!m) return;
-    const r=DB.recommendations.find(x=>norm(x.ref||"")===norm(m[1])); if(!r){ nu++; return; }
+    let r=preferClientId?DB.recommendations.find(x=>x.clientId===preferClientId&&norm(x.ref||"")===norm(m[1])):null;
+    if(!r) r=DB.recommendations.find(x=>norm(x.ref||"")===norm(m[1]));
+    if(!r){ nu++; return; }
     const dec=m[2].toUpperCase();
     if(dec==="VALIDER"){ r.clientDecision="valide"; nv++; }
     else if(dec==="REFUSER"){ r.clientDecision="refuse"; r.commentaire=((r.commentaire||"")+" · ").replace(/^ · /,"")+"Refusé par le client le "+frDate(todayISO()); nd++; } // refusée : sort du plan d'action des prochains rapports, conservée au dossier
     else { r.commentaire=((r.commentaire||"")+" · ").replace(/^ · /,"")+"Différé par le client le "+frDate(todayISO()); nd++; } // différée : re-proposée au prochain rapport (c'est le but du suivi trimestriel)
   });
+  return {nv,nd,nu};
+}
+function applyR5Decisions(){
+  const res=applyDecisionText(val("r5dp-txt")||"", "");
   save(); closeModal(); refreshAll();
-  toast("📥 "+nv+" validée(s), "+nd+" différée(s)/refusée(s)"+(nu?", "+nu+" réf. inconnue(s)":"")+" — le suivi est à jour.");
+  toast("📥 "+res.nv+" validée(s), "+res.nd+" différée(s)/refusée(s)"+(res.nu?", "+res.nu+" réf. inconnue(s)":"")+" — le suivi est à jour.");
+}
+/* 📥 IMPORT AUTOMATIQUE des décisions client : lit l'onglet « DECISIONS RECUES » du Sheet R5
+   (rempli par la page de décision en ligne) et applique les décisions — plus aucun collage.
+   Idempotent : chaque ligne traitée est mémorisée par empreinte et ignorée aux passages suivants.
+   Nécessite le serveur local (pont Google) ; silencieux si indisponible (mode auto). */
+async function syncDecisionsFromSheet(silent){
+  if(!serverEnabled){ if(!silent) toast("Import des décisions : ouvre le Cockpit local (pont Google requis)."); return; }
+  try{
+    const d=await googleCall("readTab",{tab:"DECISIONS RECUES"});
+    const rows=(d&&d.rows)||[];
+    if(rows.length<2){ if(!silent) toast("Aucune décision dans l'onglet « DECISIONS RECUES »."); return; }
+    DB.meta.decImported=Array.isArray(DB.meta.decImported)?DB.meta.decImported:[];
+    let applied=0, nvT=0, ndT=0, nuT=0;
+    for(let i=1;i<rows.length;i++){
+      const row=rows[i]||[]; const when=String(row[0]||""), client=String(row[1]||""), dec=String(row[2]||""), com=String(row[3]||"");
+      if(!dec.trim()) continue;
+      const key=passHash(when+"|"+client+"|"+dec);
+      if(DB.meta.decImported.indexOf(key)>=0) continue;
+      const c=(DB.clients||[]).find(x=>norm(x.company||"")===norm(client));
+      const res=applyDecisionText(dec, c?c.id:"");
+      DB.meta.decImported.push(key);
+      nuT+=res.nu;
+      if(res.nv+res.nd>0){
+        applied++; nvT+=res.nv; ndT+=res.nd;
+        // La décision du client est un événement majeur : notification (cloche + mail via la chaîne d'alertes)
+        notify("reco","📥 Décisions client intégrées", client+" ("+when+") — "+res.nv+" validée(s), "+res.nd+" différée(s)/refusée(s)"+(com?" · « "+com.slice(0,80)+" »":""), {clientId:c?c.id:""});
+      }
+    }
+    if(DB.meta.decImported.length>600) DB.meta.decImported=DB.meta.decImported.slice(-600);
+    save();
+    if(applied){ refreshAll(); toast("📥 "+applied+" bloc(s) de décisions client intégré(s) automatiquement — "+nvT+" validée(s), "+ndT+" différée(s)/refusée(s)."); }
+    else if(!silent) toast("📥 Aucune nouvelle décision à intégrer."+(nuT?" ("+nuT+" réf. inconnue(s))":""));
+  }catch(e){ if(!silent) toast("Import des décisions : "+(e.message||e)); }
 }
 function r5ReportPreview(clientId){ openPrintable(r5ReportHtml(r5ReportSaveDraft(clientId))); }
 function r5ReportPrint(id){ const r=(DB.r5reports||[]).find(x=>x.id===id); if(r) openPrintable(r5ReportHtml(r)); }
@@ -6965,7 +7017,7 @@ function renderRecos(){
   list.sort((a,b)=>(a.ref||"").localeCompare(b.ref||""));
   document.getElementById("scr-recos").innerHTML=`
     <div class="pagetitle"><div><h1>Recommandations & suivi</h1><div class="sub">Plan d'action R5 (Respond → Strengthen)</div></div>
-      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="openR5DecisionsPaste()" title="Coller le bloc de décisions reçu du client (fiche de décision) — applique Validé / Différé / Refusé en un clic">📥 Décisions reçues</button><button class="cta" onclick="openRecoForm()">+ Nouvelle recommandation</button></div></div>
+      <div style="display:flex;gap:8px">${serverEnabled?`<button class="cta ghost" onclick="syncDecisionsFromSheet()" title="Lit l'onglet « DECISIONS RECUES » du Sheet R5 (rempli par la page de décision en ligne) et applique les décisions — automatique au démarrage et toutes les 15 min, ce bouton force une relecture immédiate">🔄 Importer du Sheet</button>`:""}<button class="cta ghost" onclick="openR5DecisionsPaste()" title="Coller le bloc de décisions reçu du client (fiche de décision) — applique Validé / Différé / Refusé en un clic">📥 Décisions reçues</button><button class="cta" onclick="openRecoForm()">+ Nouvelle recommandation</button></div></div>
     ${focusBanner()}
     <div class="hint" style="margin-bottom:10px">ℹ️ Les recommandations sont des <b>conseils et schémas de réponse proposés par BSM</b> (recherche, réponse, suivi, amélioration). <b>Le client décide</b> de les valider et de les mettre en place — l'avancement mesure ce suivi, il ne fait pas disparaître le risque associé.</div>
     <div class="filters">${clientPickerHtml()}<span style="width:14px"></span>${[["tous","Toutes"],["a_faire","À faire"],["en_cours","En cours"],["fait","Faites"]].map(f=>`<button class="chip ${recoFilter===f[0]?'active':''}" onclick="recoFilter='${f[0]}';renderRecos()">${f[1]}</button>`).join("")}</div>
@@ -7460,6 +7512,7 @@ async function syncAuditsFromForms(){
     const el2=document.getElementById("audit-sync-status"); if(el2) el2.textContent="✅ "+summary;
     toast("Audits synchronisés ✅");
   }catch(e){ const el2=document.getElementById("audit-sync-status"); if(el2) el2.textContent="❌ "+(e.message||e)+" — nécessite le serveur local + pont Google configuré."; toast("Échec sync : "+(e.message||e)); }
+  try{ await syncDecisionsFromSheet(true); }catch(e){} // même geste : les décisions client arrivées entre-temps sont intégrées aussi
 }
 function openAuditConfig(){
   if(!isDirection()){ toast("Réservé à la direction."); return; }
