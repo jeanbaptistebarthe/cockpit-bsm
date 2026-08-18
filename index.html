@@ -538,7 +538,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.26.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.27.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -766,6 +766,19 @@ function load(){
   if(!DB.meta.a1FlashDocSeededV1){
     try{ if(!(DB.docTemplates||[]).some(t=>/audit flash/i.test(t.title||""))) DB.docTemplates.push(docAuditFlashTemplate()); }catch(e){}
     DB.meta.a1FlashDocSeededV1=true;
+  }
+  // v5.27 : clause d'indexation ariary (taux de référence mensuel BSM, seuil ±5 %) ajoutée UNE FOIS
+  // en fin des modèles Contrat & Échéancier qui n'en parlent pas encore (ajout en fin de corps — ne touche pas le texte existant).
+  if(!DB.meta.fxClauseSeededV1){
+    try{
+      const CL_CT="\n\n## Article — Monnaie de facturation & indexation\nLes honoraires sont libellés dans la devise indiquée au présent contrat. Pour les contrats libellés en ariary d'une durée supérieure à trois mois : les montants sont établis sur la base du taux de référence mensuel BSM du mois de signature (cours officiel relevé le 1ᵉʳ du mois). Si, à une échéance, le taux de référence mensuel s'écarte de plus de 5 % du taux de signature, les échéances restantes sont réajustées au prorata de la variation. Le taux de signature et, le cas échéant, le taux appliqué à chaque révision sont mentionnés sur les factures correspondantes.";
+      const CL_ECH="\n\n## Indexation (contrats en ariary de plus de trois mois)\nLes échéances en ariary sont établies au taux de référence mensuel BSM du mois de signature (cours officiel relevé le 1ᵉʳ du mois). En cas de variation de plus de 5 % de ce taux de référence, les échéances restantes sont réajustées au prorata de la variation ; le taux appliqué figure sur chaque facture.";
+      (DB.docTemplates||[]).forEach(t=>{
+        if(t.type==="contrat" && !/indexation/i.test(t.body||"")) t.body=(t.body||"")+CL_CT;
+        if(t.type==="echeancier" && !/indexation/i.test(t.body||"")) t.body=(t.body||"")+CL_ECH;
+      });
+    }catch(e){}
+    DB.meta.fxClauseSeededV1=true;
   }
   generateRecurring();
 }
@@ -3823,12 +3836,14 @@ function printFichesForClient(clientId, ids){
 }
 
 /* ----------------------------- Commercial (simulateur intégré) ----------------------------- */
+function simPushRates(f){ try{ f.contentWindow.postMessage({__bsm:"rates",eurMga:DB.meta.rateEurMga||5000,usdMga:DB.meta.rateUsdMga||4500},"*"); }catch(e){} }
 function renderCommercial(){
+  const _eur=DB.meta.rateEurMga||5000, _usd=DB.meta.rateUsdMga||4500;
   document.getElementById("scr-commercial").innerHTML=`
-    <div class="pagetitle"><div><h1>Simulateur commercial</h1><div class="sub">Tarification & configuration d'offres — intégré au cockpit</div></div>
-      <a href="simulateur.html" target="_blank" rel="noopener"><button class="cta ghost">Ouvrir en plein écran ↗</button></a></div>
+    <div class="pagetitle"><div><h1>Simulateur commercial</h1><div class="sub">Tarification & configuration d'offres — intégré au cockpit · 💱 taux du mois : 1 € = ${_eur.toLocaleString('fr-FR')} Ar</div></div>
+      <a href="simulateur.html?mga=${_eur}&usd=${_usd}" target="_blank" rel="noopener"><button class="cta ghost">Ouvrir en plein écran ↗</button></a></div>
     <div class="card" style="padding:0;overflow:hidden">
-      <iframe src="simulateur.html" title="Simulateur commercial BSM" style="width:100%;height:80vh;border:none;display:block;background:#fff"></iframe>
+      <iframe src="simulateur.html" title="Simulateur commercial BSM" onload="simPushRates(this)" style="width:100%;height:80vh;border:none;display:block;background:#fff"></iframe>
     </div>
     <div class="hint" style="margin-top:-8px">Quand vous <b>générez un devis ou une proposition</b> ici, il est <b>automatiquement envoyé au Cockpit</b> : il se rattache au bon client (ou vous choisissez lequel) et vous êtes redirigé vers sa fiche. Un seul devis validé par client. Depuis la fiche, un clic crée la mission et son échéancier.</div>`;
 }
@@ -4185,6 +4200,7 @@ function openClosureModal(mk){
   const inR=tx.filter(t=>t.sens==="entrant"&&t.status==="realise"&&inMk(t.date)).reduce((s,t)=>s+txDefault(t),0);
   const outR=tx.filter(t=>t.sens==="sortant"&&t.status==="realise"&&inMk(t.date)).reduce((s,t)=>s+txDefault(t),0);
   const bDays=backupDaysSince();
+  const rts=DB.meta.ratesUpdatedAt; const fxDays=rts?Math.floor((Date.now()-new Date(rts).getTime())/86400000):null;
   const ok=v=>v?'<span style="color:var(--green);font-weight:700">✓</span>':'<span style="color:var(--orange);font-weight:700">⚠</span>';
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔒 Clôturer ${frMonth(mk+"-01")}</h2>
     <div class="msub">Cinq vérifications, puis verrouillage. Rien d'irréversible : la direction peut rouvrir (action journalisée).</div>
@@ -4195,7 +4211,9 @@ function openClosureModal(mk){
       <div class="li"><span>💸 Dépenses réalisées du mois</span><b style="color:var(--red)">${fmtD(outR)}</b></div>
       <div class="li"><span>🧮 Solde du mois</span><b style="color:${inR-outR>=0?'var(--green)':'var(--red)'}">${fmtD(inR-outR)}</b></div>
       <div class="li"><span>${ok(bDays!=null&&bDays<=7)} Sauvegarde récente</span><b>${bDays==null?"jamais faite":"il y a "+bDays+" jour(s)"}</b></div>
+      <div class="li"><span>${ok(fxDays!=null&&fxDays<=35)} Taux du mois vérifiés</span><b>${fxDays==null?"jamais":"il y a "+fxDays+" jour(s)"}</b></div>
     </div>
+    ${(fxDays==null||fxDays>35)?`<div class="hint" style="color:var(--orange)">💱 Relève le cours officiel et enregistre-le dans ⚙ Paramètres avant de clôturer — le mois suivant démarrera sur le bon taux.</div>`:""}
     ${(pendIn.length||pendOut.length)?`<div class="hint" style="color:var(--orange)">Les mouvements restés « prévu » resteront pointables après clôture (leur date passera au jour du pointage). L'idéal reste de les traiter maintenant : pointer, re-dater ou supprimer.</div>`:""}
     ${(bDays==null||bDays>7)?`<div class="hint" style="color:var(--orange)">Clique d'abord 💾 <b>Tout sauvegarder</b> (barre du haut) : on ne verrouille pas un mois sans copie de secours.</div>`:""}
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="closeMonth('${mk}')">🔒 Clôturer</button></div>`);
@@ -5050,6 +5068,15 @@ function generateAdvice(){
       add("a1review-"+o.id,"warn","🔄","Contrôle périodique A1 à proposer",
         `${clientName(o.clientId)} : audit flash restitué le ${frDate(o.prestaDate)} — la date anniversaire du contrôle périodique arrive (${frDate(rv)}). Ses données sont déjà dans le Cockpit : proposer le contrôle à tarif réduit, et rouvrir la conversation R5®.`);
   }});
+  // 1g. Taux du mois : non vérifiés depuis > 35 j → devis et nouvelles saisies sur un taux périmé
+  {
+    const rts=DB.meta.ratesUpdatedAt;
+    const fxDays=rts?Math.floor((Date.now()-new Date(rts).getTime())/86400000):null;
+    if(fxDays==null || fxDays>35)
+      add("fxstale","warn","💱","Taux du mois à vérifier",
+        (fxDays==null?"Les taux de change n'ont jamais été vérifiés.":"Dernière vérification des taux il y a "+fxDays+" jours.")
+        +" Rituel du 1ᵉʳ du mois : relever le cours officiel (BFM / banque) et l'enregistrer dans ⚙ Paramètres — c'est le taux BSM du mois, utilisé par les devis, le simulateur et les nouvelles saisies. (L'historique déjà saisi garde ses taux figés.)");
+  }
   // 2. Trésorerie du mois : dépenses > entrées
   const mk=t.slice(0,7);
   const inM=DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="realise"&&x.date.slice(0,7)===mk).reduce((s,x)=>s+txDefault(x),0);
@@ -5259,7 +5286,9 @@ function openSettings(){
     <div class="field row2"><label>Taux de conversion (pivot Ariary)</label>
       <input type="number" id="s-rate" value="${DB.meta.rateEurMga}" title="1 € = ? Ar" placeholder="1 € = ? Ar">
       <input type="number" id="s-rateusd" value="${DB.meta.rateUsdMga}" title="1 $ = ? Ar" placeholder="1 $ = ? Ar"></div>
-    <div class="hint">Saisissez chaque montant en Ar, € ou $. Les totaux sont convertis dans la devise principale : <b>1 € = ${(DB.meta.rateEurMga||5000).toLocaleString('fr-FR')} Ar</b> · <b>1 $ = ${(DB.meta.rateUsdMga||4500).toLocaleString('fr-FR')} Ar</b>.</div>
+    <div class="hint">Saisissez chaque montant en Ar, € ou $. Les totaux sont convertis dans la devise principale : <b>1 € = ${(DB.meta.rateEurMga||5000).toLocaleString('fr-FR')} Ar</b> · <b>1 $ = ${(DB.meta.rateUsdMga||4500).toLocaleString('fr-FR')} Ar</b>.
+      <br>💱 <b>Taux BSM du mois</b> — rituel du 1ᵉʳ : relève le cours officiel (BFM / ta banque) et enregistre. Dernière vérification : <b>${DB.meta.ratesUpdatedAt?frDate(DB.meta.ratesUpdatedAt):"jamais"}</b>. Les mouvements déjà saisis gardent leur taux figé.</div>
+    ${(DB.meta.rateHistory||[]).length?`<div class="hint" style="margin-top:-4px">Historique : ${DB.meta.rateHistory.slice(-6).reverse().map(h=>`${frDate(h.date)} → 1 € = ${(+h.eurMga).toLocaleString('fr-FR')} Ar`).join(" · ")}</div>`:""}
     <div class="field"><label>Accès & utilisateurs</label>
       ${isAdmin()?`<button type="button" class="cta ghost sm" onclick="closeModal();setScreen('admin-users')">🔐 Gérer les utilisateurs & rôles</button>`:`<div class="hint">La gestion des comptes est réservée aux administrateurs (Espace administrateur).</div>`}</div>
     <div class="hint">Chaque compte a son identifiant, son code et son rôle. Les connexions et l'activité sont tracées dans l'Espace administrateur → Connexions & activité. 1re couche locale ; sécurité inviolable avec la version cloud.</div>
@@ -5356,8 +5385,16 @@ function curSym(c){ return c==="MGA"?"Ar":(c==="USD"?"$":"€"); }
 function curIndicatorText(){ const d=DB.meta.defaultCurrency; return curSym(d)+" · "+CURRENCIES.map(c=>c[0]).filter(c=>c!==d).map(curSym).join(" · "); }
 function saveSettings(){
   DB.meta.defaultCurrency=val("s-cur");
+  const oldEur=DB.meta.rateEurMga, oldUsd=DB.meta.rateUsdMga;
   const r=parseFloat(val("s-rate")); DB.meta.rateEurMga=(!isNaN(r)&&r>0)?r:DB.meta.rateEurMga;
   const ru=parseFloat(val("s-rateusd")); DB.meta.rateUsdMga=(!isNaN(ru)&&ru>0)?ru:DB.meta.rateUsdMga;
+  // Taux du mois : chaque enregistrement vaut vérification (horodatée) ; chaque CHANGEMENT est archivé (traçable sur devis/contrats).
+  DB.meta.ratesUpdatedAt=todayISO();
+  if(DB.meta.rateEurMga!==oldEur || DB.meta.rateUsdMga!==oldUsd){
+    DB.meta.rateHistory=(DB.meta.rateHistory||[]).slice(-35);
+    DB.meta.rateHistory.push({ date:todayISO(), eurMga:DB.meta.rateEurMga, usdMga:DB.meta.rateUsdMga, by:currentUser?currentUser.login:"direction" });
+    if(typeof logEvent==="function") logEvent("action","Taux du mois mis à jour : 1 € = "+DB.meta.rateEurMga+" Ar · 1 $ = "+DB.meta.rateUsdMga+" Ar", true);
+  }
   DB.meta.cabinetName=val("s-cabinet");
   DB.meta.aiModel=val("s-aimodel"); DB.meta.aiModelMammouth=val("s-aimodel-mam"); DB.meta.claudeModel=val("s-claude-model")||"claude-sonnet-5";
   const _k={claude:(val("s-claude")||"").trim(), mammouth:(val("s-mammouth")||"").trim(), mistral:(val("s-mistral")||"").trim()};

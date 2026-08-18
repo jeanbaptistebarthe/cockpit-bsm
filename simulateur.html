@@ -330,7 +330,7 @@ input,select,textarea,button{font-family:var(--ff-u)}
     <div style="font-size:10px;color:var(--text-m);margin-top:2px">Facturation émise par BSM Sécurité — Barthe Services Malagasy Sécurité SARL</div>
   </div>
   <div class="app-bar-right">
-    <span class="badge badge-ver">Simulateur v4.2</span>
+    <span class="badge badge-ver">Simulateur v4.4</span>
     <span class="badge badge-conf">⚑ Confidentiel</span>
   </div>
 </header>
@@ -1535,6 +1535,21 @@ function genDevis(){
 // Envoie le devis au Cockpit parent (quand le simulateur est embarqué en iframe)
 function bsmPostDevis(p){ try{ if(window.parent && window.parent!==window){ p.__bsm='devis'; window.parent.postMessage(p,'*'); } }catch(e){} }
 
+/* ── TAUX DU MOIS — synchronisés depuis le Cockpit (source unique de vérité).
+   En iframe : postMessage du parent à chaque chargement. En plein écran : paramètres d'URL
+   (?mga=…&usd=…) passés par le lien du Cockpit. Sans Cockpit : taux de l'admin ⚙ inchangés.
+   Conversion : C.taux est relatif à l'EUR → MGA = taux €/Ar ; USD = (€/Ar) ÷ ($/Ar). */
+function applyCockpitRates(eurMga, usdMga){
+  eurMga=+eurMga; usdMga=+usdMga;
+  if(!(eurMga>0)) return;
+  var newMga=Math.round(eurMga);
+  var newUsd=usdMga>0 ? Math.round(eurMga/usdMga*100)/100 : C.taux.USD;
+  var changed=(C.taux.MGA!==newMga)||(C.taux.USD!==newUsd);
+  C.taux.MGA=newMga; C.taux.USD=newUsd;
+  if(changed){ calcStd();calcEss();calcPacks(); showToast('💱 Taux du mois synchronisés depuis le Cockpit'); }
+}
+window.addEventListener('message',function(e){ var p=e&&e.data; if(p&&p.__bsm==='rates') applyCockpitRates(p.eurMga,p.usdMga); });
+
 /* ── ENVELOPPE DOCUMENT UNIFORME — portée du docChrome du Cockpit (v5.22.1+).
    Même en-tête (coordonnées, NIF/STAT), mêmes blocs signature et même pied que TOUS les
    documents BSM (rapports exécutifs, contrats, factures, échéanciers de la bibliothèque
@@ -1969,6 +1984,7 @@ window.addEventListener('DOMContentLoaded',function(){
   var sopts=document.getElementById('s-opts');if(sopts)sopts.innerHTML=buildOpts(C.std,'s');
   var eopts=document.getElementById('e-opts');if(eopts)eopts.innerHTML=buildOpts(C.ess,'e');
   calcStd();calcEss();calcPacks();a1FlashSync();
+  try{ var q=new URLSearchParams(location.search); if(q.get('mga')) applyCockpitRates(q.get('mga'), q.get('usd')); }catch(e){}
   renderAvtLines();calcAvt();
   setView('mensuel');
   syncPcEnjeux();updatePcRecap();
