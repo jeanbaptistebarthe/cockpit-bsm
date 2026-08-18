@@ -538,7 +538,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.25.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.26.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -729,6 +729,12 @@ function load(){
   if(DB.meta.amort==null) DB.meta.amort=0;
   if(DB.meta.financier==null) DB.meta.financier=0;
   if(DB.meta.reviewMonths==null) DB.meta.reviewMonths=6;
+  // Finance sereine (v5.26) : corbeille purgée à 30 j, registre des mois clôturés, taux de change figé.
+  DB.trash=(DB.trash||[]).filter(x=>{ const d=new Date(x.deletedAt||0).getTime(); return isFinite(d)&&(Date.now()-d)<30*86400000; });
+  if(!DB.meta.closedMonths) DB.meta.closedMonths={};
+  // Les mouvements existants sont estampillés au taux du jour de CE démarrage (une fois) ;
+  // toutes les saisies suivantes sont estampillées immédiatement — l'historique ne bougera plus.
+  DB.transactions.forEach(t=>{ if(!t.fx) t.fx=txFxSnap(t.currency); });
   // Migration décision client : un risque déjà « traité » / une reco déjà « faite » = considéré adopté par le client.
   DB.risks.forEach(r=>{ if(r.status==="traite" && !r.clientDecision) r.clientDecision="valide"; });
   DB.recommendations.forEach(r=>{ if(r.status==="fait" && !r.clientDecision) r.clientDecision="enplace"; });
@@ -1710,7 +1716,7 @@ function agg(){
   let caEffectif=0, caProvisoire=0, chargesPayees=0, chargesPrevues=0, enAttente=0, enRetard=0;
   DB.transactions.forEach(tx=>{
     if(!inEntity(tx)) return;
-    const v = toDefault(tx.amount, tx.currency);
+    const v = txDefault(tx);
     if(tx.sens==="entrant"){
       if(tx.status==="realise" && inYear(tx.date,y)) caEffectif+=v;
       if(tx.status==="prevu"){ caProvisoire+=v; enAttente+=v; if((tx.dueDate||tx.date)<todayISO()) enRetard+=v; }
@@ -1733,7 +1739,7 @@ function monthlySeries(sens, status){
     DB.transactions.forEach(tx=>{
       if(!inEntity(tx)) return;
       if(tx.sens===sens && (status? tx.status===status : true) && tx.date.slice(0,7)===key)
-        sum+=toDefault(tx.amount,tx.currency);
+        sum+=txDefault(tx);
     });
     out.push({label:d.toLocaleDateString('fr-FR',{month:'short'}), key, sum});
   }
@@ -1812,10 +1818,14 @@ function submitMoneyRequest(action, txId, payload, motivation){
 }
 function approveMoneyRequest(id){
   const req=(DB.moneyRequests||[]).find(r=>r.id===id); if(!req||req.status!=="pending") return;
-  if(req.action==="create"){ const o=Object.assign({},req.payload); o.id=uid(); DB.transactions.push(o);
+  // Verrouillage des mois clôturés : une demande qui toucherait un mois clos reste en attente jusqu'à réouverture.
+  const p=req.payload||{};
+  if((req.action==="create"||req.action==="update") && p.status==="realise" && monthLocked(p.date)){ toast("🔒 "+frMonth(p.date)+" est clôturé — rouvre le mois avant de valider cette demande."); return; }
+  if(req.action==="update"||req.action==="delete"){ const t0=DB.transactions.find(x=>x.id===req.txId); if(t0&&t0.status==="realise"&&monthLocked(t0.date)){ toast("🔒 "+frMonth(t0.date)+" est clôturé — rouvre le mois avant de valider cette demande."); return; } }
+  if(req.action==="create"){ const o=Object.assign({},req.payload); o.id=uid(); o.fx=o.fx||txFxSnap(o.currency); DB.transactions.push(o);
       notify(o.sens==="entrant"?"encaissement":"depense",(o.sens==="entrant"?"Encaissement":"Dépense")+" (validé)", (o.label||"")+" · "+fmt(o.amount,o.currency)+(o.clientId?" · "+clientName(o.clientId):""),{clientId:o.clientId}); }
   else if(req.action==="update"){ const t=DB.transactions.find(x=>x.id===req.txId); if(t) Object.assign(t, req.payload); }
-  else if(req.action==="delete"){ DB.transactions=DB.transactions.filter(x=>x.id!==req.txId); }
+  else if(req.action==="delete"){ const t=DB.transactions.find(x=>x.id===req.txId); if(t) trashTx(t); DB.transactions=DB.transactions.filter(x=>x.id!==req.txId); }
   req.status="approved"; req.decidedBy=currentUser?currentUser.login:""; req.decidedAt=new Date().toISOString();
   notify("validation","Votre demande a été validée ✅", reqDetail(req), {go:"budget", forUser:req.requester});
   logEvent("action","Validation demande argent ("+req.action+") de "+req.requester, true);
@@ -2128,7 +2138,7 @@ function renderClients(){
       <div class="hint" style="margin:-4px 0 8px">💡 Cliquez une ligne pour ouvrir la <b>fiche 360°</b> du client. La colonne « Prochaine action » indique ce qu'il reste à faire.</div>
       ${list.length? `<table class="clickrows"><thead><tr><th>Société · prochaine action</th><th>Secteur</th><th>Contact</th><th>Statut</th><th>Avanc.</th><th>CA encaissé</th><th></th></tr></thead><tbody>`+
       list.map(c=>{
-        const ca=DB.transactions.filter(t=>t.clientId===c.id&&t.sens==="entrant"&&t.status==="realise").reduce((s,t)=>s+toDefault(t.amount,t.currency),0);
+        const ca=DB.transactions.filter(t=>t.clientId===c.id&&t.sens==="entrant"&&t.status==="realise").reduce((s,t)=>s+txDefault(t),0);
         const pr=(typeof clientProgress==="function")?clientProgress(c.id):{overall:0,blockers:[]};
         const next=(pr.blockers&&pr.blockers[0])?pr.blockers[0].label:"À jour ✅";
         const pct=pr.overall||0; const pcol=pct>=75?'var(--green)':pct>=40?'var(--gold)':'var(--red)';
@@ -2435,8 +2445,8 @@ function renderClientFiche(){
   const crit=rs.filter(r=>r.probabilite*r.impact>=15&&riskOpen(r)).length;
   const recos=DB.recommendations.filter(x=>x.clientId===c.id);
   const evs=DB.events.filter(e=>e.clientId===c.id&&e.date>=todayISO()&&e.status!=="annule").sort((a,b)=>a.date.localeCompare(b.date));
-  const caEff=DB.transactions.filter(t=>t.clientId===c.id&&t.sens==="entrant"&&t.status==="realise").reduce((s,t)=>s+toDefault(t.amount,t.currency),0);
-  const caProv=DB.transactions.filter(t=>t.clientId===c.id&&t.sens==="entrant"&&t.status==="prevu").reduce((s,t)=>s+toDefault(t.amount,t.currency),0);
+  const caEff=DB.transactions.filter(t=>t.clientId===c.id&&t.sens==="entrant"&&t.status==="realise").reduce((s,t)=>s+txDefault(t),0);
+  const caProv=DB.transactions.filter(t=>t.clientId===c.id&&t.sens==="entrant"&&t.status==="prevu").reduce((s,t)=>s+txDefault(t),0);
   el.innerHTML=`
     <button class="backlink" onclick="setScreen('clients')">← Retour aux clients</button>
     <div class="pagetitle">
@@ -4084,18 +4094,139 @@ function deleteEvent(id){
   });
 }
 
+/* ===================== FINANCE SEREINE (v5.26) =====================
+   Quatre garde-fous pour un pilotage sans expertise comptable :
+   1. Pointage hebdo : carte « À pointer cette semaine » — prévu → réalisé en un clic.
+   2. Clôture mensuelle guidée : checklist puis verrouillage — un mois clos refuse toute
+      modification des mouvements RÉALISÉS (les « prévu » restent pointables : leur date
+      passe au jour du pointage, donc dans un mois ouvert).
+   3. Corbeille 30 jours : la suppression n'est plus définitive.
+   4. Taux de change FIGÉ par mouvement (t.fx, estampillé à la saisie) : changer le taux
+      global dans Paramètres ne réécrit plus l'historique. */
+function txFxSnap(cur){ const R=curRates(); const dc=DB.meta.defaultCurrency;
+  const m=c=>c==="EUR"?R.EUR:(c==="USD"?R.USD:1);
+  return { date:todayISO(), cMga:m(cur||dc), dMga:m(dc), dc }; }
+function txDefault(t){
+  if(!t) return 0; const dc=DB.meta.defaultCurrency, cur=t.currency||dc;
+  if(cur===dc) return t.amount||0;
+  if(t.fx && t.fx.dc===dc && t.fx.cMga>0 && t.fx.dMga>0) return (t.amount||0)*t.fx.cMga/t.fx.dMga;
+  return toDefault(t.amount||0, cur);
+}
+function frMonth(dstr){ const p=String(dstr||"").split("-"); const d=new Date(Date.UTC(+p[0],+(p[1]||1)-1,1)); return d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}); }
+function monthLocked(dstr){ const mk=String(dstr||"").slice(0,7); return !!(DB.meta.closedMonths&&DB.meta.closedMonths[mk]); }
+/* --- Corbeille transactions (30 jours) --- */
+function trashTx(t){ DB.trash=DB.trash||[]; DB.trash.push({ id:uid(), kind:"transaction", deletedAt:todayISO(), by:currentUser?currentUser.login:"direction", data:t }); }
+function trashCount(){ return (DB.trash||[]).filter(x=>x.kind==="transaction").length; }
+function openTrash(){
+  const items=(DB.trash||[]).filter(x=>x.kind==="transaction").sort((a,b)=>String(b.deletedAt).localeCompare(String(a.deletedAt)));
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🗑 Corbeille — mouvements supprimés</h2>
+    <div class="msub">Conservés 30 jours puis purgés automatiquement. « Restaurer » remet le mouvement dans le Budget.</div>
+    ${items.length?`<table style="margin-top:10px"><tbody>${items.map(it=>{const t=it.data||{};return `<tr>
+      <td><b>${esc(t.label||"—")}</b><div style="font-size:11px;color:var(--muted)">${t.sens==="entrant"?"Entrée":"Dépense"} · ${fmt(t.amount||0,t.currency)} · supprimé le ${frDate(it.deletedAt)}${it.by?" par "+esc(it.by):""}</div></td>
+      <td style="text-align:right"><button class="cta ghost sm" onclick="restoreTrash('${it.id}')">↩ Restaurer</button></td></tr>`;}).join("")}</tbody></table>
+      <div class="modal-actions"><button class="cta ghost" style="color:var(--red)" onclick="emptyTrash()">Vider la corbeille</button><button class="cta" onclick="closeModal()">Fermer</button></div>`
+    :`<div class="empty" style="margin-top:10px">Corbeille vide.</div><div class="modal-actions"><button class="cta" onclick="closeModal()">Fermer</button></div>`}`);
+}
+function restoreTrash(id){
+  const it=(DB.trash||[]).find(x=>x.id===id); if(!it) return;
+  const t=Object.assign({},it.data);
+  if(t.status==="realise" && monthLocked(t.date)){ toast("🔒 "+frMonth(t.date)+" est clôturé — rouvre le mois avant de restaurer ce mouvement."); return; }
+  if(DB.transactions.some(x=>x.id===t.id)) t.id=uid();
+  DB.transactions.push(t); DB.trash=DB.trash.filter(x=>x.id!==id);
+  save(); refreshAll(); openTrash(); toast("Mouvement restauré.");
+}
+function emptyTrash(){
+  confirmModal("Vider la corbeille ?","Suppression définitive de "+trashCount()+" mouvement(s).",()=>{
+    DB.trash=(DB.trash||[]).filter(x=>x.kind!=="transaction"); save(); closeModal(); refreshAll(); toast("Corbeille vidée."); });
+}
+/* --- Carte « À pointer cette semaine » : le geste hebdo qui garde la trésorerie vraie --- */
+function pointerPanelHtml(){
+  const today=todayISO(), horizon=isoOffset(7);
+  const due=DB.transactions.filter(t=>t.status==="prevu"&&inEntity(t)&&(!focusClient||t.clientId===focusClient)&&(t.dueDate||t.date)<=horizon)
+    .sort((a,b)=>String(a.dueDate||a.date).localeCompare(String(b.dueDate||b.date)));
+  if(!due.length) return "";
+  const shown=due.slice(0,10);
+  const totIn=due.filter(t=>t.sens==="entrant").reduce((s,t)=>s+txDefault(t),0);
+  const totOut=due.filter(t=>t.sens==="sortant").reduce((s,t)=>s+txDefault(t),0);
+  return `<div class="card" style="border-left:3px solid var(--gold)">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0">✅ À pointer cette semaine <span class="badge b-orange">${due.length}</span></h2>
+      <div style="font-size:12px;color:var(--muted)">à encaisser : <b style="color:var(--green)">${fmtD(totIn)}</b> · à payer : <b style="color:var(--red)">${fmtD(totOut)}</b></div></div>
+    <div class="mini-list" style="margin-top:8px">
+      ${shown.map(t=>{ const d=t.dueDate||t.date, late=d<today;
+        return `<div class="li"><span>${t.sens==="entrant"?"🟢":"🔴"} <b>${esc(t.label)}</b>${t.clientId?" · "+esc(clientName(t.clientId)):""} · <span style="color:${late?'var(--red)':'var(--muted)'}">${late?"en retard depuis le ":"pour le "}${frDate(d)}</span></span>
+        <span style="display:flex;gap:8px;align-items:center"><b style="color:${t.sens==="entrant"?'var(--green)':'var(--red)'}">${t.sens==="entrant"?"+":"−"} ${fmt(t.amount,t.currency)}</b>
+        <button class="cta sm" onclick="markRealise('${t.id}')">✓ ${t.sens==="entrant"?"Encaissé":"Payé"}</button></span></div>`; }).join("")}
+    </div>
+    ${due.length>shown.length?`<div class="hint">+ ${due.length-shown.length} autre(s) dans les listes ci-dessous.</div>`:""}
+  </div>`;
+}
+/* --- Clôture mensuelle guidée + verrouillage --- */
+function closurePanelHtml(){
+  if(!isDirection()) return "";
+  const cm=DB.meta.closedMonths||{};
+  const opts=[]; for(let i=1;i<=12;i++){ const d=new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth()-i); const mk=d.toISOString().slice(0,7); if(!cm[mk]) opts.push(mk); }
+  const closed=Object.keys(cm).sort().reverse().slice(0,3);
+  return `<div class="card" style="border-left:3px solid var(--navy)">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div><h2 style="margin:0">🔒 Clôture mensuelle</h2><div class="msub" style="margin:2px 0 0">Le rituel de fin de mois : vérifier, verrouiller. Un mois clos refuse toute modification des mouvements réalisés — fini la faute de frappe qui réécrit janvier.</div></div>
+      ${opts.length?`<div style="display:flex;gap:6px;align-items:center"><select id="cl-month">${opts.map(mk=>`<option value="${mk}">${frMonth(mk+"-01")}</option>`).join("")}</select>
+        <button class="cta sm" onclick="openClosureModal(val('cl-month'))">Clôturer…</button></div>`:`<span class="badge b-green">Tous les mois passés sont clôturés ✓</span>`}
+    </div>
+    ${closed.length?`<div class="mini-list" style="margin-top:8px">${closed.map(mk=>`<div class="li"><span>🔒 ${frMonth(mk+"-01")} — clôturé le ${frDate((cm[mk].closedAt||"").slice(0,10))}${cm[mk].by?" par "+esc(cm[mk].by):""}</span><a class="clink" href="#" onclick="reopenMonth('${mk}');return false">🔓 Rouvrir</a></div>`).join("")}</div>`:""}
+  </div>`;
+}
+function openClosureModal(mk){
+  if(!mk){ toast("Choisis un mois."); return; }
+  const inMk=d=>String(d||"").slice(0,7)===mk;
+  const tx=DB.transactions;
+  const pendIn=tx.filter(t=>t.sens==="entrant"&&t.status==="prevu"&&inMk(t.dueDate||t.date));
+  const pendOut=tx.filter(t=>t.sens==="sortant"&&t.status==="prevu"&&inMk(t.dueDate||t.date));
+  const inR=tx.filter(t=>t.sens==="entrant"&&t.status==="realise"&&inMk(t.date)).reduce((s,t)=>s+txDefault(t),0);
+  const outR=tx.filter(t=>t.sens==="sortant"&&t.status==="realise"&&inMk(t.date)).reduce((s,t)=>s+txDefault(t),0);
+  const bDays=backupDaysSince();
+  const ok=v=>v?'<span style="color:var(--green);font-weight:700">✓</span>':'<span style="color:var(--orange);font-weight:700">⚠</span>';
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔒 Clôturer ${frMonth(mk+"-01")}</h2>
+    <div class="msub">Cinq vérifications, puis verrouillage. Rien d'irréversible : la direction peut rouvrir (action journalisée).</div>
+    <div class="mini-list" style="margin-top:8px">
+      <div class="li"><span>${ok(pendIn.length===0)} Encaissements du mois tous pointés</span><b>${pendIn.length?pendIn.length+" resté(s) « prévu »":"oui"}</b></div>
+      <div class="li"><span>${ok(pendOut.length===0)} Paiements du mois tous pointés</span><b>${pendOut.length?pendOut.length+" resté(s) « prévu »":"oui"}</b></div>
+      <div class="li"><span>💶 Entrées réalisées du mois</span><b style="color:var(--green)">${fmtD(inR)}</b></div>
+      <div class="li"><span>💸 Dépenses réalisées du mois</span><b style="color:var(--red)">${fmtD(outR)}</b></div>
+      <div class="li"><span>🧮 Solde du mois</span><b style="color:${inR-outR>=0?'var(--green)':'var(--red)'}">${fmtD(inR-outR)}</b></div>
+      <div class="li"><span>${ok(bDays!=null&&bDays<=7)} Sauvegarde récente</span><b>${bDays==null?"jamais faite":"il y a "+bDays+" jour(s)"}</b></div>
+    </div>
+    ${(pendIn.length||pendOut.length)?`<div class="hint" style="color:var(--orange)">Les mouvements restés « prévu » resteront pointables après clôture (leur date passera au jour du pointage). L'idéal reste de les traiter maintenant : pointer, re-dater ou supprimer.</div>`:""}
+    ${(bDays==null||bDays>7)?`<div class="hint" style="color:var(--orange)">Clique d'abord 💾 <b>Tout sauvegarder</b> (barre du haut) : on ne verrouille pas un mois sans copie de secours.</div>`:""}
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="closeMonth('${mk}')">🔒 Clôturer</button></div>`);
+}
+function closeMonth(mk){
+  DB.meta.closedMonths=DB.meta.closedMonths||{};
+  DB.meta.closedMonths[mk]={ closedAt:new Date().toISOString(), by:currentUser?currentUser.login:"direction" };
+  if(typeof logEvent==="function") logEvent("action","Clôture du mois "+mk,true);
+  save(); closeModal(); refreshAll(); toast("🔒 "+frMonth(mk+"-01")+" clôturé — mouvements réalisés verrouillés.");
+}
+function reopenMonth(mk){
+  confirmModal("Rouvrir "+frMonth(mk+"-01")+" ?","Le mois redevient modifiable. L'action est journalisée.",()=>{
+    if(DB.meta.closedMonths) delete DB.meta.closedMonths[mk];
+    if(typeof logEvent==="function") logEvent("action","Réouverture du mois "+mk,true);
+    save(); refreshAll(); toast("🔓 "+frMonth(mk+"-01")+" rouvert.");
+  });
+}
+
 /* ----------------------------- Budget ----------------------------- */
 let budgetSens="tous", budgetStatus="tous";
 function txRowHtml(t){
   const retard = t.sens==="entrant"&&t.status==="prevu"&&(t.dueDate||t.date)<todayISO();
+  const locked = t.status==="realise"&&monthLocked(t.date);
   return `<tr><td><b>${esc(t.label)}</b></td><td>${clientLink(t.clientId)}</td><td>${esc(t.category||"—")}</td>
     <td>${frDate(t.date)}${retard?`<br><span class="badge b-red">échéance dépassée</span>`:""}</td>
     <td>${t.method?esc(t.method):"—"}</td>
     <td><span class="badge ${t.status==='realise'?'b-green':'b-orange'}">${t.status==='realise'?(t.sens==='entrant'?'Encaissé':'Payé'):'Prévu'}</span></td>
     <td style="text-align:right;font-weight:700;color:${t.sens==='entrant'?'var(--green)':'var(--red)'}">${t.sens==='entrant'?'+':'−'} ${fmt(t.amount,t.currency)}</td>
-    <td><div class="rowact">
+    <td>${locked?`<span title="Mois clôturé — rouvrir (Budget → Clôture mensuelle) pour modifier" style="font-size:13px;opacity:.6">🔒</span>`:`<div class="rowact">
       ${t.status==='prevu'?`<button class="iconbtn" title="Marquer réalisé" onclick="markRealise('${t.id}')">✓</button>`:""}
-      <button class="iconbtn" title="Modifier" onclick="openTxForm('${t.id}')">✎</button><button class="iconbtn del" title="Supprimer" onclick="deleteTx('${t.id}')">🗑</button></div></td></tr>`;
+      <button class="iconbtn" title="Modifier" onclick="openTxForm('${t.id}')">✎</button><button class="iconbtn del" title="Supprimer" onclick="deleteTx('${t.id}')">🗑</button></div>`}</td></tr>`;
 }
 function txTable(rowsHtml){
   return `<table><thead><tr><th>Libellé</th><th>Client</th><th>Catégorie</th><th>Date</th><th>Paiement</th><th>Statut</th><th style="text-align:right">Montant</th><th></th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
@@ -4105,24 +4236,25 @@ function renderBudget(){
   let entr=DB.transactions.filter(t=>t.sens==="entrant"&&inEntity(t));
   let sortie=DB.transactions.filter(t=>t.sens==="sortant"&&inEntity(t));
   if(focusClient){ entr=entr.filter(t=>t.clientId===focusClient); sortie=sortie.filter(t=>t.clientId===focusClient); }
-  const D=(arr,f)=>arr.filter(f).reduce((s,t)=>s+toDefault(t.amount,t.currency),0);
+  const D=(arr,f)=>arr.filter(f).reduce((s,t)=>s+txDefault(t),0);
   const encaisse=D(entr,t=>t.status==="realise"&&inYear(t.date,y));
   const prevuIn=D(entr,t=>t.status==="prevu");
   const retardIn=D(entr,t=>t.status==="prevu"&&(t.dueDate||t.date)<todayISO());
   const paye=D(sortie,t=>t.status==="realise"&&inYear(t.date,y));
   const prevuOut=D(sortie,t=>t.status==="prevu");
-  const grp={}; sortie.forEach(t=>{ const g=expenseGroup(t.category); grp[g]=(grp[g]||0)+toDefault(t.amount,t.currency); });
+  const grp={}; sortie.forEach(t=>{ const g=expenseGroup(t.category); grp[g]=(grp[g]||0)+txDefault(t); });
   const grpRows=EXPENSE_GROUPS.map(g=>({name:g.name,val:grp[g.name]||0})).filter(x=>x.val>0).sort((a,b)=>b.val-a.val);
   const fstat=t=>budgetStatus==="tous"||t.status===budgetStatus;
   const entrShown=entr.filter(fstat).sort((x,y)=>String(y.date).localeCompare(String(x.date)));
   const sortShown=sortie.filter(fstat).sort((x,y)=>String(y.date).localeCompare(String(x.date)));
   document.getElementById("scr-budget").innerHTML=`
     <div class="pagetitle"><div><h1>Budget</h1><div class="sub">Trésorerie du cabinet — entrées d'activité vs dépenses internes${isDirection()?"":" · vos saisies passent en validation direction 🔐"}</div></div>
-      <div style="display:flex;gap:8px">${isDirection()?`<button class="cta ghost" onclick="openRecurringManager()" title="Montants récurrents (mensuel/trimestriel/annuel)">🔁 Récurrents${DB.recurring.filter(r=>r.active!==false).length?` (${DB.recurring.filter(r=>r.active!==false).length})`:""}</button>`:""}<button class="cta ghost" onclick="openTxForm(null,'sortant')">− Dépense</button><button class="cta" onclick="openTxForm(null,'entrant')">+ Entrée</button></div></div>
+      <div style="display:flex;gap:8px">${isDirection()&&trashCount()?`<button class="cta ghost" onclick="openTrash()" title="Mouvements supprimés — conservés 30 jours">🗑 Corbeille (${trashCount()})</button>`:""}${isDirection()?`<button class="cta ghost" onclick="openRecurringManager()" title="Montants récurrents (mensuel/trimestriel/annuel)">🔁 Récurrents${DB.recurring.filter(r=>r.active!==false).length?` (${DB.recurring.filter(r=>r.active!==false).length})`:""}</button>`:""}<button class="cta ghost" onclick="openTxForm(null,'sortant')">− Dépense</button><button class="cta" onclick="openTxForm(null,'entrant')">+ Entrée</button></div></div>
     ${validationPanelHtml()}
     ${focusBanner()}
     ${invoicePanelHtml()}
     ${awaitingPanelHtml()}
+    ${pointerPanelHtml()}
     <div class="kpis">
       <div class="kpi"><div class="v good">${fmtD(encaisse)}</div><div class="l">Entrées encaissées ${y}</div></div>
       <div class="kpi"><div class="v">${fmtD(prevuIn)}</div><div class="l">Entrées prévues (à venir)</div></div>
@@ -4150,7 +4282,8 @@ function renderBudget(){
       ${grpRows.length?`<div style="font-size:11px;color:var(--muted);letter-spacing:.04em;margin:4px 0 2px">RÉPARTITION PAR POSTE</div><div class="mini-list" style="margin-bottom:8px">${grpRows.map(g=>`<div class="li"><span>${g.name}</span><b>${fmtD(g.val)}</b></div>`).join("")}</div>`:""}
       ${sortShown.length? txTable(sortShown.map(txRowHtml).join("")) : `<div class="empty">Aucune dépense pour ce filtre. Cliquez « + Dépense ».</div>`}
       <div style="text-align:right;margin-top:6px">${dashLink('resultat','Voir le compte de résultat')}</div>
-    </div>`;
+    </div>
+    ${closurePanelHtml()}`;
 }
 function markRealise(id){
   const t=DB.transactions.find(x=>x.id===id);
@@ -4166,6 +4299,7 @@ function markRealise(id){
 function confirmRealise(id){
   const t=DB.transactions.find(x=>x.id===id); if(!t) return;
   const payload={ status:"realise", method:val("f-method"), date:val("f-realdate") };
+  if(monthLocked(payload.date)){ toast("🔒 "+frMonth(payload.date)+" est clôturé — choisis une date effective dans un mois ouvert."); return; }
   if(!isDirection()){
     const m=(val("f-realmotiv")||"").trim(); if(!m){ toast("Le motif est obligatoire."); return; }
     submitMoneyRequest("update", id, payload, m); closeModal(); return;
@@ -4274,6 +4408,11 @@ function saveTx(id){
     category:val("f-cat"), clientId:val("f-txclient"), missionId:val("f-txmission")||(existingTx&&existingTx.missionId)||"", status, date:val("f-txdate"),
     dueDate:val("f-txdue"), method: status==="realise"?val("f-txmethod"):"",
     nature:val("f-nature")||"", entity:val("f-entity")||"bsmac" };
+  // Taux de change figé : conservé si la devise ne change pas, ré-estampillé sinon (jamais recalculé après coup).
+  obj.fx=(existingTx&&existingTx.fx&&existingTx.currency===obj.currency)?existingTx.fx:txFxSnap(obj.currency);
+  // Verrouillage des mois clôturés : les mouvements réalisés d'un mois clos sont intouchables.
+  if(existingTx && existingTx.status==="realise" && monthLocked(existingTx.date)){ toast("🔒 "+frMonth(existingTx.date)+" est clôturé — rouvre le mois (Budget → Clôture mensuelle) pour modifier ce mouvement."); return; }
+  if(obj.status==="realise" && monthLocked(obj.date)){ toast("🔒 "+frMonth(obj.date)+" est clôturé — impossible d'y enregistrer un mouvement réalisé."); return; }
   // Sécurité : un collaborateur (hors direction) doit passer par une demande motivée à valider.
   if(!isDirection()){
     const motivation=(val("f-motivation")||"").trim();
@@ -4314,8 +4453,9 @@ function deleteTx(id){
       <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="confirmDeleteTxRequest('${id}')">Envoyer la demande</button></div>`);
     return;
   }
+  if(t.status==="realise" && monthLocked(t.date)){ toast("🔒 "+frMonth(t.date)+" est clôturé — rouvre le mois (Budget → Clôture mensuelle) pour supprimer ce mouvement."); return; }
   const linkNote = t.recurringId? "<br><br>⚠️ Ce mouvement est <b>récurrent</b> : il sera régénéré automatiquement au prochain démarrage. Pour l'arrêter, désactivez le récurrent (🔁 Récurrents ou fiche du collaborateur)." : "";
-  confirmModal("Supprimer ce mouvement ?", `${esc(t.label)} — ${fmt(t.amount,t.currency)}`+linkNote, ()=>{ DB.transactions=DB.transactions.filter(x=>x.id!==id); save(); refreshAll(); toast("Mouvement supprimé."); });
+  confirmModal("Supprimer ce mouvement ?", `${esc(t.label)} — ${fmt(t.amount,t.currency)}`+linkNote+"<br><br>🗑 Il part dans la <b>corbeille</b> (restaurable 30 jours).", ()=>{ trashTx(t); DB.transactions=DB.transactions.filter(x=>x.id!==id); save(); refreshAll(); toast("Mouvement déplacé vers la corbeille (30 jours)."); });
 }
 function confirmDeleteTxRequest(id){
   const m=(val("f-delmotiv")||"").trim(); if(!m){ toast("Le motif est obligatoire."); return; }
@@ -4333,7 +4473,7 @@ function renderCA(){
   DB.transactions.filter(t=>t.sens==="entrant"&&inEntity(t)).forEach(t=>{
     const k=t.clientId||"__none";
     byClient[k]=byClient[k]||{eff:0,prov:0};
-    const v=toDefault(t.amount,t.currency);
+    const v=txDefault(t);
     if(t.status==="realise"&&inYear(t.date,y)) byClient[k].eff+=v; else if(t.status==="prevu") byClient[k].prov+=v;
   });
   let rows=Object.entries(byClient).map(([k,v])=>({id:k,name:k==="__none"?"— Sans client —":clientName(k),...v}))
@@ -4341,7 +4481,7 @@ function renderCA(){
   if(focusClient) rows=rows.filter(r=>r.id===focusClient);
   // KPIs : globaux, ou recentrés sur le client en focus
   let kEff=a.caEffectif, kProv=a.caProvisoire, kRetard=a.enRetard;
-  if(focusClient){ kEff=0;kProv=0;kRetard=0; DB.transactions.filter(t=>t.sens==="entrant"&&t.clientId===focusClient&&inEntity(t)).forEach(t=>{const v=toDefault(t.amount,t.currency); if(t.status==="realise"&&inYear(t.date,y))kEff+=v; else if(t.status==="prevu"){kProv+=v; if((t.dueDate||t.date)<todayISO())kRetard+=v;}}); }
+  if(focusClient){ kEff=0;kProv=0;kRetard=0; DB.transactions.filter(t=>t.sens==="entrant"&&t.clientId===focusClient&&inEntity(t)).forEach(t=>{const v=txDefault(t); if(t.status==="realise"&&inYear(t.date,y))kEff+=v; else if(t.status==="prevu"){kProv+=v; if((t.dueDate||t.date)<todayISO())kRetard+=v;}}); }
   document.getElementById("scr-ca").innerHTML=`
     <div class="pagetitle"><div><h1>Chiffre d'affaires</h1><div class="sub">Provisoire (à encaisser) vs effectif (encaissé) — ${y}${entityFilter?" · "+entityShort(entityFilter):" · consolidé"}</div></div></div>
     ${focusBanner()}
@@ -4377,7 +4517,7 @@ function dualBarsHtml(eff, prov){
 let pnlYear=0; // 0 = année courante
 function pnlColumn(pred){
   const inn={}, out={};
-  DB.transactions.forEach(t=>{ if(!pred(t)||!inEntity(t)) return; const v=toDefault(t.amount,t.currency);
+  DB.transactions.forEach(t=>{ if(!pred(t)||!inEntity(t)) return; const v=txDefault(t);
     if(t.sens==="entrant"){ inn[t.category||"Autre"]=(inn[t.category||"Autre"]||0)+v; }
     else { out[t.category||"Autre"]=(out[t.category||"Autre"]||0)+v; } });
   const produits=Object.values(inn).reduce((s,x)=>s+x,0);
@@ -4912,8 +5052,8 @@ function generateAdvice(){
   }});
   // 2. Trésorerie du mois : dépenses > entrées
   const mk=t.slice(0,7);
-  const inM=DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="realise"&&x.date.slice(0,7)===mk).reduce((s,x)=>s+toDefault(x.amount,x.currency),0);
-  const outM=DB.transactions.filter(x=>x.sens==="sortant"&&x.status==="realise"&&x.date.slice(0,7)===mk).reduce((s,x)=>s+toDefault(x.amount,x.currency),0);
+  const inM=DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="realise"&&x.date.slice(0,7)===mk).reduce((s,x)=>s+txDefault(x),0);
+  const outM=DB.transactions.filter(x=>x.sens==="sortant"&&x.status==="realise"&&x.date.slice(0,7)===mk).reduce((s,x)=>s+txDefault(x),0);
   if(outM>inM && outM>0) add("treso-"+mk,"warn","📉","Trésorerie du mois négative",
     `Ce mois-ci : ${fmtD(outM)} de dépenses pour ${fmtD(inM)} d'entrées (solde ${fmtD(inM-outM)}). Prioriser les encaissements en attente avant d'engager de nouvelles dépenses.`);
   // 2b. RH — recrutements ouverts depuis longtemps
@@ -4953,14 +5093,14 @@ function generateAdvice(){
   });
   // 6. Tendance CA (mois courant vs précédent)
   const prevKey=(()=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-1);return d.toISOString().slice(0,7);})();
-  const inPrev=DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="realise"&&x.date.slice(0,7)===prevKey).reduce((s,x)=>s+toDefault(x.amount,x.currency),0);
+  const inPrev=DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="realise"&&x.date.slice(0,7)===prevKey).reduce((s,x)=>s+txDefault(x),0);
   if(inPrev>0 && inM<inPrev*0.7) add("tendance-"+mk,"info","📊","CA en baisse ce mois",
     `Le CA encaissé ce mois (${fmtD(inM)}) est en net recul par rapport au mois précédent (${fmtD(inPrev)}). Vérifier le pipeline et accélérer la facturation des missions en cours.`);
   // 7. Recoupement : client à marge négative
   const perClient={};
   DB.transactions.filter(x=>x.status==="realise").forEach(x=>{
     if(!x.clientId) return; perClient[x.clientId]=perClient[x.clientId]||{in:0,out:0};
-    const v=toDefault(x.amount,x.currency); if(x.sens==="entrant")perClient[x.clientId].in+=v; else perClient[x.clientId].out+=v;
+    const v=txDefault(x); if(x.sens==="entrant")perClient[x.clientId].in+=v; else perClient[x.clientId].out+=v;
   });
   Object.entries(perClient).forEach(([cid,v])=>{
     if(v.out>0 && v.out>v.in) add("marge-"+cid,"warn","⚖️","Rentabilité client à surveiller",
@@ -5673,7 +5813,7 @@ function awaitingPanelHtml(){
   const list=invoicesAwaiting(); if(!list.length) return "";
   const today=todayISO();
   const remindIds=new Set(invoicesToRemind().map(t=>t.id));
-  const totalDue=list.reduce((s,t)=>s+toDefault(t.amount,t.currency),0);
+  const totalDue=list.reduce((s,t)=>s+txDefault(t),0);
   const rows=list.map(t=>{
     const late=(t.dueDate||t.date)<today;
     const daysLate=Math.max(0,Math.round((new Date(today)-new Date((t.dueDate||t.date)+"T00:00:00"))/86400000));
@@ -6215,7 +6355,7 @@ function primeAmount(prime, emp){
 function rhPrimes(){
   const cat=DB.primes.slice();
   const attribs=DB.transactions.filter(t=>t.category==="Primes & indemnités").sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  const totalPrev=attribs.filter(t=>t.status==="prevu").reduce((s,t)=>s+toDefault(t.amount,t.currency),0);
+  const totalPrev=attribs.filter(t=>t.status==="prevu").reduce((s,t)=>s+txDefault(t),0);
   return `
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><h2 style="margin:0">Catalogue des primes</h2>
