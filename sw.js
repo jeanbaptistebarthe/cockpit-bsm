@@ -3,8 +3,9 @@
    après un re-upload ; le cache ne sert QUE de secours hors-ligne. Assets statiques en
    stale-while-revalidate. La constante CACHE est ré-estampillée à chaque build (voir build.js),
    ce qui invalide automatiquement l'ancien cache. Actif uniquement en https (GitHub Pages, Vercel…). */
-const CACHE = "bsm-cockpit-20260818-msylx4kr";
-const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
+const CACHE = "bsm-cockpit-20260818-msynt9b8";
+const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg",
+                "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -14,6 +15,17 @@ self.addEventListener("activate", e => {
   e.waitUntil(
     caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
+  );
+});
+
+// Toucher une notification ramène au Cockpit (fenêtre existante sinon nouvelle).
+self.addEventListener("notificationclick", e => {
+  e.notification.close();
+  e.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
+      for (const c of list) { if ("focus" in c) return c.focus(); }
+      if (clients.openWindow) return clients.openWindow("./index.html");
+    })
   );
 });
 

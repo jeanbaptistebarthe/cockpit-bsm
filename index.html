@@ -4,10 +4,16 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://docs.google.com; connect-src 'self' https://api.mistral.ai https://api.mammouth.ai https://api.anthropic.com https://*.supabase.co https://cdn.jsdelivr.net https://script.google.com https://docs.google.com; frame-src 'self' https://docs.google.com https://www.google.com; object-src 'none'; base-uri 'self'; form-action 'self'">
 <title>BSM Cockpit — Outil interne de pilotage</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#102A43">
 <link rel="icon" href="icon.svg">
 <link rel="manifest" href="manifest.webmanifest">
+<!-- Installation iPhone/iPad : icône d'écran d'accueil (PNG obligatoire pour iOS) + mode app -->
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="BSM Cockpit">
 <!-- Police de marque (titres éditoriaux) — repli système si hors-ligne -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -389,12 +395,86 @@
   body.dark .cmdk-box{background:#16202e;border-color:#273241;}
   body.dark .cmdk-item:hover,body.dark .cmdk-item.sel{background:#1b2736;}
   @media(max-width:820px){.kpis{grid-template-columns:repeat(2,1fr);}.grid2,.grid2.wide{grid-template-columns:1fr;}.sidebar{width:60px;}.sidebar .logo,.sidebar .who,.navgroup,.navitem span.lbl{display:none;}.navitem{justify-content:center;}.navitem.nav-collapsed{display:flex;}.imp-modes{grid-template-columns:1fr;}.gauges{grid-template-columns:repeat(2,1fr);}.grid3{grid-template-columns:1fr;}.ai-drawer{width:100vw;}}
+  /* ===== CHANTIER « COCKPIT MOBILE » — navigation & confort téléphone (≤640px) ===== */
+  .mnav-btn{display:none;}
+  .brand-sub{}
+  .tb-menu .tb-mobile-only{display:none;}
+  .mnav-backdrop{position:fixed;inset:0;background:rgba(12,20,31,.45);backdrop-filter:blur(2px);z-index:880;display:none;}
+  body.mnav-open .mnav-backdrop{display:block;}
+  .mtabs{display:none;position:fixed;left:0;right:0;bottom:0;z-index:60;background:#fff;border-top:1px solid var(--line);box-shadow:0 -4px 18px rgba(16,42,67,.10);padding:5px 4px calc(5px + env(safe-area-inset-bottom));justify-content:space-around;}
+  .mtab{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;background:none;border:none;font-size:10px;color:var(--muted);padding:4px 2px;cursor:pointer;font-weight:600;border-radius:10px;font-family:inherit;min-height:48px;}
+  .mtab .tic{font-size:20px;line-height:1.25;position:relative;}
+  .mtab.active{color:var(--navy);}
+  .mtab.active .tic::after{content:"";position:absolute;left:50%;transform:translateX(-50%);bottom:-3px;width:16px;height:3px;border-radius:2px;background:var(--gold);}
+  .mtab-badge{position:absolute;top:-4px;right:-11px;background:var(--red);color:#fff;border-radius:9px;min-width:15px;height:15px;font-size:9px;line-height:15px;font-weight:700;padding:0 3px;text-align:center;}
+  .mtab.mtab-act .tic{background:linear-gradient(180deg,#D2B06A,#C1954A);border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;color:var(--navy);box-shadow:0 2px 8px rgba(199,162,90,.45);}
+  body.dark .mtabs{background:#16202e;border-top-color:#273241;}
+  body.present .mtabs,body.present .mnav-backdrop{display:none!important;}
+  body:has(.portal.show) .mtabs{display:none!important;} /* pas de barre d'onglets tant qu'on n'est pas connecté */
+  .qa-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 14px;}
+  .qa{display:flex;flex-direction:column;align-items:center;gap:5px;padding:13px 6px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;font-size:21px;font-family:inherit;transition:background .13s ease,border-color .13s ease;}
+  .qa span{font-size:11.5px;font-weight:600;color:var(--navy);}
+  .qa:hover{border-color:var(--gold);background:var(--cream);}
+  body.dark .qa{background:#16202e;border-color:#273241;} body.dark .qa span{color:var(--ink);}
+  @media(max-width:640px){
+    /* — Topbar compacte : hamburger + brand court + cloche + menu ⋯ — */
+    .topbar{padding:8px 10px;gap:6px;flex-wrap:nowrap;padding-top:calc(8px + env(safe-area-inset-top));}
+    .brand{font-size:13px;white-space:nowrap;}
+    .brand-sub{display:none;}
+    .mnav-btn{display:inline-block;font-size:16px;padding:7px 11px;}
+    .gsearch,.tb-hide-m,#home-btn{display:none!important;} /* #home-btn : doublon de l'onglet Accueil */
+    .topbar-right{flex-wrap:nowrap;gap:6px;}
+    .tb-btn{padding:8px 10px;}
+    .tb-menu .tb-mobile-only{display:flex;}
+    /* — Sidebar = tiroir plein écran (labels restaurés, repli des groupes rétabli) — */
+    .sidebar{position:fixed;top:0;left:0;bottom:0;width:min(85vw,320px);z-index:900;transform:translateX(-105%);transition:transform .22s ease;overflow-y:auto;box-shadow:8px 0 30px rgba(0,0,0,.18);padding:calc(16px + env(safe-area-inset-top)) 8px calc(16px + env(safe-area-inset-bottom));}
+    body.mnav-open .sidebar{transform:none;}
+    .sidebar .logo{display:block;} .sidebar .who{display:block;}
+    .navgroup{display:flex;}
+    .navitem{justify-content:flex-start;min-height:44px;}
+    .navitem span.lbl{display:inline;}
+    .navitem.nav-collapsed{display:none;}
+    /* — Contenu — */
+    .main{padding:16px 12px calc(88px + env(safe-area-inset-bottom));}
+    .pagetitle h1{font-size:24px;}
+    .pagetitle{margin-bottom:16px;}
+    .kpis{grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px;}
+    .kpi{padding:13px 14px;border-radius:13px;}
+    .kpi .v{font-size:21px;}
+    .card{padding:14px;border-radius:13px;margin-bottom:14px;}
+    .grid2,.grid2.wide,.grid3{grid-template-columns:1fr;gap:14px;}
+    /* — Tableaux : défilement horizontal fluide, cellules bornées — */
+    .screen table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;}
+    .screen th,.screen td{white-space:nowrap;}
+    .screen td{max-width:230px;overflow:hidden;text-overflow:ellipsis;}
+    /* — Cibles tactiles — */
+    .iconbtn{padding:8px 11px;font-size:13px;}
+    .cta{padding:11px 16px;}
+    .cta.sm{padding:8px 12px;}
+    .chip{padding:8px 14px;}
+    .searchbox{margin-left:0;min-width:0;width:100%;order:99;}
+    .segmented button{padding:8px 12px;}
+    /* — Modales : format « feuille » plein écran, actions accessibles au pouce — */
+    .overlay{padding:0;align-items:flex-end;}
+    .modal{width:100%;max-width:100%;max-height:94vh;border-radius:18px 18px 0 0;padding:20px 16px calc(18px + env(safe-area-inset-bottom));}
+    .modal.sheet{width:100%;max-height:94vh;padding:20px 16px calc(18px + env(safe-area-inset-bottom));}
+    .modal.sheet .modal-actions{bottom:calc(-18px - env(safe-area-inset-bottom));}
+    .field.row2{grid-template-columns:1fr;}
+    .field.row2 label{grid-column:auto;}
+    .field input,.field select,.field textarea{font-size:16px;padding:11px 12px;}  /* 16px = pas de zoom auto iOS */
+    /* — Flottants au-dessus de la barre d'onglets — */
+    .ai-fab{bottom:calc(74px + env(safe-area-inset-bottom));right:12px;width:52px;height:52px;}
+    .toast{bottom:calc(84px + env(safe-area-inset-bottom));max-width:92vw;}
+    .mtabs{display:flex;}
+    .cmdk{padding-top:4vh;}
+  }
 </style>
 </head>
 <body>
 
 <div class="topbar">
-  <div class="brand" id="brandbox" onclick="goHome()" style="cursor:pointer" title="Revenir au tableau de bord">BSM <span>COCKPIT</span> — Pilotage interne</div>
+  <button class="tb-btn mnav-btn" onclick="toggleMobileNav()" title="Menu de navigation" aria-label="Menu de navigation">☰</button>
+  <div class="brand" id="brandbox" onclick="goHome()" style="cursor:pointer" title="Revenir au tableau de bord">BSM <span>COCKPIT</span><span class="brand-sub"> — Pilotage interne</span></div>
   <div class="topbar-right">
     <button class="tb-btn" id="home-btn" onclick="goHome()" title="Revenir au tableau de bord" style="display:none;font-weight:700;color:var(--navy)">← Tableau de bord</button>
     <div class="gsearch"><input id="globalsearch" placeholder="Rechercher…  (Ctrl+K : palette)" title="Recherche rapide dans les données — Ctrl+K ouvre la palette de commandes (écrans, actions, recherche)" autocomplete="off" oninput="globalSearch(this.value)" onblur="setTimeout(hideSearch,180)"><div class="gs-results" id="gs-results"></div></div>
@@ -402,12 +482,16 @@
     <span id="env-badge" class="env-badge env-online" title="" onclick="openSyncCenter()">🌐 <b>EN LIGNE</b></span>
     <span id="server-status" class="tb-btn" style="display:none;align-items:center;gap:4px" title="État de la connexion au serveur BSM"></span>
     <span id="cloud-status" class="tb-btn" style="display:none;align-items:center;gap:4px" title="État de la synchronisation cloud (Supabase)"></span>
-    <button class="tb-btn" onclick="backupEverywhere()" title="Sauvegarde en un clic sur TOUS les supports disponibles : ce poste, fichier téléchargé, serveur local, cloud">💾 Sauvegarder</button>
-    <button class="tb-btn" onclick="enterPresentMode()" title="Masque tout le Cockpit et n'affiche que le simulateur — pour présenter en rendez-vous client. Sortie : petit bouton discret en bas à gauche.">🎥 Rendez-vous</button>
-    <button class="tb-btn" onclick="openSettings()" title="Paramètres">⚙</button>
+    <button class="tb-btn tb-hide-m" onclick="backupEverywhere()" title="Sauvegarde en un clic sur TOUS les supports disponibles : ce poste, fichier téléchargé, serveur local, cloud">💾 Sauvegarder</button>
+    <button class="tb-btn tb-hide-m" onclick="enterPresentMode()" title="Masque tout le Cockpit et n'affiche que le simulateur — pour présenter en rendez-vous client. Sortie : petit bouton discret en bas à gauche.">🎥 Rendez-vous</button>
+    <button class="tb-btn tb-hide-m" onclick="openSettings()" title="Paramètres">⚙</button>
     <div class="tb-more" style="position:relative">
       <button class="tb-btn" onclick="toggleTopMenu()" title="Plus d'actions" aria-label="Plus d'actions">⋯</button>
       <div id="tb-menu" class="tb-menu">
+        <button class="tb-mobile-only" onclick="closeTopMenu();backupEverywhere()">💾&nbsp; Sauvegarder partout</button>
+        <button class="tb-mobile-only" onclick="closeTopMenu();enterPresentMode()">🎥&nbsp; Mode rendez-vous</button>
+        <button class="tb-mobile-only" onclick="closeTopMenu();openSettings()">⚙️&nbsp; Paramètres</button>
+        <div class="sep tb-mobile-only"></div>
         <button onclick="closeTopMenu();envSwitch()">⇄&nbsp; Ouvrir l'autre version</button>
         <button onclick="closeTopMenu();openSyncCenter()">🔄&nbsp; Synchroniser local ⇄ en ligne</button>
         <button onclick="closeTopMenu();toggleTheme()"><span id="theme-btn">🌙</span>&nbsp; Thème clair / sombre</button>
@@ -499,6 +583,16 @@
   </div>
 </div>
 
+<!-- Navigation mobile : fond cliquable du tiroir + barre d'onglets (écrans terrain prioritaires) -->
+<div class="mnav-backdrop" onclick="closeMobileNav()"></div>
+<nav class="mtabs" id="mtabs" aria-label="Navigation mobile">
+  <button class="mtab active" data-mtab="dashboard" onclick="mtabGo('dashboard')"><span class="tic">▦<span id="mtab-notif" class="mtab-badge" style="display:none">0</span></span>Accueil</button>
+  <button class="mtab" data-mtab="audit" onclick="mtabGo('audit')"><span class="tic">📝</span>Audit</button>
+  <button class="mtab mtab-act" onclick="openQuickActions()"><span class="tic">⚡</span>Actions</button>
+  <button class="mtab" data-mtab="risks" onclick="mtabGo('risks')"><span class="tic">⚠️</span>Matrice</button>
+  <button class="mtab" onclick="toggleMobileNav()"><span class="tic">☰</span>Menu</button>
+</nav>
+
 <div class="cmdk" id="cmdk" onclick="if(event.target===this)closeCmdk()">
   <div class="cmdk-box">
     <input id="cmdk-in" placeholder="Aller à un écran, lancer une action, chercher un client…" autocomplete="off" oninput="cmdkRender()" onkeydown="cmdkKey(event)">
@@ -547,8 +641,8 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.45.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
-const APP_VERSION_DATE = "16 août 2026";
+const APP_VERSION = "5.46.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
 let _encKey=null, _encSaltB64=null, _encLocked=false, _encBlob=null, _pendingRaw=null, _lockTimer=null;
@@ -1701,6 +1795,8 @@ function setScreen(name){
   document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
   document.getElementById("scr-"+name).classList.add("active");
   currentScreen=name;
+  if(typeof closeMobileNav==="function") closeMobileNav();
+  if(typeof updateMobileTabs==="function") updateMobileTabs(name);
   const hb=document.getElementById("home-btn"); if(hb) hb.style.display=(name!=="dashboard" && can("dashboard"))?"":"none";
   renderScreen(name);
   if(typeof logEvent==="function"){ const it=document.querySelector('.navitem[data-scr="'+name+'"] .lbl'); logEvent("nav", it?it.textContent:name); }
@@ -1791,6 +1887,47 @@ function toggleTopMenu(){ const m=document.getElementById("tb-menu"); if(m) m.cl
 function closeTopMenu(){ const m=document.getElementById("tb-menu"); if(m) m.classList.remove("open"); }
 document.addEventListener("click",function(e){ if(!e.target.closest(".tb-more")) closeTopMenu(); });
 
+/* ===== NAVIGATION MOBILE (chantier « Cockpit mobile ») =====
+   ≤640px : la sidebar devient un tiroir plein écran (hamburger ☰ ou onglet Menu),
+   et une barre d'onglets fixe donne accès direct aux écrans terrain prioritaires. */
+function toggleMobileNav(){ document.body.classList.toggle("mnav-open"); }
+function closeMobileNav(){ document.body.classList.remove("mnav-open"); }
+function mtabGo(scr){ setScreen(scr); }
+function updateMobileTabs(name){
+  document.querySelectorAll(".mtab[data-mtab]").forEach(t=>t.classList.toggle("active", t.getAttribute("data-mtab")===name));
+}
+/* ⚡ Actions rapides — l'essentiel en déplacement : pointer un encaissement, lire une alerte,
+   consulter un rapport, ouvrir le contexte d'un client. Accessible depuis la barre d'onglets. */
+function openQuickActions(){
+  closeMobileNav();
+  const pend=(DB.transactions||[]).filter(t=>inEntity(t)&&t.sens==="entrant"&&t.status==="prevu")
+    .sort((a,b)=>String(a.dueDate||a.date||"").localeCompare(String(b.dueDate||b.date||""))).slice(0,6);
+  const notifs=unreadNotifs().slice(-5).reverse();
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>⚡ Actions rapides</h2>
+    <div class="msub">L'essentiel en déplacement — encaisser, lire, consulter.</div>
+    <div class="qa-grid">
+      <button class="qa" onclick="closeModal();setScreen('agenda')">📅<span>Agenda</span></button>
+      <button class="qa" onclick="closeModal();setScreen('reports')">📋<span>Rapports</span></button>
+      <button class="qa" onclick="closeModal();qaClientContext()">🪪<span>Contexte client</span></button>
+      <button class="qa" onclick="closeModal();openTxForm(null,'entrant')">➕<span>Recette</span></button>
+      <button class="qa" onclick="closeModal();openTxForm(null,'sortant')">➖<span>Dépense</span></button>
+      <button class="qa" onclick="closeModal();setScreen('analyses')">🧠<span>Conseils</span></button>
+    </div>
+    ${pend.length?`<h2 style="margin-top:4px">💶 À encaisser</h2><div class="mini-list" style="margin-bottom:12px">${pend.map(t=>
+      `<div class="li"><span>${esc(t.label||"")}<span class="d"> · ${fmt(t.amount,t.currency)}${t.clientId?" · "+esc(clientName(t.clientId)):""}</span></span><button class="cta sm" onclick="closeModal();markRealise('${t.id}')">✓ Encaissé</button></div>`).join("")}</div>`:""}
+    ${notifs.length?`<h2 style="margin-top:4px">🔔 Alertes non lues</h2><div class="mini-list">${notifs.map(n=>
+      `<div class="li" onclick="closeModal();openNotif('${n.id}')" style="cursor:pointer"><span>${(NOTIF_META[n.type]||{}).ic||"🔔"} ${esc(n.title)}<span class="d"> · ${relTime(n.ts)}</span></span><span class="d">›</span></div>`).join("")}</div>`
+      :`<div class="hint" style="margin-top:2px">🔔 Aucune alerte non lue — tout est à jour.</div>`}
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>`);
+}
+function qaClientContext(){
+  const cls=(DB.clients||[]).filter(c=>c.status!=="archive");
+  if(!cls.length){ toast("Aucun client actif."); return; }
+  if(cls.length===1){ openClientContext(cls[0].id); return; }
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🪪 Contexte client</h2><div class="msub">Choisis le client à consulter.</div>
+    <div class="mini-list">${cls.map(c=>`<div class="li" style="cursor:pointer" onclick="closeModal();openClientContext('${c.id}')"><span>${esc(c.company)}</span><span class="d">${esc(c.sector||"")}</span></div>`).join("")}</div>`);
+}
+
 /* ----------------------------- Agrégations ----------------------------- */
 function curYear(){ return new Date().getFullYear(); }
 function inYear(dstr, y){ return dstr && dstr.slice(0,4)===String(y); }
@@ -1865,8 +2002,37 @@ function bsmBeep(){
 function bsmDesktopAlert(title,text){
   if(DB.meta && DB.meta.desktopAlerts===false) return;
   bsmBeep();
-  try{ if("Notification" in window && Notification.permission==="granted")
-    new Notification("BSM Cockpit — "+title, { body:String(text||"").slice(0,140), icon:"icon.svg", tag:"bsm-"+title }); }catch(e){}
+  try{ if(navigator.vibrate) navigator.vibrate([180,90,180]); }catch(e){} // téléphone : vibration en plus du bip
+  try{
+    if(!("Notification" in window) || Notification.permission!=="granted") return;
+    const opts={ body:String(text||"").slice(0,140), icon:"icon-192.png", badge:"icon-192.png", tag:"bsm-"+title, vibrate:[180,90,180] };
+    // Android/PWA installée : la notification DOIT passer par le service worker (new Notification y est interdit)
+    if(navigator.serviceWorker){
+      navigator.serviceWorker.getRegistration().then(function(reg){
+        if(reg && reg.showNotification) reg.showNotification("BSM Cockpit — "+title, opts);
+        else new Notification("BSM Cockpit — "+title, opts);
+      }).catch(function(){ try{ new Notification("BSM Cockpit — "+title, opts); }catch(e){} });
+    } else new Notification("BSM Cockpit — "+title, opts);
+  }catch(e){}
+}
+/* Activation des alertes sur téléphone/tablette (⚙ Paramètres). La demande d'autorisation
+   DOIT partir d'un geste utilisateur (règle iOS/Android) — d'où ce bouton dédié. */
+function mobNotifStateTxt(){
+  if(!("Notification" in window)) return "Non gérées par ce navigateur.";
+  if(Notification.permission==="granted") return "✅ Activées sur cet appareil.";
+  if(Notification.permission==="denied") return "🚫 Refusées — réactive-les dans les réglages du navigateur (autorisations du site).";
+  return "Pas encore activées sur cet appareil.";
+}
+function enableMobileAlerts(){
+  if(!("Notification" in window)){ toast("Ce navigateur ne gère pas les notifications."); return; }
+  if(Notification.permission==="denied"){ toast("Notifications bloquées : autorise-les dans les réglages du navigateur pour ce site."); return; }
+  Notification.requestPermission().then(function(p){
+    if(p==="granted"){
+      DB.meta.desktopAlerts=true; save(); updateNotifBell();
+      bsmDesktopAlert("Notifications activées","Tu recevras ici les alertes critiques : validations, risques, sécurité.");
+      toast("🔔 Notifications activées sur cet appareil.");
+    } else toast("Autorisation non accordée.");
+  });
 }
 // Une notif ciblée n'est visible que par son destinataire (utilisateur précis ou rôle direction).
 function notifVisible(n){
@@ -1876,9 +2042,15 @@ function notifVisible(n){
 }
 function unreadNotifs(){ return (DB.notifications||[]).filter(n=>!n.read && notifVisible(n)); }
 function updateNotifBell(){
+  const n=unreadNotifs().length;
+  // Pastille sur l'icône de l'app installée (PWA) — comme une appli de l'App Store (iOS 16.4+/Android)
+  try{ if(navigator.setAppBadge){ if(n>0) navigator.setAppBadge(n); else navigator.clearAppBadge(); } }catch(e){}
+  // Pastille sur l'onglet Accueil de la barre mobile
+  const mb=document.getElementById("mtab-notif");
+  if(mb){ mb.textContent=n>99?"99+":String(n); mb.style.display=n>0?"":"none"; }
   const b=document.getElementById("notif-bell"); if(!b) return;
   const show=can("dashboard"); b.style.display=show?"":"none"; if(!show) return;
-  const c=document.getElementById("notif-count"), n=unreadNotifs().length;
+  const c=document.getElementById("notif-count");
   if(c){ c.textContent=n>99?"99+":String(n); c.style.display=n>0?"":"none"; }
 }
 function goNotifications(){ setScreen("dashboard"); }
@@ -2558,6 +2730,7 @@ function openClientFiche(id){
   focusClient=id; // le client ouvert devient le client en focus dans tous les onglets
   document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
   document.getElementById("scr-clientfiche").classList.add("active");
+  if(typeof closeMobileNav==="function") closeMobileNav();
   renderClientFiche();
 }
 /* Carte A1 (énergie & flotte) dans la fiche client 360° — cohérence flotte/groupes ↔ client. */
@@ -5515,6 +5688,12 @@ function openSettings(){
       <input type="number" id="s-autolock" min="0" max="240" value="${DB.meta.autoLockMin!=null?DB.meta.autoLockMin:20}"></div>
     <div class="field"><label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="s-desktopalerts" ${DB.meta.desktopAlerts!==false?'checked':''}> 🔔 Vigilance renforcée — bip sonore + notification système</label>
       <div class="hint">Pour les événements critiques (demande de validation de rapport, risque critique, sécurité des comptes) : un bip + une notification qui <b>sort du Cockpit</b>, visible même navigateur en arrière-plan. À l'enregistrement, le navigateur demandera l'autorisation de notifier (accepte-la une fois).</div></div>
+    <div class="field"><label>📱 Alertes sur ce téléphone / cette tablette</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button type="button" class="cta ghost sm" onclick="enableMobileAlerts()">🔔 Activer les notifications sur cet appareil</button>
+        <span class="hint" style="margin-top:0">${mobNotifStateTxt()}</span>
+      </div>
+      <div class="hint">Une fois activées : <b>pastille de compteur sur l'icône</b> de l'app installée + <b>notification avec son et vibration</b> à chaque événement critique. Sur iPhone/iPad : installe d'abord le Cockpit sur l'écran d'accueil (Safari → Partager → « Sur l'écran d'accueil », iOS 16.4 minimum), puis ouvre-le depuis son icône et active ici.</div></div>
     <div class="field"><label>Accès & utilisateurs</label>
       ${isAdmin()?`<button type="button" class="cta ghost sm" onclick="closeModal();setScreen('admin-users')">🔐 Gérer les utilisateurs & rôles</button>`:`<div class="hint">La gestion des comptes est réservée aux administrateurs (Espace administrateur).</div>`}</div>
     <div class="hint">Chaque compte a son identifiant, son code et son rôle. Les connexions et l'activité sont tracées dans l'Espace administrateur → Connexions & activité. 1re couche locale ; sécurité inviolable avec la version cloud.</div>
@@ -11531,7 +11710,7 @@ function applyImportAudit(rows){
 function applyBranding(){
   const logo=DB.meta.logo;
   const bb=document.getElementById("brandbox");
-  if(bb) bb.innerHTML=`${logo?`<img class="brandlogo" src="${logo}">`:''}BSM <span>COCKPIT</span> — Pilotage interne`;
+  if(bb) bb.innerHTML=`${logo?`<img class="brandlogo" src="${logo}">`:''}BSM <span>COCKPIT</span><span class="brand-sub"> — Pilotage interne</span>`;
   const pb=document.getElementById("portal-badge");
   if(pb) pb.innerHTML=logo?`<img src="${logo}" style="width:100%;height:100%;object-fit:contain">`:'B<b>S</b>M';
   const ps=document.querySelector(".portal .sub");
