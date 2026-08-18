@@ -6243,7 +6243,11 @@ function collect(){ var out=["DECISIONS R5 — ${esc(c.company)} — "+new Date(
   REFS.forEach(function(x){ var ch=document.querySelector('input[name="'+x.id+'"]:checked'); out.push((x.ref||"?")+" : "+(ch?ch.value:"SANS REPONSE")); });
   var cm=document.getElementById("cmt").value.trim(); if(cm) out.push("COMMENTAIRE : "+cm);
   return out.join("\\n"); }
-function send(){ location.href="mailto:${esc(mail)}?subject="+encodeURIComponent("Décisions plan d'action R5 — ${esc(c.company)}")+"&body="+encodeURIComponent(collect()); }
+function send(){
+  var url="mailto:${esc(mail)}?subject="+encodeURIComponent("Décisions plan d'action R5 — ${esc(c.company)}")+"&body="+encodeURIComponent(collect());
+  var a=document.createElement("a"); a.href=url; document.body.appendChild(a); a.click(); a.remove();
+  document.getElementById("st").textContent="✓ Demande envoyée à votre messagerie. Si rien ne s'est ouvert : bouton « Copier » puis collez dans un e-mail ou WhatsApp.";
+}
 function copie(){ var t=collect(); if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(function(){ document.getElementById("st").textContent="✓ Copié — collez dans WhatsApp ou un e-mail."; }); } else { prompt("Copiez ce texte :", t); } }
 </scr`+`ipt></body></html>`;
   const blob=new Blob([html],{type:"text/html"});
