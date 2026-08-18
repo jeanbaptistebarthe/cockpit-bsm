@@ -39,6 +39,12 @@
   .tb-menu button{display:flex;width:100%;gap:9px;align-items:center;background:none;border:none;padding:9px 11px;border-radius:8px;font-size:13px;color:var(--navy);cursor:pointer;text-align:left;font-family:inherit;}
   .tb-menu button:hover{background:var(--cream);}
   .tb-menu .sep{height:1px;background:var(--line);margin:4px 6px;}
+  /* Panneau Notifications e-mail : alignement propre (cases à gauche, libellés à côté, sélecteurs compacts) */
+  #notif-mail-panel label{display:flex !important;flex-direction:row !important;align-items:center;gap:8px;text-align:left;justify-content:flex-start;margin:4px 0;font-weight:500;}
+  #notif-mail-panel input[type="checkbox"]{width:auto !important;flex:0 0 auto;margin:0;}
+  #notif-mail-panel select{width:auto !important;display:inline-block;padding:6px 10px;border:1px solid var(--line);border-radius:7px;font-size:12.5px;}
+  #notif-mail-panel .frow input{width:100%;}
+  #notif-mail-panel > div{text-align:left;}
   /* MODE RENDEZ-VOUS : le client ne voit QUE le simulateur — sidebar, topbar, KPI et raccourcis masqués */
   body.present .topbar,body.present .sidebar{display:none!important;}
   body.present .main{padding:0;}
@@ -541,7 +547,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.35.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.36.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -6301,8 +6307,20 @@ function r5ReportSend(clientId){
     if(!d.ref) d.ref=r5ReportRefNext();
     d.snap={ date:todayISO(), risks:r5Snapshot(clientId), recosOpen:DB.recommendations.filter(x=>x.clientId===clientId&&x.status!=="fait").length }; // photo de l'état — base de la synthèse « ce qui a bougé »
     const html=r5ReportHtml(d);
+    // UN SEUL MAIL : si le récepteur est configuré, le corps du mail embarque le bouton
+    // « Donner mes décisions » (page en ligne servie par le récepteur) — le PDF joint reste le rapport pur.
+    let mailHtml=html;
+    const hook=(DB.meta.decisionWebhook||"").trim();
+    const recosOpen=DB.recommendations.filter(x=>x.clientId===clientId&&x.status!=="fait");
+    if(hook && recosOpen.length){
+      const payload={ c:c.company||"", r:recosOpen.slice(0,12).map(r=>[r.ref||"",String(r.texte||"").slice(0,90),String(r.invest||"").slice(0,40),String(r.gain||"").slice(0,40)]) };
+      const b64=btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+      mailHtml=`<div style="max-width:820px;margin:0 auto 16px;background:#0D1F45;border-radius:8px;padding:20px 24px;text-align:center;font-family:Arial,sans-serif">
+        <div style="color:#fff;font-size:14px;margin-bottom:12px"><b>Vos décisions en un clic</b> — après lecture du rapport ci-dessous, validez, différez ou refusez chaque recommandation du plan d'action :</div>
+        <a href="${hook}?d=${b64}" style="background:#B5923A;color:#fff;padding:13px 28px;border-radius:6px;text-decoration:none;font-weight:bold;font-size:14px">➡️ Donner mes décisions</a></div>`+html;
+    }
     try{
-      await bsmClientMail({ to, subject:"[BSM] Rapport d'audit R5® — "+(c.company||""), html, pdfHtml:html, pdfName:d.ref });
+      await bsmClientMail({ to, subject:"[BSM] Rapport d'audit R5® — "+(c.company||""), html:mailHtml, pdfHtml:html, pdfName:d.ref });
       d.status="envoye"; d.sentAt=todayISO(); d.sentTo=to; save(); refreshAll();
       toast("📑 Rapport "+d.ref+" envoyé à "+to+" ✅ — archivé dans le dossier du client.");
     }catch(e){
