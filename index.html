@@ -38,6 +38,15 @@
   .tb-menu.open{display:block;animation:bsmFade .16s ease both;}
   .tb-menu button{display:flex;width:100%;gap:9px;align-items:center;background:none;border:none;padding:9px 11px;border-radius:8px;font-size:13px;color:var(--navy);cursor:pointer;text-align:left;font-family:inherit;}
   .tb-menu button:hover{background:var(--cream);}
+  /* MODE RENDEZ-VOUS : le client ne voit QUE le simulateur — sidebar, topbar, KPI et raccourcis masqués */
+  body.present .topbar,body.present .sidebar{display:none!important;}
+  body.present .main{padding:0;}
+  body.present #scr-commercial .pagetitle,body.present #scr-commercial .hint{display:none!important;}
+  body.present #scr-commercial .card{border:none;border-radius:0;box-shadow:none;margin:0;}
+  body.present #scr-commercial iframe{height:100vh!important;}
+  .present-exit{position:fixed;bottom:10px;left:10px;z-index:2000;width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--muted);opacity:.22;cursor:pointer;font-size:13px;display:none;transition:opacity .2s;}
+  .present-exit:hover{opacity:1;}
+  body.present .present-exit{display:block;}
   body.dark .tb-menu{background:#16202e;border-color:#273241;}
   body.dark .tb-menu button{color:var(--ink);} body.dark .tb-menu button:hover{background:#1b2736;}
   .app{display:flex;min-height:calc(100vh - 53px);}
@@ -392,6 +401,8 @@
     <span id="cloud-status" class="tb-btn" style="display:none;align-items:center;gap:4px" title="État de la synchronisation cloud (Supabase)"></span>
     <span id="currency-indicator" class="tb-btn" onclick="openSettings()" title="Devise & paramètres">Ar / €</span>
     <button class="tb-btn" onclick="openSettings()" title="Paramètres">⚙</button>
+    <button class="tb-btn" onclick="backupEverywhere()" title="Sauvegarde en un clic sur TOUS les supports disponibles : ce poste, fichier téléchargé, serveur local, cloud">💾 Tout sauvegarder</button>
+    <button class="tb-btn" onclick="enterPresentMode()" title="Masque tout le Cockpit et n'affiche que le simulateur — pour présenter en rendez-vous client. Sortie : petit bouton discret en bas à gauche.">🎥 Rendez-vous</button>
     <div class="tb-more" style="position:relative">
       <button class="tb-btn" onclick="toggleTopMenu()" title="Plus d'actions" aria-label="Plus d'actions">⋯</button>
       <div id="tb-menu" class="tb-menu">
@@ -405,6 +416,7 @@
     <input type="file" id="import-file" accept="application/json" style="display:none" onchange="importData(event)">
   </div>
 </div>
+<button class="present-exit" onclick="exitPresentMode()" title="Quitter le mode rendez-vous">✕</button>
 
 <div class="app">
   <div class="sidebar">
@@ -526,7 +538,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.24.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.25.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "16 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -1568,7 +1580,24 @@ function focusBanner(){
 }
 
 /* ----------------------------- Navigation ----------------------------- */
+/* ===================== MODE RENDEZ-VOUS — cloisonnement devant le client =====================
+   Le client ne doit voir QUE le simulateur : sidebar/topbar masquées, navigation et raccourcis
+   clavier verrouillés. Sortie uniquement par le petit bouton discret en bas à gauche (pas Échap :
+   une touche pressée par mégarde ne doit jamais révéler le Cockpit en plein rendez-vous). */
+let presentMode=false;
+function enterPresentMode(){
+  if(typeof closeTopMenu==="function") closeTopMenu();
+  setScreen("commercial");
+  presentMode=true;
+  document.body.classList.add("present");
+}
+function exitPresentMode(){
+  presentMode=false;
+  document.body.classList.remove("present");
+  toast("Mode rendez-vous quitté — Cockpit complet réaffiché.");
+}
 function setScreen(name){
+  if(presentMode && name!=="commercial") return; // mode rendez-vous : navigation verrouillée sur le simulateur
   if(name.indexOf("admin-")===0 && !isAdmin()){ toast("Accès réservé aux administrateurs."); return; } // garde côté client
   if(currentUser){
     const permKey = (name==="clientfiche") ? "clients" : name;
@@ -1855,6 +1884,7 @@ function dismissOnboarding(){ DB.meta.onboardingDone=true; save(); renderDashboa
 function showOnboarding(){ DB.meta.onboardingDone=false; save(); closeModal(); setScreen("dashboard"); toast("Guide de démarrage réaffiché."); }
 /* Raccourcis clavier globaux (fluidité) : Ctrl/Cmd+K ou « / » = recherche · Échap = fermer. */
 function bsmKeydown(e){
+  if(presentMode) return; // mode rendez-vous : aucun raccourci (Ctrl+K, Échap…) ne doit rouvrir le Cockpit devant le client
   const t=e.target, tag=(t&&t.tagName)||"", typing = tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT"||(t&&t.isContentEditable);
   if((e.ctrlKey||e.metaKey) && (e.key==="k"||e.key==="K")){ e.preventDefault(); if(typeof openCmdk==="function") openCmdk(); return; }
   if(e.key==="Escape"){
@@ -5222,6 +5252,42 @@ function exportData(){
   a.download="BSM_Cockpit_sauvegarde_"+todayISO()+".json"; a.click();
   DB.meta.lastBackupExport=todayISO(); save(); // rappel de sauvegarde
   toast("Sauvegarde exportée.");
+}
+/* ===================== SAUVEGARDE TOTALE — un clic, tous les supports =====================
+   1. Ce poste (localStorage, chiffré si coffre actif)  2. Fichier téléchargé (copie hors-site)
+   3. Serveur local (disque, data/)  4. Cloud Supabase (synchro + instantané daté restaurable).
+   Chaque support répond ✓ / ✗ / ○ (non branché) — récapitulatif affiché, rien n'est silencieux. */
+async function backupEverywhere(){
+  const rows=[]; const mark=(label,ok,note)=>rows.push({label,ok,note:note||""});
+  // 1. Ce poste (navigateur)
+  try{
+    if(_encLocked) throw new Error("coffre chiffré verrouillé — déverrouille-le d'abord");
+    if(_encKey) bsmSaveEncrypted(); else localStorage.setItem(STORE_KEY, JSON.stringify(DB));
+    mark("Ce poste — navigateur"+(_encKey?" (coffre chiffré)":""),true);
+  }catch(e){ mark("Ce poste — navigateur",false,e.message||""); }
+  // 2. Fichier hors-site
+  try{ exportData(); mark("Fichier téléchargé — copie hors-site",true,"BSM_Cockpit_sauvegarde_"+todayISO()+".json → à copier sur clé USB / Drive"); }
+  catch(e){ mark("Fichier téléchargé",false,e.message||""); }
+  // 3. Serveur local (disque du PC serveur)
+  if(serverEnabled){
+    try{ const r=await fetch("/api/data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(DB)}); setServerStatus(r.ok); mark("Serveur local — disque du PC (data/)",r.ok,r.ok?"":"réponse serveur en erreur"); }
+    catch(e){ setServerStatus(false); mark("Serveur local — disque du PC",false,"injoignable"); }
+  } else mark("Serveur local",null,"non détecté — lancer Demarrer_serveur.bat");
+  // 4. Cloud Supabase : synchro des données + instantané daté restaurable
+  if(typeof cloudPrimary!=="undefined" && cloudPrimary){
+    try{ await cloudImportLocal(); setCloudSyncStatus("ok"); mark("Cloud Supabase — synchronisation",true); }
+    catch(e){ setCloudSyncStatus("error"); mark("Cloud Supabase — synchronisation",false,"réessaiera automatiquement à la prochaine modification"); }
+    try{ const c=await sbClient(); const {error}=await c.rpc("backup_now"); mark("Cloud — instantané daté (restaurable)",!error,error?error.message:""); }
+    catch(e){ mark("Cloud — instantané daté",false,"indisponible"); }
+  } else mark("Cloud Supabase",null,"non connecté");
+  const icon=v=>v===true?'<span style="color:var(--green);font-weight:700">✓</span>':(v===false?'<span style="color:var(--red);font-weight:700">✗</span>':'<span style="color:var(--muted)">○</span>');
+  const okCount=rows.filter(r=>r.ok===true).length, koCount=rows.filter(r=>r.ok===false).length;
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>💾 Sauvegarde totale</h2>
+    <div class="msub">${okCount} support(s) sauvegardé(s)${koCount?` · <span style="color:var(--red)">${koCount} échec(s)</span>`:""} — ${new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}</div>
+    <table style="margin-top:10px"><tbody>${rows.map(r=>`<tr><td style="width:26px;text-align:center">${icon(r.ok)}</td><td><b>${esc(r.label)}</b>${r.note?`<div style="font-size:11px;color:var(--muted)">${esc(r.note)}</div>`:""}</td></tr>`).join("")}</tbody></table>
+    <div class="hint" style="margin-top:10px">Le fichier téléchargé est ta copie <b>hors-site</b> (incendie, vol, panne du PC) : range-le sur une clé USB ou un Drive. ○ = support non branché aujourd'hui — rien de perdu, simplement non utilisé.</div>
+    <div class="modal-actions"><button class="cta" onclick="closeModal()">OK</button></div>`);
+  if(typeof logEvent==="function") logEvent("backup","Sauvegarde totale : "+okCount+" support(s) OK"+(koCount?", "+koCount+" échec(s)":""), koCount===0);
 }
 function backupIntervalDays(){ const d=+((DB.meta&&DB.meta.backupIntervalDays)); return d>0?d:14; }
 function backupDaysSince(){ const last=DB.meta&&DB.meta.lastBackupExport; if(!last) return null; return Math.floor((Date.now()-new Date(last).getTime())/86400000); }
