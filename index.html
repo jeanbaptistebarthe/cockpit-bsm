@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.54.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.55.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -2121,6 +2121,22 @@ async function pushUnsubscribe(){
     toast("🔕 Push désactivé sur cet appareil.");
   }catch(e){ toast("Push : "+(e.message||e)); }
 }
+/* 🧪 Test de bout en bout de la chaîne push (⚙ Paramètres) : appelle la fonction send-push et
+   affiche le verdict — combien d'appareils touchés, ou l'erreur exacte (fonction non déployée…). */
+async function testPush(){
+  try{
+    const sess=await cloudGetSession();
+    if(!sess){ toast("🧪 Connecte-toi d'abord avec le compte cloud — le push part par Supabase."); return; }
+    toast("🧪 Envoi du push de test…");
+    const c=await sbClient();
+    const { data, error }=await c.functions.invoke("send-push",{ body:{ title:"🧪 Test push BSM Cockpit", body:"Si tu lis ceci, la chaîne push fonctionne — app fermée comprise." } });
+    if(error) throw new Error(error.message||"fonction send-push injoignable — est-elle déployée ? (PUSH_DEPLOIEMENT.md)");
+    const d=data||{};
+    if(d.error) throw new Error(d.error);
+    toast(d.sent?("🧪 Push envoyé à "+d.sent+" appareil(s)"+(d.purged?", "+d.purged+" abonnement(s) mort(s) purgé(s)":"")+" — vérifie tes écrans !")
+      :"🧪 Fonction OK mais AUCUN appareil abonné — bouton « 📲 (Ré)activer le push » sur chaque appareil d'abord.");
+  }catch(e){ toast("🧪 Échec : "+(e.message||e)); }
+}
 /* Push instantané vers les AUTRES appareils de l'organisation (événement critique créé ici).
    Best-effort : jamais bloquant, throttle anti-rafale par titre. */
 let _pushSentAt={};
@@ -2512,6 +2528,49 @@ function toShort(v){ return DB.meta.defaultCurrency==="MGA"? v/1000 : v; }
 
 /* ----------------------------- Clients ----------------------------- */
 let clientFilter="tous", clientSearch="";
+/* 🚀 ASSISTANT « NOUVEAU CONTRAT » (chantier cadence 19/08) : un seul formulaire crée et relie
+   fiche client + mission + première échéance de facturation, puis ouvre la fiche 360°.
+   Contrôle intégré de la règle d'exclusivité sectorielle (un client par secteur d'intervention). */
+const CW_CONTRACT_TYPES=["Gouvernance annuelle","Audit initial","Audit Flash A1","Suivi permanent A1 — flotte","Suivi permanent A1 — groupes","Autre"];
+function openContractWizard(){
+  if(!isDirection()){ toast("Réservé à la direction."); return; }
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🚀 Nouveau contrat</h2>
+    <div class="msub">Un formulaire → fiche client + mission + première échéance, tout relié. Les détails (branches, scores, machines A1) s'ajoutent ensuite depuis la fiche 360°.</div>
+    <div class="field row2"><label>Société * & secteur</label>
+      <input id="cw-company" placeholder="Nom de la société">
+      <input id="cw-sector" placeholder="Secteur (ex. Distribution)"></div>
+    <div class="field row2"><label>Contact & e-mail</label>
+      <input id="cw-contact" placeholder="Prénom Nom">
+      <input id="cw-email" placeholder="contact@societe.mg"></div>
+    <div class="field row2"><label>Type de contrat & date de début</label>
+      <select id="cw-type">${CW_CONTRACT_TYPES.map(t=>`<option>${t}</option>`).join("")}</select>
+      <input type="date" id="cw-start" value="${todayISO()}"></div>
+    <div class="field row2"><label>Première échéance de facturation (facultatif) & devise</label>
+      <input type="number" id="cw-amount" placeholder="montant (vide = aucune)">
+      <select id="cw-cur">${curOptions(DB.meta.defaultCurrency)}</select></div>
+    <div class="field"><label>Date d'échéance de cette facturation</label><input type="date" id="cw-due" value="${addDaysISO(todayISO(),30)}"></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveContractWizard()">🚀 Créer le contrat</button></div>`);
+  setTimeout(()=>{ const e=document.getElementById("cw-company"); if(e) e.focus(); },60);
+}
+function saveContractWizard(){
+  const company=(val("cw-company")||"").trim(); if(!company){ toast("Le nom de la société est obligatoire."); return; }
+  const sector=(val("cw-sector")||"").trim();
+  // Règle BSM d'exclusivité sectorielle : un client par secteur d'intervention — on prévient, la direction décide.
+  const conflict=sector && DB.clients.find(c=>c.status==="actif" && norm(c.sector||"")===norm(sector));
+  const doCreate=()=>{
+    const cid=uid();
+    DB.clients.push({id:cid,company,sector,status:"actif",contact:(val("cw-contact")||"").trim(),contactEmail:(val("cw-email")||"").trim(),createdAt:todayISO()});
+    const type=val("cw-type")||CW_CONTRACT_TYPES[0];
+    DB.missions.push({id:uid(),clientId:cid,type,ref:nextRef('MIS',DB.missions),phase:"reveal",status:"encours",startDate:val("cw-start")||todayISO()});
+    const amt=parseFloat(val("cw-amount"));
+    if(amt>0) DB.transactions.push({id:uid(),sens:"entrant",status:"prevu",label:type+" — "+company,amount:amt,currency:val("cw-cur")||DB.meta.defaultCurrency,date:val("cw-start")||todayISO(),dueDate:val("cw-due")||addDaysISO(todayISO(),30),clientId:cid,entity:entityFilter||"bsmac",cat:"Prestations"});
+    if(typeof logEvent==="function") logEvent("action","Nouveau contrat : "+company+" · "+type,true);
+    save(); closeModal(); focusClient=cid; openClientFiche(cid);
+    toast("🚀 "+company+" : fiche + mission "+(amt>0?"+ 1ʳᵉ échéance ":"")+"créées et reliées.");
+  };
+  if(conflict) confirmModal("Secteur déjà couvert","⚠️ Règle d'exclusivité sectorielle : <b>"+esc(conflict.company)+"</b> est déjà client actif du secteur « "+esc(sector)+" ». Créer quand même (autre branche / exception validée) ?",doCreate);
+  else doCreate();
+}
 function renderClients(){
   let list=DB.clients.slice();
   if(clientFilter!=="tous") list=list.filter(c=>c.status===clientFilter);
@@ -2520,6 +2579,7 @@ function renderClients(){
   document.getElementById("scr-clients").innerHTML=`
     <div class="pagetitle"><div><h1>Clients</h1><div class="sub">${DB.clients.length} au total — ajout, suivi, archivage, suppression</div></div>
       ${isDirection()?`<button class="cta ghost" onclick="openClientMerge()" title="Basculer un client de test vers sa vraie fiche, ou fusionner un doublon">⇄ Fusionner</button>`:""}
+      ${isDirection()?`<button class="cta gold" onclick="openContractWizard()" title="Un formulaire, tout est créé et relié : fiche client + mission + première échéance de facturation">🚀 Nouveau contrat</button>`:""}
       <button class="cta" onclick="openClientForm()">+ Nouveau client</button></div>
     <div class="filters">
       ${["tous","prospect","actif","archive"].map(f=>`<button class="chip ${clientFilter===f?'active':''}" onclick="clientFilter='${f}';renderClients()">${f==='tous'?'Tous':cap(f)}</button>`).join("")}
@@ -4671,6 +4731,7 @@ function txRowHtml(t){
     <td style="text-align:right;font-weight:700;color:${t.sens==='entrant'?'var(--green)':'var(--red)'}">${t.sens==='entrant'?'+':'−'} ${fmt(t.amount,t.currency)}</td>
     <td>${locked?`<span title="Mois clôturé — rouvrir (Budget → Clôture mensuelle) pour modifier" style="font-size:13px;opacity:.6">🔒</span>`:`<div class="rowact">
       ${t.status==='prevu'?`<button class="iconbtn" title="Marquer réalisé" onclick="markRealise('${t.id}')">✓</button>`:""}
+      ${retard&&t.clientId?`<button class="iconbtn" title="Relancer le client par e-mail (facture jointe)${t.lastRelanceAt?" — dernière relance le "+frDate(t.lastRelanceAt):""}" onclick="openInvoiceSend('${t.id}','relance')">📨</button>`:""}
       <button class="iconbtn" title="Modifier" onclick="openTxForm('${t.id}')">✎</button><button class="iconbtn del" title="Supprimer" onclick="deleteTx('${t.id}')">🗑</button></div>`}</td></tr>`;
 }
 function txTable(rowsHtml){
@@ -4927,8 +4988,10 @@ function renderCA(){
   // KPIs : globaux, ou recentrés sur le client en focus
   let kEff=a.caEffectif, kProv=a.caProvisoire, kRetard=a.enRetard;
   if(focusClient){ kEff=0;kProv=0;kRetard=0; DB.transactions.filter(t=>t.sens==="entrant"&&t.clientId===focusClient&&inEntity(t)).forEach(t=>{const v=txDefault(t); if(t.status==="realise"&&inYear(t.date,y))kEff+=v; else if(t.status==="prevu"){kProv+=v; if((t.dueDate||t.date)<todayISO())kRetard+=v;}}); }
+  const nbRetards=overdueRelanceList().length;
   document.getElementById("scr-ca").innerHTML=`
-    <div class="pagetitle"><div><h1>Chiffre d'affaires</h1><div class="sub">Provisoire (à encaisser) vs effectif (encaissé) — ${y}${entityFilter?" · "+entityShort(entityFilter):" · consolidé"}</div></div></div>
+    <div class="pagetitle"><div><h1>Chiffre d'affaires</h1><div class="sub">Provisoire (à encaisser) vs effectif (encaissé) — ${y}${entityFilter?" · "+entityShort(entityFilter):" · consolidé"}</div></div>
+      ${nbRetards?`<button class="cta ${nbRetards>2?'':'ghost'}" onclick="openRelanceBatch()" title="Relancer d'un coup tous les encaissements en retard — un e-mail de rappel par client, tracé, avec copie sur ta boîte">📨 Relancer les retards (${nbRetards})</button>`:""}</div>
     ${focusBanner()}
     <div class="filters">${entityPickerHtml()}<span style="width:10px"></span>${clientPickerHtml()}</div>
     <div class="kpis">
@@ -5816,6 +5879,7 @@ function openSettings(){
       <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
         <button type="button" class="cta ghost sm" onclick="pushSubscribe(false)">📲 (Ré)activer le push app fermée</button>
         <button type="button" class="cta ghost sm" onclick="pushUnsubscribe()">🔕 Désactiver le push sur cet appareil</button>
+        <button type="button" class="cta ghost sm" onclick="testPush()" title="Envoie un push de test à TOUS les appareils abonnés de l'organisation — vérifie la chaîne complète (fonction déployée, abonnements valides)">🧪 Tester le push</button>
       </div></div></div>
     <div class="field"><label>Accès & utilisateurs</label>
       ${isAdmin()?`<button type="button" class="cta ghost sm" onclick="closeModal();setScreen('admin-users')">🔐 Gérer les utilisateurs & rôles</button>`:`<div class="hint">La gestion des comptes est réservée aux administrateurs (Espace administrateur).</div>`}</div>
@@ -6437,6 +6501,57 @@ function invoiceData(t){
   if(!document.getElementById("inv-amount")) return { date:t.invoiceDate||todayISO(), label:t.label, amount:t.amount, due:t.dueDate||t.date, notes:"", msg:"", to:((DB.clients.find(x=>x.id===t.clientId)||{}).contactEmail||""), relance };
   return { date:val("inv-date")||todayISO(), label:(val("inv-label")||t.label||"").trim(), amount:Math.round(parseFloat(val("inv-amount"))||0),
     due:val("inv-due")||t.dueDate||t.date, notes:(val("inv-notes")||"").trim(), msg:(val("inv-msg")||"").trim(), to:(val("inv-to")||"").trim(), relance };
+}
+/* ===== RELANCE GROUPÉE des encaissements en retard (chantier cadence 19/08) =====
+   À 15-20 clients, relancer un par un ne tient plus : un clic = un e-mail de rappel
+   par échéance en retard (client avec e-mail), tracé sur la transaction (lastRelanceAt)
+   + copie boîte BSM. Une échéance relancée depuis moins de 7 jours est décochée par défaut. */
+function overdueRelanceList(){
+  return DB.transactions.filter(t=>inEntity(t)&&t.sens==="entrant"&&t.status==="prevu"&&(t.dueDate||t.date)<todayISO());
+}
+function openRelanceBatch(){
+  const list=overdueRelanceList().sort((a,b)=>String(a.dueDate||a.date).localeCompare(String(b.dueDate||b.date)));
+  if(!list.length){ toast("✅ Aucun encaissement en retard."); return; }
+  const recent=t=>t.lastRelanceAt && t.lastRelanceAt>addDaysISO(todayISO(),-7);
+  const rows=list.map(t=>{ const c=DB.clients.find(x=>x.id===t.clientId)||{}; const mail=(c.contactEmail||"").trim();
+    return `<div class="li"><label style="display:flex;gap:8px;align-items:center;flex:1;cursor:pointer">
+      <input type="checkbox" class="rb-cb" data-tx="${t.id}" ${mail&&!recent(t)?"checked":""} ${mail?"":"disabled"}>
+      <span>${esc(t.label||"—")}<span class="d"> · ${fmt(t.amount,t.currency)} · ${esc(c.company||"—")} · échu le ${frDate(t.dueDate||t.date)}</span>
+      ${!mail?'<span class="badge b-red" style="margin-left:6px">e-mail manquant</span>':(recent(t)?`<span class="badge b-grey" style="margin-left:6px">relancé le ${frDate(t.lastRelanceAt)}</span>`:"")}</span></label></div>`; }).join("");
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📨 Relance groupée — encaissements en retard</h2>
+    <div class="msub">${list.length} échéance(s) en retard. Un e-mail de rappel courtois part par échéance cochée, avec copie sur ta boîte — et la relance est tracée sur le mouvement.</div>
+    ${serverEnabled?"":`<div class="hint" style="color:#A6641A;background:#FDF1E3;border:1px solid #F3D8B4;border-radius:8px;padding:9px;margin-bottom:8px">🖥️ L'envoi se fait depuis le <b>Cockpit local</b> (pont Google). Ici tu peux préparer, mais pas envoyer.</div>`}
+    <div class="mini-list" style="max-height:44vh;overflow:auto">${rows}</div>
+    <div class="field" style="margin-top:10px"><label>Mot d'accompagnement (commun, facultatif)</label>
+      <textarea id="rb-msg" rows="2" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px" placeholder="Ex. Sauf erreur de notre part — si le règlement est déjà parti, merci de ne pas tenir compte de ce rappel."></textarea></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button>${serverEnabled?`<button class="cta" id="rb-go" onclick="runRelanceBatch()">📨 Envoyer les relances cochées</button>`:""}</div>`);
+}
+function addDaysISO(iso,n){ const d=new Date(iso+"T00:00:00Z"); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+async function runRelanceBatch(){
+  const cbs=[...document.querySelectorAll(".rb-cb:checked")]; if(!cbs.length){ toast("Coche au moins une échéance."); return; }
+  const msg=(val("rb-msg")||"").trim(); const btn=document.getElementById("rb-go");
+  let ok=0,ko=0;
+  for(let i=0;i<cbs.length;i++){
+    if(btn){ btn.disabled=true; btn.textContent="Envoi "+(i+1)+"/"+cbs.length+"…"; }
+    const t=DB.transactions.find(x=>x.id===cbs[i].dataset.tx); if(!t){ ko++; continue; }
+    const c=DB.clients.find(x=>x.id===t.clientId)||{}; const to=(c.contactEmail||"").trim(); if(!to){ ko++; continue; }
+    const s=docIdentity(); const cab=DB.meta.cabinetName||"BSM Advisory & Consulting";
+    const html=`<div style="max-width:560px;margin:0 auto;font-family:Arial,sans-serif">
+      <div style="border-bottom:3px solid #B5923A;padding-bottom:10px;margin-bottom:14px"><div style="font-family:Georgia,serif;font-size:20px;font-weight:bold;color:#0D1F45">${esc(cab)}</div></div>
+      <p style="font-size:14px;line-height:1.7">Bonjour${c.contact?" "+esc(c.contact):""},</p>
+      <p style="font-size:14px;line-height:1.7">Sauf erreur de notre part, l'échéance suivante reste en attente de règlement :</p>
+      <div style="background:#F6F1E8;border-left:3px solid #B5923A;padding:12px 16px;border-radius:6px;margin:10px 0;font-size:14px">
+        <b>${esc(t.label||"Prestation")}</b>${t.invoiceNo?" · Facture "+esc(t.invoiceNo):""}<br>
+        Montant : <b>${fmt(t.amount,t.currency)}</b> · Échéance : <b>${frDate(t.dueDate||t.date)}</b></div>
+      ${msg?`<p style="font-size:14px;line-height:1.7">${esc(msg)}</p>`:""}
+      <p style="font-size:14px;line-height:1.7">Nous restons à votre disposition pour toute question.<br>Bien cordialement,<br><b>${esc(cab)}</b>${s.tel?" · "+esc(s.tel):""}</p></div>`;
+    try{
+      await bsmClientMail({ to, subject:"Rappel d'échéance — "+(t.invoiceNo?("facture "+t.invoiceNo):(t.label||cab)), html });
+      t.lastRelanceAt=todayISO(); ok++;
+    }catch(e){ ko++; }
+  }
+  save(); closeModal(); refreshAll();
+  toast("📨 "+ok+" relance(s) envoyée(s)"+(ko?", "+ko+" échec(s)":"")+" — tracées sur les mouvements.");
 }
 function openInvoiceSend(txId, mode){
   const t=DB.transactions.find(x=>x.id===txId); if(!t) return;
@@ -7102,19 +7217,34 @@ function openR5Registry(clientId){
     :`<div class="empty" style="margin-top:10px">Aucun rapport pour l'instant.</div>`}
     <div class="modal-actions"><button class="cta" onclick="closeModal()">Fermer</button></div>`);
 }
-let recoFilter="tous";
+let recoFilter="tous", recoSort="ref";
 function recoPrioBadge(p){return {"Critique":"b-red","Élevée":"b-orange","Modérée":"b-amber","Faible":"b-grey"}[p]||"b-grey";}
+/* Action rapide en ligne (chantier cadence 19/08) : à 50+ recos, plus besoin d'ouvrir la modale
+   pour faire vivre le suivi — ▶ démarre la mise en œuvre, ✓ termine (avancement 100 %). */
+function recoQuickStatus(id, st){
+  const r=DB.recommendations.find(x=>x.id===id); if(!r) return;
+  r.status=st;
+  if(st==="fait"){ r.avancement=100; }
+  else if(st==="en_cours" && !(+r.avancement)) r.avancement=10;
+  save(); renderRecos();
+  toast(st==="fait"?"✓ "+(r.ref||"Recommandation")+" marquée faite (avancement 100 %).":"▶ "+(r.ref||"Recommandation")+" — mise en œuvre démarrée.");
+}
 function renderRecos(){
   let list=DB.recommendations.slice();
-  if(recoFilter!=="tous") list=list.filter(r=>r.status===recoFilter);
+  if(recoFilter==="decision") list=list.filter(r=>r.status!=="fait" && !r.clientDecision); // 🗳 en attente de décision client
+  else if(recoFilter!=="tous") list=list.filter(r=>r.status===recoFilter);
   if(focusClient) list=list.filter(r=>r.clientId===focusClient);
-  list.sort((a,b)=>(a.ref||"").localeCompare(b.ref||""));
+  if(recoSort==="prio"){
+    const P={"Critique":0,"Élevée":1,"Modérée":2,"Faible":3};
+    list.sort((a,b)=>((P[a.priorite]!=null?P[a.priorite]:9)-(P[b.priorite]!=null?P[b.priorite]:9)) || String(a.dateCible||"9999").localeCompare(String(b.dateCible||"9999")));
+  } else list.sort((a,b)=>(a.ref||"").localeCompare(b.ref||""));
   document.getElementById("scr-recos").innerHTML=`
     <div class="pagetitle"><div><h1>Recommandations & suivi</h1><div class="sub">Plan d'action R5 (Respond → Strengthen)</div></div>
       <div style="display:flex;gap:8px">${serverEnabled?`<button class="cta ghost" onclick="syncDecisionsFromSheet()" title="Lit l'onglet « DECISIONS RECUES » du Sheet R5 (rempli par la page de décision en ligne) et applique les décisions — automatique au démarrage et toutes les 15 min, ce bouton force une relecture immédiate">🔄 Importer du Sheet</button>`:""}<button class="cta ghost" onclick="openR5DecisionsPaste()" title="Coller le bloc de décisions reçu du client (fiche de décision) — applique Validé / Différé / Refusé en un clic">📥 Décisions reçues</button><button class="cta" onclick="openRecoForm()">+ Nouvelle recommandation</button></div></div>
     ${focusBanner()}
     <div class="hint" style="margin-bottom:10px">ℹ️ Les recommandations sont des <b>conseils et schémas de réponse proposés par BSM</b> (recherche, réponse, suivi, amélioration). <b>Le client décide</b> de les valider et de les mettre en place — l'avancement mesure ce suivi, il ne fait pas disparaître le risque associé.</div>
-    <div class="filters">${clientPickerHtml()}<span style="width:14px"></span>${[["tous","Toutes"],["a_faire","À faire"],["en_cours","En cours"],["fait","Faites"]].map(f=>`<button class="chip ${recoFilter===f[0]?'active':''}" onclick="recoFilter='${f[0]}';renderRecos()">${f[1]}</button>`).join("")}</div>
+    <div class="filters">${clientPickerHtml()}<span style="width:14px"></span>${[["tous","Toutes"],["a_faire","À faire"],["en_cours","En cours"],["fait","Faites"],["decision","🗳 Décision attendue"]].map(f=>`<button class="chip ${recoFilter===f[0]?'active':''}" onclick="recoFilter='${f[0]}';renderRecos()">${f[1]}</button>`).join("")}
+      <span style="width:14px"></span><button class="chip ${recoSort==='prio'?'active':''}" onclick="recoSort=recoSort==='prio'?'ref':'prio';renderRecos()" title="Trier par priorité (Critique → Faible) puis date cible ; re-cliquer = tri par référence">⇅ Priorité</button></div>
     <div class="card">
       ${list.length?`<table><thead><tr><th>Réf</th><th>Client</th><th>Recommandation</th><th>Horizon</th><th>Priorité</th><th>Resp.</th><th>Avancement</th><th>Décision client</th><th>Cible</th><th></th></tr></thead><tbody>`+
       list.map(r=>`<tr><td><b>${esc(r.ref||"—")}</b></td><td>${clientLink(r.clientId)}</td>
@@ -7123,7 +7253,7 @@ function renderRecos(){
         <td><div class="progress"><i style="width:${r.avancement||0}%"></i></div> <span style="font-size:11px">${r.avancement||0}%</span></td>
         <td>${r.clientDecision?`<span class="badge ${decisionBadge(r.clientDecision)}">${decisionLabel(r.clientDecision)}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
         <td style="font-size:11.5px;${r.dateCible&&r.dateCible<todayISO()&&r.status!=='fait'?'color:var(--red)':''}">${r.dateCible?frDate(r.dateCible):"—"}</td>
-        <td><div class="rowact"><button class="iconbtn" onclick="openRecoForm('${r.id}')">✎</button><button class="iconbtn del" onclick="deleteReco('${r.id}')">🗑</button></div></td></tr>`).join("")+`</tbody></table>`
+        <td><div class="rowact">${r.status==="a_faire"?`<button class="iconbtn" title="Démarrer la mise en œuvre (→ En cours)" onclick="recoQuickStatus('${r.id}','en_cours')">▶</button>`:""}${r.status==="en_cours"?`<button class="iconbtn" title="Marquer faite (avancement 100 %)" onclick="recoQuickStatus('${r.id}','fait')">✓</button>`:""}<button class="iconbtn" onclick="openRecoForm('${r.id}')">✎</button><button class="iconbtn del" onclick="deleteReco('${r.id}')">🗑</button></div></td></tr>`).join("")+`</tbody></table>`
       :`<div class="empty">Aucune recommandation.</div>`}
     </div>`;
 }
@@ -8154,7 +8284,8 @@ async function a1ViewExecReport(id){
   catch(e){ toast("⚠️ Rapport introuvable sur le serveur."); }
 }
 /* RAPPORT EXÉCUTIF (Lot A) : le livrable vendable — couverture BSM, synthèse dirigeant, KPI, constats, recommandations chiffrées, méthodologie. */
-async function a1ExecReport(kind){
+async function a1ExecReport(kind, opts){
+  opts=opts||{}; // opts.silent : génération en LOT — archive sans ouvrir la fenêtre d'impression
   const isGen=kind==="gen"; const clientId=isGen?a1genClient:a1Client;
   const comp=isGen?a1GenCompute(clientId):a1Compute(clientId);
   const arr=comp.arr, totals=comp.totals;
@@ -8437,8 +8568,36 @@ async function a1ExecReport(kind){
       <p style="font-family:Arial,sans-serif;font-size:11.5px;color:#6B7280;margin-top:12px">📎 Le rapport complet <b>${ref}</b> est joint en PDF — analyse détaillée, comparatif mensuel, recommandations, méthodologie et registre des relevés.</p>
     </div>`;
   })();
-  openPrintable(html);
+  if(!opts.silent) openPrintable(html);
   a1ArchiveExecReport({ref, clientId:clientId||"", kind, cost:totals.cost, fiab:q.pct, alerts:alerts.length}, html, mailHtml);   // archivage numéroté (preuve du suivi) + essentiel mail
+}
+/* ⚙ GÉNÉRATION EN LOT (chantier cadence 19/08) : tous les rapports A1 du mois manquants,
+   en une passe — chaque client suivi (flotte et/ou groupes) reçoit son brouillon numéroté,
+   à relire puis valider/envoyer depuis l'écran Rapports. */
+async function a1BatchMonthlyReports(){
+  if(!isDirection()){ toast("Réservé à la direction."); return; }
+  const month=todayISO().slice(0,7);
+  const has=(cid,kind)=>(DB.a1execreports||[]).some(r=>r.clientId===cid&&r.kind===kind&&String(r.ts||"").slice(0,7)===month);
+  const jobs=[];
+  [...new Set(DB.a1vehicles.map(v=>v.clientId).filter(Boolean))].forEach(cid=>{ if(!has(cid,"fleet")) jobs.push({cid,kind:"fleet"}); });
+  [...new Set(DB.a1gensets.map(g=>g.clientId).filter(Boolean))].forEach(cid=>{ if(!has(cid,"gen")) jobs.push({cid,kind:"gen"}); });
+  if(!jobs.length){ toast("✅ Tous les rapports A1 du mois sont déjà générés."); return; }
+  confirmModal("Générer "+jobs.length+" rapport(s) A1 du mois ?",
+    "Chaque client suivi reçoit son rapport exécutif en <b>brouillon numéroté</b> — tu les relis puis les valides/envoies un par un depuis cet écran. (Compter quelques instants par rapport si l'analyse IA est active.)",
+    async ()=>{
+      closeModal();
+      const oF=a1Client, oG=a1genClient; let okN=0, koN=0;
+      for(let i=0;i<jobs.length;i++){
+        toast("📕 Rapport "+(i+1)+"/"+jobs.length+" — "+clientName(jobs[i].cid)+"…");
+        try{
+          if(jobs[i].kind==="gen") a1genClient=jobs[i].cid; else a1Client=jobs[i].cid;
+          await a1ExecReport(jobs[i].kind, {silent:true}); okN++;
+        }catch(e){ koN++; }
+      }
+      a1Client=oF; a1genClient=oG;
+      save(); if(currentScreen==="reports") renderReports();
+      toast("📕 Lot terminé : "+okN+" rapport(s) en brouillon"+(koN?", "+koN+" échec(s)":"")+" — relis et valide ci-dessous.");
+    });
 }
 /* ================== LOT E — PIPELINE DE PRODUCTION : Suivi du mois, relances de collecte, envoi des rapports ================== */
 /* L'outil interne pour tenir 10 abonnements sans rien oublier : pour chaque client A1 et chaque mois,
@@ -12774,7 +12933,8 @@ function renderReports(){
 /* Rapports exécutifs A1 (flotte / groupes) agrégés dans le point central — lecture + renvoi vers le module pour gérer. */
 function a1ExecReportsCardHtml(){
   const list=(DB.a1execreports||[]).slice().reverse();
-  if(!list.length) return "";
+  const hasA1Clients=DB.a1vehicles.some(v=>v.clientId)||DB.a1gensets.some(g=>g.clientId);
+  if(!list.length && !hasA1Clients) return "";
   const kindLbl=k=>k==="gen"?"🔌 Groupes":"🚗 Flotte";
   const rows=list.map(r=>{ const st=a1ExecStatus(r); return `<tr>
     <td style="white-space:nowrap"><b>${esc(r.ref||"—")}</b> <span class="badge b-green" title="Livrable client — transmissible après validation">📤 Client</span></td>
@@ -12784,9 +12944,12 @@ function a1ExecReportsCardHtml(){
     <td>${a1ExecStatusBadge(r)}</td>
     <td style="text-align:right;white-space:nowrap">${r.onServer?`<button class="cta ghost sm" title="Relire" onclick="a1ViewExecReport('${r.id}')">👁</button> `:""}${st==="brouillon"?`<button class="cta sm" title="Valider après relecture — débloque l'envoi client" onclick="a1ExecValidate('${r.id}');setTimeout(renderReports,150)">✅ Valider</button>`:`<button class="cta ghost sm" title="${r.sentAt?"Renvoyer":"Envoyer"} au client (PDF joint, tracé)" onclick="openA1ExecSend('${r.id}')">✉️ ${r.sentAt?"Renvoyer":"Envoyer"}</button>`} <button class="iconbtn del" title="Supprimer (rapport erroné ou mal rattaché) — récupérable 30 j via la corbeille" onclick="a1ExecDelete('${r.id}')">🗑</button> <button class="cta ghost sm" title="Ouvrir le module (regénérer, historique complet)" onclick="setScreen('${r.kind==="gen"?"a1genset":"a1fleet"}');setTimeout(()=>openA1ExecHistory('${r.kind==="gen"?"gen":"fleet"}'),200)">📚</button></td></tr>`; }).join("");
   return `<div class="card">
-    <h2 style="margin:0 0 4px">Rapports exécutifs A1 (${list.length})</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0 0 4px">Rapports exécutifs A1 (${list.length})</h2>
+      <button class="cta ghost sm" onclick="a1BatchMonthlyReports()" title="Génère d'un coup les rapports du mois manquants pour TOUS les clients suivis (flotte et groupes) — chacun en brouillon numéroté, à relire puis valider/envoyer ici">⚙ Générer les rapports du mois</button></div>
     <div class="hint" style="margin-bottom:6px">Livrables des programmes d'analyse (flotte, groupes électrogènes) — archivés, numérotés, <b>tous destinés au client</b>. Relis (👁), ✅ valide, puis ✉️ envoie — ici même. 📚 ouvre le module (regénérer, supprimer). Le contenu d'un rapport se corrige en le supprimant puis le regénérant depuis le module, données corrigées.</div>
-    <table><thead><tr><th>Référence</th><th>Date</th><th>Client</th><th>Programme</th><th>Statut</th><th style="text-align:right">Actions</th></tr></thead><tbody>${rows}</tbody></table>
+    ${list.length?`<table><thead><tr><th>Référence</th><th>Date</th><th>Client</th><th>Programme</th><th>Statut</th><th style="text-align:right">Actions</th></tr></thead><tbody>${rows}</tbody></table>`
+    :`<div class="empty">Aucun rapport encore — « ⚙ Générer les rapports du mois » produit le premier lot.</div>`}
   </div>`;
 }
 function buildAIContext(){
