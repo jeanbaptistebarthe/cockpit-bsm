@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.55.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.56.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -12699,6 +12699,21 @@ function startAuditReport(clientId){
 }
 function repSetType(v){ window.repGenType=v; renderReports(); }
 function repSetFilter(v){ window.repFilter=v; renderReports(); }
+/* ===== RAPPORTS APPRENANTS (chantier B-A-C du 19/08) =====
+   A. CONTEXTE PROFOND : la génération relit les derniers rapports VALIDÉS du même type/client
+      → continuité d'analyse (évolutions, suites logiques), pas de photo isolée.
+   B. APPRENTISSAGE : à la validation d'un rapport édité, les corrections du dirigeant sont
+      distillées en règles de rédaction durables (stockées dans aiSettings → synchronisées),
+      injectées dans toutes les générations futures. Corriger une fois = acquis pour toujours.
+   C. DEUX PASSES : une analyse préparatoire (constats croisés, angles morts, fil directeur)
+      nourrit ensuite la rédaction de chaque section. */
+function reportRulesFor(typeKey){ const st=aiSettings(); return ((st.reportRules||{})[typeKey]||[]); }
+function reportHistoryCtx(typeKey, repClient){
+  const prior=(DB.reports||[]).filter(x=>x.type===typeKey && (repClient?x.clientId===repClient:!x.clientId||true) && (reportStatus(x)==="valide"||reportStatus(x)==="envoye")).slice(0,2);
+  if(!prior.length) return "";
+  return "\n\n=== HISTORIQUE — DERNIER(S) RAPPORT(S) VALIDÉ(S) DU MÊME TYPE (continuité : appuie-toi dessus, souligne les ÉVOLUTIONS, assure le suivi des actions annoncées, ne recopie pas) ===\n"
+    + prior.map(p=>"— "+(p.title||"")+" ("+frDate(String(p.ts||"").slice(0,10))+") :\n"+String(p.content||"").slice(0,2200)).join("\n\n");
+}
 async function generateReport(typeKey, clientId, missionId){
   const rt=REPORT_TYPES.find(t=>t.key===typeKey); if(!rt) return;
   if(!aiAvailable()){ toast("Configure ta clé Claude dans ⚙ Paramètres (ou ouvre via le serveur local)."); openSettings(); return; }
@@ -12706,21 +12721,32 @@ async function generateReport(typeKey, clientId, missionId){
   if(rt.needsMission){ const m=DB.missions.find(x=>x.id===missionId); if(!m){ toast("Choisis une mission d'audit."); return; } ctx=buildMissionAuditContext(m); title=rt.label+" — "+clientName(m.clientId)+(m.ref?" ("+m.ref+")":""); repClient=m.clientId; repMission=m.id; }
   else if(rt.needsClient){ const c=DB.clients.find(x=>x.id===clientId); if(!c){ toast("Choisis un client."); return; } ctx=buildClientContext(c); title=rt.label+" — "+c.company; repClient=c.id; }
   else ctx=buildAIContext();
+  ctx+=reportHistoryCtx(rt.key, repClient);                                  // A. continuité
+  const rules=reportRulesFor(rt.key).map(x=>x.text);                          // B. règles apprises
+  const rulesTxt=rules.length?"\nRÈGLES DE RÉDACTION APPRISES (corrections passées du dirigeant — à respecter STRICTEMENT) :\n- "+rules.join("\n- "):"";
   const secs=rt.sections||[{title:rt.label, instr:"Produis le rapport complet."}];
   const btn=document.getElementById("rep-gen-btn"); const done=[];
   try{
+    // C. passe 1 : analyse préparatoire (non bloquante — la rédaction part sans elle en cas d'échec)
+    let notes="";
+    try{
+      if(btn){ btn.disabled=true; btn.textContent="Analyse préparatoire…"; }
+      notes=await aiChat("Tu es l'analyste senior du cabinet. AVANT toute rédaction, produis des NOTES D'ANALYSE en 3 blocs concis : 1) CONSTATS MAJEURS (chiffres croisés, évolutions vs historique fourni) ; 2) ANGLES MORTS & INCOHÉRENCES (ce que les données ne disent pas, contradictions à signaler honnêtement) ; 3) FIL DIRECTEUR (le message central que ce rapport doit porter au dirigeant). Puces brèves, strictement factuel, aucun chiffre inventé.",
+        "Données :\n"+ctx, 900, rt.sector);
+    }catch(_e){ notes=""; }
+    const usr="Données :\n"+ctx+(notes?"\n\n=== NOTES D'ANALYSE PRÉPARATOIRE (passe 1 — exploite-les, développe le fil directeur) ===\n"+notes:"");
     for(let i=0;i<secs.length;i++){
       if(btn){ btn.disabled=true; btn.textContent="Rédaction… "+(i+1)+"/"+secs.length; }
       const sys="Tu rédiges UNE seule section — « "+secs[i].title+" » — d'un "+rt.label+" de niveau direction. "+secs[i].instr
-        +" Consignes : complet mais concis, factuel, appuie-toi UNIQUEMENT sur les données fournies ; si une donnée manque, indique-le explicitement ; puces courtes plutôt que tableaux ; n'écris PAS le titre de la section (il est ajouté automatiquement) ; pas de formule de politesse.";
-      const content=await aiChat(sys, "Données :\n"+ctx, 1100, rt.sector);
+        +" Consignes : complet mais concis, factuel, appuie-toi UNIQUEMENT sur les données fournies ; si une donnée manque, indique-le explicitement ; puces courtes plutôt que tableaux ; n'écris PAS le titre de la section (il est ajouté automatiquement) ; pas de formule de politesse."+rulesTxt;
+      const content=await aiChat(sys, usr, 1100, rt.sector);
       done.push({ title:secs[i].title, content:String(content||"").trim() });
     }
     const md="# "+title+"\n\n"+done.map(s=>"## "+s.title+"\n\n"+s.content).join("\n\n");
     const who=(currentUser&&currentUser.name)||"";
     const rep={ id:uid(), ts:new Date().toISOString(), type:rt.key, typeLabel:rt.label, title:title, clientId:repClient, missionId:repMission,
-      content:md, sections:done, model:(aiResolve(rt.sector).model||""), author:who, classification:rt.classif,
-      status:"brouillon", trail:[{act:"Généré par l'IA", by:who, at:new Date().toISOString()}] };
+      content:md, aiOriginal:md, sections:done, model:(aiResolve(rt.sector).model||""), author:who, classification:rt.classif,
+      status:"brouillon", trail:[{act:"Généré par l'IA"+(notes?" (analyse 2 passes)":"")+(rules.length?" · "+rules.length+" règle(s) apprises appliquées":""), by:who, at:new Date().toISOString()}] };
     if(!Array.isArray(DB.reports)) DB.reports=[]; DB.reports.unshift(rep); if(DB.reports.length>500) DB.reports=DB.reports.slice(0,500);
     save(); toast("Rapport généré et archivé ("+secs.length+" sections)."); renderReports(); openReport(rep.id);
   }catch(e){ toast("Erreur : "+(e.message||e)); }
@@ -12761,8 +12787,61 @@ function setReportStatus(id,status){
   const who=(currentUser&&currentUser.name)||"";
   const lbl={a_valider:"Soumis à validation",valide:"Validé",brouillon:"Repassé en brouillon"};
   r.status=status; (r.trail=r.trail||[]).push({act:lbl[status]||status, by:who, at:new Date().toISOString()});
-  if(status==="valide"){ r.validatedBy=who; r.validatedAt=new Date().toISOString(); }
+  if(status==="valide"){ r.validatedBy=who; r.validatedAt=new Date().toISOString();
+    // B. APPRENTISSAGE : le rapport validé a été corrigé → distiller les corrections en règles durables (asynchrone, jamais bloquant)
+    if(r.edited && r.aiOriginal && r.content!==r.aiOriginal) setTimeout(()=>{ try{ learnFromReportEdit(r); }catch(e){} }, 400);
+  }
   save(); openReport(id); if(typeof renderReports==="function") renderReports(); toast("Rapport : "+((REPORT_STATUSES[status]||{}).label||status)+".");
+}
+/* B. L'IA compare sa version et la version finale corrigée, et n'en retient que les règles
+   GÉNÉRALISABLES (style, structure, chiffres, ton) — jamais les corrections factuelles ponctuelles.
+   Stockées par type de rapport dans aiSettings (synchronisé cloud), plafonnées à 20, éditables. */
+async function learnFromReportEdit(r){
+  try{
+    if(!aiAvailable()) return;
+    const out=await aiChat(
+      "Tu es le mémorialiste rédactionnel d'un cabinet de conseil. Compare la VERSION IA et la VERSION FINALE corrigée par le dirigeant d'un même rapport, et déduis 1 à 3 RÈGLES DE RÉDACTION durables et généralisables (style, structure, vocabulaire, présentation des chiffres, ton) que l'IA devra respecter dans TOUS les prochains rapports de ce type. IGNORE les corrections purement factuelles ou ponctuelles (chiffres du mois, noms propres, dates). Réponds UNIQUEMENT par les règles, une par ligne commençant par « - », concises (max 140 caractères chacune). Si aucune règle générale ne se dégage, réponds exactement : AUCUNE.",
+      "TYPE DE RAPPORT : "+(r.typeLabel||r.type)+"\n\n=== VERSION IA ===\n"+String(r.aiOriginal).slice(0,6000)+"\n\n=== VERSION FINALE (corrigée par le dirigeant) ===\n"+String(r.content).slice(0,6000), 500, "_default");
+    const rules=String(out||"").split(/\r?\n/).map(l=>l.replace(/^[-•*]\s*/,"").trim()).filter(l=>l && !/^AUCUNE\.?\s*$/i.test(l) && l.length>8).slice(0,3);
+    if(!rules.length) return;
+    const st=aiSettings(); st.reportRules=st.reportRules||{};
+    const arr=st.reportRules[r.type]=st.reportRules[r.type]||[];
+    let added=0;
+    rules.forEach(t=>{ if(!arr.some(x=>norm(x.text)===norm(t))){ arr.push({id:uid(),text:t,date:todayISO(),from:(r.title||"").slice(0,60)}); added++; } });
+    if(arr.length>20) st.reportRules[r.type]=arr.slice(-20);
+    if(!added) return;
+    save();
+    notify("reco","📚 Règles de rédaction apprises", added+" règle(s) tirée(s) de tes corrections sur « "+(r.title||"")+" » — visibles et éditables dans Rapports.",{});
+    if(currentScreen==="reports") renderReports();
+    toast("📚 "+added+" règle(s) de rédaction apprise(s) — appliquées à tous les prochains rapports de ce type.");
+  }catch(e){}
+}
+function deleteReportRule(type,id){
+  const st=aiSettings(); if(!st.reportRules||!st.reportRules[type]) return;
+  st.reportRules[type]=st.reportRules[type].filter(x=>x.id!==id);
+  save(); renderReports(); toast("Règle supprimée.");
+}
+function addReportRule(){
+  const type=val("rr-type"), text=(val("rr-text")||"").trim();
+  if(!text){ toast("Écris la règle d'abord."); return; }
+  const st=aiSettings(); st.reportRules=st.reportRules||{};
+  (st.reportRules[type]=st.reportRules[type]||[]).push({id:uid(),text,date:todayISO(),from:"ajout manuel"});
+  save(); renderReports(); toast("📚 Règle ajoutée — appliquée aux prochains rapports "+(REPORT_TYPES.find(t=>t.key===type)||{}).label+".");
+}
+function reportRulesCardHtml(){
+  const st=aiSettings(); const rr=st.reportRules||{};
+  const types=REPORT_TYPES.filter(t=>(rr[t.key]||[]).length);
+  return `<div class="card">
+    <h2 style="margin:0 0 4px">📚 Règles de rédaction apprises</h2>
+    <div class="hint" style="margin-bottom:8px">À chaque rapport <b>corrigé puis validé</b>, l'IA distille tes corrections en règles durables — appliquées automatiquement à tous les rapports suivants du même type. Tu peux en supprimer ou en ajouter à la main.</div>
+    ${types.length?types.map(t=>`<div style="font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;margin:10px 0 4px">${t.icon} ${esc(t.label)}</div>
+      <div class="mini-list">${rr[t.key].map(x=>`<div class="li"><span>${esc(x.text)}<span class="d"> · ${frDate(x.date)}${x.from?" · "+esc(x.from):""}</span></span><button class="iconbtn del" title="Supprimer cette règle" onclick="deleteReportRule('${t.key}','${x.id}')">🗑</button></div>`).join("")}</div>`).join("")
+    :`<div class="empty">Aucune règle encore — corrige puis valide un rapport, l'apprentissage démarre tout seul.</div>`}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center">
+      <select id="rr-type" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px">${REPORT_TYPES.map(t=>`<option value="${t.key}">${t.icon} ${esc(t.label)}</option>`).join("")}</select>
+      <input id="rr-text" placeholder="Ajouter une règle à la main (ex. « Toujours les montants en MAr »)" style="flex:1;min-width:240px;padding:8px 10px;border:1px solid var(--line);border-radius:8px">
+      <button class="cta ghost sm" onclick="addReportRule()">+ Ajouter</button></div>
+  </div>`;
 }
 function reportActionsHtml(r){
   const s=reportStatus(r), dir=isDirection(); let a="";
@@ -12934,7 +13013,8 @@ function renderReports(){
       <table style="margin-top:10px"><thead><tr><th>Date</th><th>Type</th><th>Titre</th><th>Statut</th><th>Confid.</th><th style="text-align:right">Actions</th></tr></thead>
       <tbody>${rows||'<tr><td colspan="6"><div class="empty">Aucun rapport encore. Génère ton premier rapport ci-dessus.</div></td></tr>'}</tbody></table>
     </div>
-    ${a1ExecReportsCardHtml()}`;
+    ${a1ExecReportsCardHtml()}
+    ${reportRulesCardHtml()}`;
 }
 /* Rapports exécutifs A1 (flotte / groupes) agrégés dans le point central — lecture + renvoi vers le module pour gérer. */
 function a1ExecReportsCardHtml(){
