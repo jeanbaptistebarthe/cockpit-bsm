@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.53.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.54.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -1129,22 +1129,32 @@ function setCloudSyncStatus(state){
   el.style.display="inline-flex";
   if(state==="syncing"){ el.textContent="⏳ Synchro…"; el.title="Envoi des données vers le cloud en cours…"; }
   else if(state==="error"){ el.textContent="⚠️ Synchro KO"; el.title="La dernière synchronisation cloud a échoué. Tes données restent sur ce poste ; vérifie ta connexion et réessaie (une modification relance la synchro)."; }
+  else if(state==="offline"){ el.textContent="📴 Saisies gardées"; el.title="Pas de réseau : tes saisies sont enregistrées sur cet appareil et partiront automatiquement au retour de la connexion — rien n'est perdu."; }
   else { const t=new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}); el.textContent="✅ Synchro "+t; el.title="Dernière synchronisation cloud réussie à "+t+"."; }
 }
+/* ===== SAISIE HORS-LIGNE (chantier 19/08) =====
+   Un marqueur persistant « bsm_dirty » signale des saisies locales pas encore poussées au cloud
+   (zone blanche, coupure, app fermée avant l'envoi). Règle d'or : tant qu'il est levé, on POUSSE
+   d'abord et on ne tire JAMAIS le cloud par-dessus (sinon les saisies terrain seraient écrasées). */
+function cloudDirty(){ try{ return localStorage.getItem("bsm_dirty")==="1"; }catch(e){ return false; } }
+function cloudDirtySet(on){ try{ if(on) localStorage.setItem("bsm_dirty","1"); else localStorage.removeItem("bsm_dirty"); }catch(e){} }
 /* Auto-sync : quand on est connecté via le cloud, chaque enregistrement local est repoussé (débounce). */
 function cloudPush(){
   if(!cloudPrimary || !cloudOrgId) return;
   if(_applyingRemote) return; // ne pas repousser ce qu'on vient de tirer du cloud (évite l'écho)
+  cloudDirtySet(true); // survivra à une fermeture de l'app hors-ligne
   if(_cloudTimer) clearTimeout(_cloudTimer);
   _cloudTimer=setTimeout(()=>{ _cloudTimer=null;
     setCloudSyncStatus("syncing");
-    cloudImportLocal().then(()=>setCloudSyncStatus("ok")).catch(()=>setCloudSyncStatus("error"));
+    cloudImportLocal().then(()=>{ cloudDirtySet(false); setCloudSyncStatus("ok"); })
+      .catch(()=>setCloudSyncStatus(navigator.onLine===false?"offline":"error"));
   }, 2500);
 }
 /* Synchro LIVE entrante : tire les modifications faites sur un autre appareil (téléphone…).
    Sûr : ne tourne que connecté au cloud, sans push en attente, sans modale ouverte (pas de saisie en cours), et throttlé. */
 async function cloudAutoPull(){
   if(!cloudPrimary || !cloudOrgId || _cloudTimer || _cloudPulling) return;
+  if(cloudDirty()){ cloudPush(); return; } // saisies hors-ligne en attente : on pousse d'abord, on ne tire jamais par-dessus
   const ov=document.getElementById("overlay"); if(ov && ov.classList.contains("show")) return;
   if(Date.now()-_cloudLastPull < 8000) return;
   _cloudPulling=true; _applyingRemote=true;
@@ -1315,6 +1325,7 @@ async function cloudPortalLogin(){
   const session=await cloudGetSession(); const profile=await cloudLoadProfile();
   if(!profile){ portalErr("Ce compte n'a pas de profil BSM associé."); return; }
   if(!applyCloudUser(session, profile)){ portalErr("Ton compte n'est rattaché à aucune organisation BSM. Demande à l'administrateur de te rattacher (rôle + organisation) avant de te connecter."); return; }
+  if(cloudDirty()){ try{ await cloudImportLocal(); cloudDirtySet(false); }catch(e){} } // saisies hors-ligne d'abord — jamais de pull par-dessus
   try{ await cloudPullAll(); }catch(e){}
   enterApp(); setCloudSyncStatus("ok"); logEvent("login","Connexion Cloud (Supabase)", true);
   toast("Bienvenue, "+currentUser.name+".");
@@ -1331,6 +1342,7 @@ async function initCloudAuth(){
     const profile=await cloudLoadProfile();       // nécessite le réseau
     if(!profile) return false;
     if(!applyCloudUser(session, profile)) return false;   // compte sans organisation → repli portail (message clair au ré-login)
+    if(cloudDirty()){ try{ await cloudImportLocal(); cloudDirtySet(false); }catch(e){} } // saisies hors-ligne d'abord — jamais de pull par-dessus
     try{ await cloudPullAll(); }catch(e){}
     enterApp(); setCloudSyncStatus("ok");
     if("Notification" in window && Notification.permission==="granted") setTimeout(()=>{ try{ pushSubscribe(true); }catch(e){} }, 2500);
@@ -6755,7 +6767,12 @@ function applyDecisionText(text, preferClientId){
     if(!r) r=DB.recommendations.find(x=>norm(x.ref||"")===norm(m[1]));
     if(!r){ nu++; return; }
     const dec=m[2].toUpperCase();
-    if(dec==="VALIDER"){ r.clientDecision="valide"; nv++; }
+    if(dec==="VALIDER"){
+      r.clientDecision="valide"; nv++;
+      // AUTOMATISATION (18/08) : le feu vert client fait passer la reco « À faire » → « En cours »
+      // (BSM exécute dès validation). L'avancement % reste manuel : il mesure le TERRAIN, pas la décision.
+      if(!r.status||r.status==="a_faire"){ r.status="en_cours"; r.commentaire=((r.commentaire||"")+" · ").replace(/^ · /,"")+"Validé par le client le "+frDate(todayISO())+" — mise en œuvre engagée"; }
+    }
     else if(dec==="REFUSER"){ r.clientDecision="refuse"; r.commentaire=((r.commentaire||"")+" · ").replace(/^ · /,"")+"Refusé par le client le "+frDate(todayISO()); nd++; } // refusée : sort du plan d'action des prochains rapports, conservée au dossier
     else { r.commentaire=((r.commentaire||"")+" · ").replace(/^ · /,"")+"Différé par le client le "+frDate(todayISO()); nd++; } // différée : re-proposée au prochain rapport (c'est le but du suivi trimestriel)
   });
@@ -13576,6 +13593,12 @@ serverSyncInit(); // détecte le serveur local BSM (si l'app est ouverte via htt
 document.addEventListener("visibilitychange", function(){ if(!document.hidden) cloudAutoPull(); });
 window.addEventListener("focus", function(){ cloudAutoPull(); });
 setInterval(function(){ cloudAutoPull(); }, 60000);
+// SAISIE HORS-LIGNE : au retour du réseau, les saisies en attente partent immédiatement (et on prévient).
+window.addEventListener("online", function(){
+  if(cloudPrimary && cloudDirty()){ toast("📶 De retour en ligne — envoi de tes saisies hors-ligne…"); cloudPush(); }
+  else if(cloudPrimary) cloudAutoPull();
+});
+window.addEventListener("offline", function(){ if(cloudPrimary) setCloudSyncStatus("offline"); });
 if(typeof renderEnvBar==="function") renderEnvBar(); // badge d'environnement LOCAL / EN LIGNE dès le démarrage
 if(_encLocked){ showVaultGate(); } // coffre chiffré → porte de déverrouillage AVANT tout
 else {

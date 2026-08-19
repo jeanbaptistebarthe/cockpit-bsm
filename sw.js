@@ -3,7 +3,7 @@
    après un re-upload ; le cache ne sert QUE de secours hors-ligne. Assets statiques en
    stale-while-revalidate. La constante CACHE est ré-estampillée à chaque build (voir build.js),
    ce qui invalide automatiquement l'ancien cache. Actif uniquement en https (GitHub Pages, Vercel…). */
-const CACHE = "bsm-cockpit-20260819-mszvd4sg";
+const CACHE = "bsm-cockpit-20260819-mszyv0hr";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg",
                 "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
