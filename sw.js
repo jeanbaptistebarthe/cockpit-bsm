@@ -3,7 +3,7 @@
    après un re-upload ; le cache ne sert QUE de secours hors-ligne. Assets statiques en
    stale-while-revalidate. La constante CACHE est ré-estampillée à chaque build (voir build.js),
    ce qui invalide automatiquement l'ancien cache. Actif uniquement en https (GitHub Pages, Vercel…). */
-const CACHE = "bsm-cockpit-20260818-msyu53gy";
+const CACHE = "bsm-cockpit-20260819-mszvd4sg";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg",
                 "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
@@ -18,13 +18,27 @@ self.addEventListener("activate", e => {
   );
 });
 
+// 📲 WEB PUSH : notification reçue du serveur (Supabase send-push) — MÊME APP FERMÉE.
+self.addEventListener("push", e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data ? e.data.text() : "" }; }
+  e.waitUntil(self.registration.showNotification(d.title || "BSM Cockpit", {
+    body: String(d.body || "").slice(0, 240),
+    icon: "icon-192.png", badge: "icon-192.png",
+    tag: d.tag || "bsm-push", renotify: true,
+    vibrate: [180, 90, 180],
+    data: { url: d.url || "./index.html" }
+  }));
+});
+
 // Toucher une notification ramène au Cockpit (fenêtre existante sinon nouvelle).
 self.addEventListener("notificationclick", e => {
   e.notification.close();
+  const target = (e.notification.data && e.notification.data.url) || "./index.html";
   e.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
       for (const c of list) { if ("focus" in c) return c.focus(); }
-      if (clients.openWindow) return clients.openWindow("./index.html");
+      if (clients.openWindow) return clients.openWindow(target);
     })
   );
 });

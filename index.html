@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.52.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.53.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "18 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* Coffre chiffré (sécurité) — état en mémoire uniquement. */
@@ -1108,6 +1108,8 @@ function secSaveLock(){ DB.meta.autoLockMin=parseInt(val("sec-lock"))||0; save()
    La clé "publishable" est PUBLIQUE par nature — l'accès aux données est verrouillé par la RLS (isolation par organisation). */
 const SB_URL = "https://fxaeeplylyeitukctlph.supabase.co";
 const SB_KEY = "sb_publishable_SrXvreUFVJgLLBi6PLvA-g_ARBg2SST";
+// Clé VAPID PUBLIQUE (Web Push) — publique par nature ; la clé privée vit dans les secrets Supabase.
+const PUSH_VAPID_PUBLIC = "BM6Kpk3mQIq8bJihU4TbVho2TXy9BNz-0tlgmHtlHGg8rqbt6W1kKkJz0z_ct8aqOCEvdZFMA6bAA7xZoTkbOKw";
 const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","a1docs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge","r5reports","solutionsLib","a1execreports"]; // a1execreports ajouté 18/08 : le registre des rapports exécutifs A1 suit sur tous les appareils (le HTML archivé reste sur le PC serveur)
 let _sb=null, cloudOrgId=null, cloudPrimary=false, _cloudTimer=null;
 let _cloudPulling=false, _cloudLastPull=0, _applyingRemote=false; // synchro live entrante (auto-pull sécurisé)
@@ -1316,6 +1318,8 @@ async function cloudPortalLogin(){
   try{ await cloudPullAll(); }catch(e){}
   enterApp(); setCloudSyncStatus("ok"); logEvent("login","Connexion Cloud (Supabase)", true);
   toast("Bienvenue, "+currentUser.name+".");
+  // Push : si l'appareil avait déjà donné son autorisation, on ré-enregistre l'abonnement en silence
+  if("Notification" in window && Notification.permission==="granted") setTimeout(()=>{ try{ pushSubscribe(true); }catch(e){} }, 2500);
 }
 /* Au démarrage : si une session Supabase est présente, on entre directement (online = profil frais + données ;
    offline = identité en cache + données locales, en lecture). Renvoie true si le cloud a pris la main. */
@@ -1328,7 +1332,9 @@ async function initCloudAuth(){
     if(!profile) return false;
     if(!applyCloudUser(session, profile)) return false;   // compte sans organisation → repli portail (message clair au ré-login)
     try{ await cloudPullAll(); }catch(e){}
-    enterApp(); setCloudSyncStatus("ok"); return true;
+    enterApp(); setCloudSyncStatus("ok");
+    if("Notification" in window && Notification.permission==="granted") setTimeout(()=>{ try{ pushSubscribe(true); }catch(e){} }, 2500);
+    return true;
   }catch(e){
     const cached=localStorage.getItem("bsm_cloud_user");  // hors-ligne : identité en cache + données locales
     if(cached){ try{ currentUser=JSON.parse(cached); cloudPrimary=true; cloudOrgId=currentUser.organization_id||null;
@@ -2019,6 +2025,11 @@ function notify(type,title,detail,opts){
   if(DB.notifications.length>400) DB.notifications=DB.notifications.slice(-400);
   // Vigilance renforcée : les événements critiques sortent du Cockpit (bip + notification système)
   if(type==="report"||type==="risk"||type==="login") bsmDesktopAlert(title, detail);
+  // 📲 …et partent en PUSH vers les téléphones de l'organisation, MÊME APP FERMÉE (mode cloud).
+  // Ciblage direction respecté (ex. demande de validation) ; les autres événements touchent tous les appareils.
+  if(type==="report"||type==="risk"||type==="login"||type==="validation"||type==="reco"){
+    if(typeof pushOrgInstant==="function") pushOrgInstant(title, detail, (opts.forRole==="direction")?"direction":"");
+  }
   // pas de save() ici : la fonction appelante persiste (évite les doubles écritures)
 }
 /* ---- VIGILANCE RENFORCÉE : bip sonore + notification SYSTÈME (visible même Cockpit en arrière-plan
@@ -2049,6 +2060,66 @@ function bsmDesktopAlert(title,text){
 }
 /* Activation des alertes sur téléphone/tablette (⚙ Paramètres). La demande d'autorisation
    DOIT partir d'un geste utilisateur (règle iOS/Android) — d'où ce bouton dédié. */
+/* ===== WEB PUSH — notifications téléphone APP FERMÉE (chantier push serveur) =====
+   L'appareil s'abonne (clé VAPID publique), l'abonnement est stocké dans Supabase
+   (push_subscriptions, RLS par organisation), et le serveur pousse : alertes du cron
+   send-alerts + événements critiques instantanés (send-push). */
+function urlB64ToUint8Array(b64){
+  const pad="=".repeat((4-b64.length%4)%4);
+  const raw=atob((b64+pad).replace(/-/g,"+").replace(/_/g,"/"));
+  const out=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i);
+  return out;
+}
+/* S'abonne (ou ré-enregistre) cet appareil. silent=true : aucun toast (appel automatique). */
+async function pushSubscribe(silent){
+  try{
+    if(!("serviceWorker" in navigator) || !("PushManager" in window)){ if(!silent) toast("Ce navigateur ne gère pas le push."); return false; }
+    if(!("Notification" in window) || Notification.permission!=="granted"){ if(!silent) toast("Active d'abord les notifications sur cet appareil (bouton 🔔)."); return false; }
+    const sess=await cloudGetSession();
+    if(!sess){ if(!silent) toast("Connecte-toi avec le compte cloud pour recevoir le push (app fermée)."); return false; }
+    if(!cloudOrgId) await cloudLoadProfile();
+    if(!cloudOrgId){ if(!silent) toast("Organisation cloud introuvable."); return false; }
+    const reg=await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:urlB64ToUint8Array(PUSH_VAPID_PUBLIC) });
+    const j=sub.toJSON();
+    const ua=navigator.userAgent||""; // étiquette lisible de l'appareil (dépannage : savoir quel téléphone est abonné)
+    const label=(/iPhone|iPad/i.test(ua)?"iPhone/iPad":(/Android/i.test(ua)?"Android":"PC"))+" · "+(currentUser?displayUserName(currentUser):"");
+    const c=await sbClient();
+    const { error }=await c.from("push_subscriptions").upsert({
+      organization_id:cloudOrgId, user_id:sess.user.id, endpoint:sub.endpoint,
+      p256dh:(j.keys&&j.keys.p256dh)||"", auth:(j.keys&&j.keys.auth)||"", label, last_seen:new Date().toISOString()
+    },{ onConflict:"endpoint" });
+    if(error) throw new Error(error.message);
+    DB.meta.pushEnabled=true; save();
+    if(!silent) toast("📲 Push activé sur cet appareil — les alertes arriveront même Cockpit fermé.");
+    return true;
+  }catch(e){ if(!silent) toast("Push : "+(e.message||e)); return false; }
+}
+async function pushUnsubscribe(){
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    const sub=await reg.pushManager.getSubscription();
+    if(sub){
+      try{ const c=await sbClient(); await c.from("push_subscriptions").delete().eq("endpoint",sub.endpoint); }catch(e){}
+      await sub.unsubscribe();
+    }
+    DB.meta.pushEnabled=false; save();
+    toast("🔕 Push désactivé sur cet appareil.");
+  }catch(e){ toast("Push : "+(e.message||e)); }
+}
+/* Push instantané vers les AUTRES appareils de l'organisation (événement critique créé ici).
+   Best-effort : jamais bloquant, throttle anti-rafale par titre. */
+let _pushSentAt={};
+function pushOrgInstant(title, body, targetRole){
+  try{
+    if(!cloudPrimary) return; // réservé au mode cloud (le serveur connaît l'organisation via le JWT)
+    const k=String(title||""); const now=Date.now();
+    if(_pushSentAt[k] && now-_pushSentAt[k]<60000) return; _pushSentAt[k]=now;
+    sbClient().then(c=>c.functions.invoke("send-push",{ body:{ title:String(title||"").slice(0,90), body:String(body||"").slice(0,240), targetRole:targetRole||"" } })).catch(()=>{});
+  }catch(e){}
+}
 function mobNotifStateTxt(){
   if(!("Notification" in window)) return "Non gérées par ce navigateur.";
   if(Notification.permission==="granted") return "✅ Activées sur cet appareil.";
@@ -2063,6 +2134,8 @@ function enableMobileAlerts(){
       DB.meta.desktopAlerts=true; save(); updateNotifBell();
       bsmDesktopAlert("Notifications activées","Tu recevras ici les alertes critiques : validations, risques, sécurité.");
       toast("🔔 Notifications activées sur cet appareil.");
+      // Étape 2 automatique : abonnement PUSH (app fermée) si le compte cloud est connecté
+      if(typeof pushSubscribe==="function") setTimeout(()=>{ pushSubscribe(false); }, 800);
     } else toast("Autorisation non accordée.");
   });
 }
@@ -5727,7 +5800,11 @@ function openSettings(){
         <button type="button" class="cta ghost sm" onclick="enableMobileAlerts()">🔔 Activer les notifications sur cet appareil</button>
         <span class="hint" style="margin-top:0">${mobNotifStateTxt()}</span>
       </div>
-      <div class="hint">Une fois activées : <b>pastille de compteur sur l'icône</b> de l'app installée + <b>notification avec son et vibration</b> à chaque événement critique. Sur iPhone/iPad : installe d'abord le Cockpit sur l'écran d'accueil (Safari → Partager → « Sur l'écran d'accueil », iOS 16.4 minimum), puis ouvre-le depuis son icône et active ici.</div></div>
+      <div class="hint">Une fois activées : <b>pastille de compteur sur l'icône</b> + <b>notification avec son et vibration</b> à chaque événement critique — et, connecté au <b>compte cloud</b>, l'appareil s'abonne au <b>push serveur : les alertes arrivent MÊME COCKPIT FERMÉ</b> (alertes critiques, validations, décisions client, rappels RDV, récap). Sur iPhone/iPad : installe d'abord le Cockpit sur l'écran d'accueil (Safari → Partager → « Sur l'écran d'accueil », iOS 16.4 minimum), puis ouvre-le depuis son icône et active ici.
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="cta ghost sm" onclick="pushSubscribe(false)">📲 (Ré)activer le push app fermée</button>
+        <button type="button" class="cta ghost sm" onclick="pushUnsubscribe()">🔕 Désactiver le push sur cet appareil</button>
+      </div></div></div>
     <div class="field"><label>Accès & utilisateurs</label>
       ${isAdmin()?`<button type="button" class="cta ghost sm" onclick="closeModal();setScreen('admin-users')">🔐 Gérer les utilisateurs & rôles</button>`:`<div class="hint">La gestion des comptes est réservée aux administrateurs (Espace administrateur).</div>`}</div>
     <div class="hint">Chaque compte a son identifiant, son code et son rôle. Les connexions et l'activité sont tracées dans l'Espace administrateur → Connexions & activité. 1re couche locale ; sécurité inviolable avec la version cloud.</div>
