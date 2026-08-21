@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.83.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.84.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -1127,7 +1127,7 @@ const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks",
    d'ici est visible par tous les membres. */
 const CLOUD_COLLECTION_SCOPE={
   transactions:"direction", investments:"direction", recurring:"direction", aiUsage:"direction",
-  reports:"direction", r5reports:"direction", a1execreports:"direction",
+  reports:"direction", a1execreports:"direction", // r5reports RETIRÉ (21/08) : le rapport d'audit est cloisonné PAR CLIENT — le collaborateur prépare, demande validation, la direction envoie
   aiChat:"direction", aiMemory:"direction", assistants:"direction", aiSettings:"direction", knowledge:"direction",
   employees:"rh", recruitments:"rh", leaves:"rh", jobs:"rh", primes:"rh",
   devis:"commercial", docTemplates:"commercial" };
@@ -3783,6 +3783,7 @@ function myTrackingCard(){
       ${stat(faites.length,"Mises en place ✓","var(--green)")}
     </div>
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:12.5px">
+      ${(DB.r5reports||[]).filter(r=>r.status==="brouillon"&&r.askValidation).length?`<span style="color:var(--navy)">📑 ${(DB.r5reports||[]).filter(r=>r.status==="brouillon"&&r.askValidation).length} rapport(s) soumis — en attente de validation direction</span>`:""}
       ${late.length?`<span style="color:var(--red)">⏰ ${late.length} reco(s) en retard d'échéance</span>`:""}
       ${pendDec.length?`<span style="color:var(--navy)">🗳️ ${pendDec.length} décision(s) client à obtenir</span>`:""}
       ${rdv.length?`<span>📅 ${rdv.map(e=>frDate(e.date)+(e.time?" "+e.time:"")+" — "+esc((e.title||"").slice(0,26))).join(" · ")}</span>`:`<span class="hint" style="margin:0">📅 Aucun rendez-vous planifié.</span>`}
@@ -7386,11 +7387,14 @@ function openR5Report(clientId){
   const draft=(DB.r5reports||[]).find(r=>r.clientId===clientId && r.status==="brouillon")||{analysis:"",aiText:""};
   const prev=(DB.r5reports||[]).filter(r=>r.clientId===clientId && r.status!=="brouillon").sort((a,b)=>String(b.date).localeCompare(String(a.date)));
   const nR=DB.risks.filter(r=>r.clientId===clientId).length, nRec=DB.recommendations.filter(r=>r.clientId===clientId).length;
+  const dir0=(typeof isDirection!=="function")||isDirection();
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📑 Rapport d'audit R5® — ${esc(c.company)}</h2>
     <div class="msub">${nR} risque(s) · ${nRec} recommandation(s). La synthèse, la matrice, la cartographie et le plan d'action s'assemblent automatiquement — toi, tu écris l'analyse.</div>
+    ${(dir0&&draft.askValidation)?`<div class="card" style="border-left:4px solid var(--red);background:#FDF3F2;margin:0 0 10px;padding:10px 13px">
+      <b style="color:var(--red)">🔐 Validation demandée</b> par <b>${esc(draft.askBy||"un collaborateur")}</b> le ${frDate(draft.askAt||draft.date)} — relis l'analyse ci-dessous puis <b>✉️ Envoyer au client</b> (= validation), ou corrige et enregistre le brouillon (il le verra).</div>`:""}
     <div class="field"><label>🖊 Analyses & constats de l'auditeur (repris tels quels — « ## Titre » = section, « - » = puce)</label>
       <textarea id="r5r-analysis" rows="8" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px" placeholder="## Lecture d'ensemble&#10;…&#10;## Constats terrain&#10;- …">${esc(draft.analysis||"")}</textarea></div>
-    <div class="field"><label style="display:flex;justify-content:space-between;align-items:center;gap:8px">🧠 Complément IA (facultatif — relis et corrige, c'est toi qui signes) <button type="button" class="cta ghost sm" onclick="r5ReportAI('${clientId}')">✨ Pré-rédiger depuis les données</button></label>
+    <div class="field"><label style="display:flex;justify-content:space-between;align-items:center;gap:8px">${dir0?"🧠 Complément IA (facultatif — relis et corrige, c'est toi qui signes)":"🧠 Complément d'analyse (facultatif — relis et corrige, c'est toi qui signes)"} <button type="button" class="cta ghost sm" onclick="r5ReportAI('${clientId}')">✨ Pré-rédiger depuis les données</button></label>
       <textarea id="r5r-ai" rows="6" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px"></textarea>
       <div id="r5r-aistatus" class="hint"></div></div>
     ${(()=>{ const bs=clientBranches(clientId); return bs.length>1?`<div class="field"><label>🏢 Branche du rapport <span style="font-weight:400;color:var(--muted);font-size:11.5px">— cloisonnement : la branche choisie + le commun, rien d'autre</span></label>
@@ -7417,8 +7421,36 @@ function r5ReportSaveDraft(clientId){
   const brSel=document.getElementById("r5r-branch"); if(brSel) d.branch=brSel.value; // cloisonnement : rapport émis pour une branche
   save(); return d;
 }
+/* Pré-rédaction DÉTERMINISTE (sans IA — chiffres et références tirés des seules données d'audit).
+   C'est la voie du COLLABORATEUR (règle « IA invisible employés ») et le repli universel. */
+function r5DeterministicDraft(clientId){
+  const risks=DB.risks.filter(r=>r.clientId===clientId);
+  const open=risks.filter(riskOpen);
+  const score=r=>(+r.probabilite||0)*(+r.impact||0);
+  const crit=open.filter(r=>score(r)>=15).sort((a,b)=>score(b)-score(a));
+  const fams=[...new Set(risks.map(r=>r.famille||r.categorie).filter(Boolean))];
+  const recos=DB.recommendations.filter(r=>r.clientId===clientId);
+  const done=recos.filter(r=>r.status==="fait");
+  const openR=recos.filter(r=>r.status!=="fait");
+  const pend=openR.filter(r=>!r.clientDecision);
+  const top=(crit.length?crit:open.sort((a,b)=>score(b)-score(a))).slice(0,5);
+  const nextR=openR.sort((a,b)=>String(a.dateCible||"9999").localeCompare(String(b.dateCible||"9999"))).slice(0,5);
+  let md="## Lecture d'ensemble\n";
+  md+=`- ${risks.length} risque(s) identifié(s) sur ${fams.length} domaine(s)${crit.length?`, dont **${crit.length} critique(s)** (score ≥ 15) ouverts`:" — aucun risque critique ouvert"}.\n`;
+  md+=`- Plan d'action : ${recos.length} recommandation(s), ${done.length} mise(s) en place, ${openR.length} en cours${pend.length?`, ${pend.length} en attente de décision du client`:""}.\n`;
+  if(top.length){ md+="\n## Points critiques\n"+top.map(r=>`- ${r.ref?r.ref+" — ":""}${(r.description||r.categorie||"").slice(0,110)} (P×I = ${score(r)}${r.status==="traite"?", sous contrôle":""}${r.clientDecision?", décision client : "+r.clientDecision:""}).`).join("\n")+"\n"; }
+  if(nextR.length){ md+="\n## Trajectoire recommandée\n"+nextR.map(r=>`- ${r.ref?r.ref+" — ":""}${(r.texte||"").slice(0,110)}${r.priorite?" (priorité "+r.priorite+")":""}${r.dateCible?" — échéance "+frDate(r.dateCible):""}.`).join("\n")+"\n"; }
+  return md;
+}
 async function r5ReportAI(clientId){
-  const st=document.getElementById("r5r-aistatus"); if(st) st.textContent="⏳ Rédaction en cours — sur tes données d'audit uniquement…";
+  const st=document.getElementById("r5r-aistatus");
+  // Collaborateur : pré-rédaction DÉTERMINISTE, immédiate, sans IA (et sans en parler).
+  if(typeof isDirection==="function" && !isDirection()){
+    const el=document.getElementById("r5r-ai"); if(el) el.value=r5DeterministicDraft(clientId);
+    if(st) st.textContent="✓ Pré-rédaction posée depuis les données d'audit — relis, corrige, complète avec tes constats terrain.";
+    return;
+  }
+  if(st) st.textContent="⏳ Rédaction en cours — sur tes données d'audit uniquement…";
   try{
     const c=DB.clients.find(x=>x.id===clientId)||{};
     const data={ client:c.company, secteur:c.sector||"",
@@ -7428,7 +7460,10 @@ async function r5ReportAI(clientId){
     const txt=await aiComplete([{role:"user",content:sys+"\n\nDONNÉES :\n"+JSON.stringify(data)}], 900, c.sector);
     const el=document.getElementById("r5r-ai"); if(el) el.value=String(txt||"").trim();
     if(st) st.textContent="✓ Proposition rédigée — relis, corrige, complète : le rapport n'engage que ta signature.";
-  }catch(e){ if(st) st.textContent="⚠️ IA indisponible ("+esc(e.message||String(e))+") — le rapport fonctionne très bien sans."; }
+  }catch(e){
+    const el=document.getElementById("r5r-ai"); if(el && !el.value.trim()) el.value=r5DeterministicDraft(clientId); // repli : pré-rédaction déterministe
+    if(st) st.textContent="⚠️ IA indisponible ("+esc(e.message||String(e))+") — pré-rédaction déterministe posée à la place.";
+  }
 }
 function r5ReportBody(clientId, analysis, aiText, excludeFams, branch){
   const ex=new Set(excludeFams||[]);
@@ -7653,7 +7688,9 @@ function r5AskValidation(clientId){
   const d=r5ReportSaveDraft(clientId);
   d.askValidation=true; d.askBy=(currentUser&&currentUser.login)||""; d.askAt=todayISO();
   save(); closeModal(); refreshAll();
-  notify("report","Rapport en attente de validation", clientName(clientId)+" — demandé par "+(d.askBy||"un collaborateur"), {clientId});
+  notify("report","Rapport en attente de validation", clientName(clientId)+" — demandé par "+(d.askBy||"un collaborateur"), {clientId, forRole:"direction", go:"risks"});
+  // Le téléphone de la direction sonne (push app fermée) — le rapport lui-même arrive par la synchro.
+  if(typeof pushOrgInstant==="function") pushOrgInstant("🔐 Rapport à valider — "+clientName(clientId), "Préparé par "+(d.askBy||"un collaborateur")+" · Matrice → 📑 Rapport & suivi → ✉️ Envoyer = valider.", "direction");
   toast("📨 Demande envoyée à la direction — le rapport reste en brouillon jusqu'à sa validation.");
 }
 function r5ReportSend(clientId){
@@ -7703,7 +7740,7 @@ function renderRisks(){
   list.sort((a,b)=>(b.probabilite*b.impact)-(a.probabilite*a.impact));
   document.getElementById("scr-risks").innerHTML=`
     <div class="pagetitle"><div><h1>Matrice des risques</h1><div class="sub">Identification, cotation P×I, niveau & traitement</div></div>
-      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="openR5Hub(focusClient)" title="LE centre de reporting : vue du groupe, évolution, édition et envoi du rapport — tout au même endroit (client du Focus)">📑 Rapport & suivi</button><button class="cta" onclick="openRiskForm()">+ Nouveau risque</button></div></div>
+      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="openR5Hub(focusClient)" title="LE centre de reporting : vue du groupe, évolution, édition et envoi du rapport — tout au même endroit (client du Focus)">📑 Rapport & suivi${(isDirection()&&(DB.r5reports||[]).some(r=>r.status==="brouillon"&&r.askValidation))?` <span class="badge b-red">${(DB.r5reports||[]).filter(r=>r.status==="brouillon"&&r.askValidation).length} à valider</span>`:""}</button><button class="cta" onclick="openRiskForm()">+ Nouveau risque</button></div></div>
     ${focusBanner()}
     <div class="filters">
       ${clientPickerHtml()}
