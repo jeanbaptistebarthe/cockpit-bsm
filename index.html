@@ -503,17 +503,17 @@
         <button class="tb-mobile-only" onclick="closeTopMenu();enterPresentMode()">🎥&nbsp; Mode rendez-vous</button>
         <button class="tb-mobile-only" onclick="closeTopMenu();openSettings()">⚙️&nbsp; Paramètres</button>
         <div class="sep tb-mobile-only"></div>
-        <button onclick="closeTopMenu();envSwitch()">⇄&nbsp; Ouvrir l'autre version</button>
-        <button onclick="closeTopMenu();openSyncCenter()">🔄&nbsp; Synchroniser local ⇄ en ligne</button>
+        <button class="tb-dir" onclick="closeTopMenu();envSwitch()">⇄&nbsp; Ouvrir l'autre version</button>
+        <button class="tb-dir" onclick="closeTopMenu();openSyncCenter()">🔄&nbsp; Synchroniser local ⇄ en ligne</button>
         <button onclick="closeTopMenu();toggleTheme()"><span id="theme-btn">🌙</span>&nbsp; Thème clair / sombre</button>
-        <button onclick="closeTopMenu();openSettings()">💱&nbsp; Devise & taux&nbsp;—&nbsp;<span id="currency-indicator">Ar / €</span></button>
-        <div class="sep"></div>
-        <button onclick="closeTopMenu();openImport()">⇊&nbsp; Importer R5</button>
-        <button onclick="closeTopMenu();exportData()">⬇&nbsp; Sauvegarde (fichier)</button>
-        <button onclick="closeTopMenu();document.getElementById('import-file').click()">⬆&nbsp; Restaurer (fichier)</button>
-        <div class="sep"></div>
-        <button onclick="closeTopMenu();openSecurityPanel()">🔐&nbsp; Sécurité (chiffrement)</button>
-        <button onclick="closeTopMenu();if(isAdmin())setScreen('admin-sante')"><span id="ver-badge" style="font-weight:700">v…</span>&nbsp; · Santé & sauvegardes</button>
+        <button class="tb-dir" onclick="closeTopMenu();openSettings()">💱&nbsp; Devise & taux&nbsp;—&nbsp;<span id="currency-indicator">Ar / €</span></button>
+        <div class="sep tb-dir"></div>
+        <button class="tb-dir" onclick="closeTopMenu();openImport()">⇊&nbsp; Importer R5</button>
+        <button class="tb-dir" onclick="closeTopMenu();exportData()">⬇&nbsp; Sauvegarde (fichier)</button>
+        <button class="tb-dir" onclick="closeTopMenu();document.getElementById('import-file').click()">⬆&nbsp; Restaurer (fichier)</button>
+        <div class="sep tb-dir"></div>
+        <button class="tb-dir" onclick="closeTopMenu();openSecurityPanel()">🔐&nbsp; Sécurité (chiffrement)</button>
+        <button class="tb-dir" onclick="closeTopMenu();if(isAdmin())setScreen('admin-sante')"><span id="ver-badge" style="font-weight:700">v…</span>&nbsp; · Santé & sauvegardes</button>
         <button id="logout-btn" onclick="closeTopMenu();lockPortal()">🔒&nbsp; Se déconnecter</button>
       </div>
     </div>
@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.84.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.85.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -1082,6 +1082,7 @@ async function submitVault(){
 }
 /* Panneau Sécurité (chiffrement + verrou auto). */
 function openSecurityPanel(){
+  if(typeof isDirection==="function" && !isDirection()){ toast("🔒 Réservé à la direction."); return; }
   const enc=bsmEncOn(), min=(DB.meta&&+DB.meta.autoLockMin)||0;
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔐 Sécurité des données</h2>
     <div class="msub">Protège les données de ce poste (chiffrement local AES-256).</div>
@@ -1537,7 +1538,7 @@ function openClientAssign(profileId){
     <div style="max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:8px 0">
       ${clients.map(c=>`<label style="display:flex;gap:8px;align-items:center;padding:4px 0;cursor:pointer;font-size:13px">
         <input type="checkbox" class="ca-cli" value="${c.id}" ${cur.has(c.id)?"checked":""}>
-        <span><b>${esc(c.company||"—")}</b>${c.status&&c.status!=="actif"?` <span class="badge b-grey">${esc(c.status)}</span>`:""}</span></label>`).join("")||'<div class="empty">Aucun client dans la base.</div>'}
+        <span><b>${esc(c.company||"—")}</b>${c.status&&c.status!=="actif"?` <span class="badge b-grey">${esc(c.status)}</span>`:""}${c.classification==="tres_confidentiel"?' <span class="badge b-red" title="Une fiche TRÈS CONFIDENTIEL n’est JAMAIS livrée à un collaborateur, même affecté — abaisse sa classification (fiche client → ✎) si tu veux la lui confier">🔒 très confidentiel — ne sera pas livré</span>':""}</span></label>`).join("")||'<div class="empty">Aucun client dans la base.</div>'}
     </div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="cloudSetClients('${profileId}')">Enregistrer l'affectation</button></div>`);
 }
@@ -1998,6 +1999,7 @@ function syncExport(){
   toast("Fichier de synchro exporté ✅ — importe-le dans l'autre environnement.");
 }
 function openSyncCenter(){
+  if(typeof isDirection==="function" && !isDirection()){ toast("🔒 Réservé à la direction."); return; }
   const m=envMode(); const here=(m==="online")?"🌐 EN LIGNE":"🖥️ LOCAL";
   const otherLabel=(m==="online")?"le Cockpit LOCAL":"le site EN LIGNE";
   const otherBtn=(m==="online")?"en local":"en ligne";
@@ -6467,7 +6469,31 @@ function markAdviceRead(){
 }
 
 /* ----------------------------- Paramètres & sauvegarde ----------------------------- */
+/* ⚙ Paramètres RÉDUITS hors direction (règle JB 21/08 : devise, taux, récepteur, appairage,
+   identité… = direction/admin uniquement). Le membre ne règle que SON poste : notifications + verrouillage. */
+function openSettingsLite(){
+  openModal(`
+    <span class="close" onclick="closeModal()">✕</span>
+    <h2>Paramètres de mon poste</h2>
+    <div class="msub">Notifications et verrouillage de CET appareil. Les réglages du cabinet (devise, taux, envois) sont gérés par la direction.</div>
+    <div class="field"><label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="sl-desktopalerts" ${DB.meta.desktopAlerts!==false?'checked':''}> 🔔 Bip sonore + notification système</label>
+      <div class="hint">Pour les événements importants (directive reçue, décision client, sécurité) : une notification qui sort du Cockpit, visible même navigateur en arrière-plan.</div></div>
+    <div class="field"><label>📱 Alertes sur ce téléphone / cette tablette</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button type="button" class="cta ghost sm" onclick="enableMobileAlerts()">🔔 Activer les notifications</button>
+        <button type="button" class="cta ghost sm" onclick="pushSubscribe(false)">📲 (Ré)activer le push app fermée</button>
+        <span class="hint" style="margin-top:0">${mobNotifStateTxt()}</span></div></div>
+    <div class="field"><label>🔒 Verrouillage auto après inactivité (minutes — 0 = désactivé)</label>
+      <input type="number" id="sl-autolock" min="0" max="240" value="${DB.meta.autoLockMin!=null?DB.meta.autoLockMin:20}"></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="saveSettingsLite()">Enregistrer</button></div>`);
+}
+function saveSettingsLite(){
+  DB.meta.desktopAlerts=!!(document.getElementById("sl-desktopalerts")&&document.getElementById("sl-desktopalerts").checked);
+  const al=document.getElementById("sl-autolock"); if(al) DB.meta.autoLockMin=parseInt(al.value)||0;
+  save(); closeModal(); toast("Réglages de ce poste enregistrés.");
+}
 function openSettings(){
+  if(typeof isDirection==="function" && !isDirection()){ openSettingsLite(); return; } // règle JB : les réglages du cabinet = direction/admin
   openModal(`
     <span class="close" onclick="closeModal()">✕</span>
     <h2>Paramètres</h2>
@@ -6636,6 +6662,7 @@ function saveSettings(){
   refreshAll(); toast("Paramètres enregistrés.");
 }
 function exportData(){
+  if(typeof isDirection==="function" && !isDirection()){ toast("🔒 La sauvegarde fichier (export des données) est réservée à la direction."); return; }
   const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
   a.download="BSM_Cockpit_sauvegarde_"+todayISO()+".json"; a.click();
@@ -6687,6 +6714,7 @@ function backupOverdue(){ // aucune sauvegarde depuis > intervalle (ou jamais) a
   return d>backupIntervalDays();
 }
 function importData(ev){
+  if(typeof isDirection==="function" && !isDirection()){ toast("🔒 La restauration de données est réservée à la direction."); return; }
   const f=ev.target.files[0]; if(!f) return;
   const r=new FileReader();
   r.onload=()=>{ try{ const d=JSON.parse(r.result);
@@ -12940,7 +12968,7 @@ function a1AnalysisToReport(key){
 
 /* ----------------------------- Import R5 (CSV / Google Sheet publié) ----------------------------- */
 let importMode="audit", importFile=null;
-function openImport(){ importMode="audit"; importFile=null; openModal(importModalHtml()); }
+function openImport(){ if(typeof isDirection==="function" && !isDirection()){ toast("🔒 L'import R5 est réservé à la direction."); return; } importMode="audit"; importFile=null; openModal(importModalHtml()); }
 function importModalHtml(){
   return `
     <span class="close" onclick="closeModal()">✕</span>
@@ -18470,6 +18498,9 @@ function applyRoleUI(){
   const fab=document.getElementById("ai-fab"); if(fab) fab.style.display=(currentUser&&isDirection())?"":"none";
   // 1) éléments réservés admin (espace administration)
   document.querySelectorAll(".admin-only").forEach(el=>{ el.style.display=admin?"":"none"; });
+  // 1b) menu ⋯ : les actions sur les DONNÉES (sauvegarde/restauration fichier, synchro par fichier,
+  //     import R5, devise & taux, chiffrement, santé, autre version) = direction/admin uniquement (règle JB 21/08)
+  document.querySelectorAll("#tb-menu .tb-dir").forEach(el=>{ el.style.display=(currentUser&&isDirection())?"":"none"; });
   // 2) modules du pilotage : visibles selon les permissions du rôle
   document.querySelectorAll(".sidebar .navitem[data-scr]").forEach(el=>{
     if(el.classList.contains("admin-only")) return;
