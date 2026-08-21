@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.71.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.71.2";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -17350,11 +17350,16 @@ function lockPortal(){ // déconnexion
 function migPromptIfNeeded(){
   try{
     if(!currentUser || window.__migAsked) return;
-    const u=(DB.users||[]).find(x=>(x.id===currentUser.id)||(String(x.login||"").toLowerCase()===String(currentUser.login||"").toLowerCase()));
-    if(!u || (u.ph&&u.ph.h) || !u.pass) return;
+    // Ciblage robuste : la connexion CLOUD s'identifie par e-mail, pas par l'identifiant local →
+    // si un seul compte reste à migrer, on le vise directement (cas mono-utilisateur = JB).
+    const legacy=(DB.users||[]).filter(x=>x.pass && !(x.ph&&x.ph.h));
+    let u=(DB.users||[]).find(x=>(x.id===currentUser.id)||(String(x.login||"").toLowerCase()===String(currentUser.login||"").toLowerCase()));
+    if(!u || !(u.pass && !(u.ph&&u.ph.h))) u=(legacy.length===1)?legacy[0]:null;
+    if(!u) return;
+    window.__migUid=u.id; window.__migLogin=u.login||"";
     window.__migAsked=true;
     setTimeout(()=>{ openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔐 Renforcement de ton code d'accès</h2>
-      <div class="msub">Le Cockpit protège désormais les codes au format fort (PBKDF2, 150 000 itérations). Saisis ton code <b>une dernière fois</b> pour le sceller — 10 secondes, une seule fois.</div>
+      <div class="msub">Le Cockpit protège désormais les codes au format fort (PBKDF2, 150 000 itérations). Saisis le code du compte <b>« ${esc(window.__migLogin||"")}</b> » (ton code d'accès local) <b>une dernière fois</b> pour le sceller — une seule fois.</div>
       <input type="password" id="mig-code" autocomplete="current-password" placeholder="Ton code d'accès" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;margin-top:8px" onkeydown="if(event.key==='Enter')migDo()">
       <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Plus tard</button><button class="cta" onclick="migDo()">🔐 Renforcer</button></div>`,"compact");
       setTimeout(()=>{ const e=document.getElementById("mig-code"); if(e) e.focus(); },80); }, 900);
@@ -17362,7 +17367,7 @@ function migPromptIfNeeded(){
 }
 async function migDo(){
   const code=val("mig-code")||"";
-  const u=(DB.users||[]).find(x=>(x.id===(currentUser&&currentUser.id))||(String(x.login||"").toLowerCase()===String((currentUser&&currentUser.login)||"").toLowerCase()));
+  const u=(DB.users||[]).find(x=>x.id===window.__migUid);
   if(!u){ closeModal(); return; }
   if(!(await checkUserPass(u, code))){ toast("Code incorrect."); return; }
   if(!(u.ph&&u.ph.h)){ closeModal(); toast("⚠️ Cette adresse ne permet pas le chiffrement fort — ouvre le Cockpit via http://localhost:3000 (ou la version en ligne https) et refais-le depuis 🛡 Centre de sécurité."); return; }
