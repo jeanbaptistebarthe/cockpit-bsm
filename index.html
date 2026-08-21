@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://docs.google.com; connect-src 'self' https://api.anthropic.com https://*.supabase.co https://cdn.jsdelivr.net https://script.google.com https://docs.google.com; frame-src 'self' https://docs.google.com https://www.google.com; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://docs.google.com; connect-src 'self' https://api.anthropic.com https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://script.google.com https://docs.google.com; frame-src 'self' https://docs.google.com https://www.google.com; object-src 'none'; base-uri 'self'; form-action 'self'">
 <title>BSM Cockpit — Outil interne de pilotage</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#102A43">
@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.74.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.75.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -1124,10 +1124,53 @@ let _cloudPulling=false, _cloudLastPull=0, _applyingRemote=false; // synchro liv
    Sert à propager les suppressions SANS jamais effacer ce qu'un AUTRE poste aurait ajouté
    (on ne supprime dans le cloud que ce que ce poste avait lui-même poussé et n'a plus). */
 let _cloudSnap={};
+/* ===== SYNCHRO PAR ENREGISTREMENT (chantier 21/08) =====
+   _cloudHash : par collection, Map(record_id → empreinte JSON) = dernier état CONNU DU CLOUD par ce poste.
+   Il permet (1) de ne pousser QUE les enregistrements réellement modifiés (fin des envois de base entière),
+   (2) de trancher chaque conflit à l'enregistrement près : si l'état local diverge de l'empreinte connue,
+   c'est une saisie locale pas encore poussée → ELLE GAGNE TOUJOURS (elle repartira au cloud), sinon la
+   version du cloud s'applique. _cloudSince = curseur updated_at du tirage incrémental. */
+let _cloudHash={}, _cloudSince=null, _cloudRt=null, _cloudRtOk=false, _cloudRtTimer=null, _cloudLastReconcile=0;
 function recordId(item){ return String((item&&(item.id||item.key))||JSON.stringify(item).slice(0,40)); }
+function _recHash(item){ const s=JSON.stringify(item); let h=5381; for(let i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return String(h); }
 function snapshotFromLocal(){
-  _cloudSnap={};
-  CLOUD_COLLECTIONS.forEach(col=>{ const arr=Array.isArray(DB[col])?DB[col]:[]; _cloudSnap[col]=new Set(arr.map(recordId)); });
+  _cloudSnap={}; _cloudHash={};
+  CLOUD_COLLECTIONS.forEach(col=>{ const arr=Array.isArray(DB[col])?DB[col]:[];
+    _cloudSnap[col]=new Set(arr.map(recordId));
+    const m=new Map(); arr.forEach(it=>m.set(recordId(it),_recHash(it))); _cloudHash[col]=m; });
+}
+/* Applique UN enregistrement venu du cloud (delta ou temps réel). Renvoie true si le local a changé.
+   Règle d'or : une modification locale non poussée n'est JAMAIS écrasée. */
+function _applyRemoteRecord(col, rid, obj){
+  if(CLOUD_COLLECTIONS.indexOf(col)===-1 || !obj) return false;
+  const arr=DB[col]=Array.isArray(DB[col])?DB[col]:[];
+  const known=(_cloudHash[col]=_cloudHash[col]||new Map());
+  const snap=(_cloudSnap[col]=_cloudSnap[col]||new Set());
+  const h=_recHash(obj);
+  const idx=arr.findIndex(it=>recordId(it)===rid);
+  if(idx>=0){
+    const curH=_recHash(arr[idx]);
+    if(curH===h){ known.set(rid,h); snap.add(rid); return false; }      // déjà identique
+    if(known.get(rid)!==curH) return false;                              // saisie locale en attente → le local gagne
+    arr[idx]=obj;
+  } else {
+    if(snap.has(rid)) return false;                                      // suppression locale en attente → le local gagne
+    arr.push(obj);
+  }
+  known.set(rid,h); snap.add(rid);
+  return true;
+}
+/* Supprime localement UN enregistrement supprimé dans le cloud (sauf s'il a été modifié localement depuis). */
+function _applyRemoteDelete(col, rid){
+  if(CLOUD_COLLECTIONS.indexOf(col)===-1) return false;
+  const arr=Array.isArray(DB[col])?DB[col]:[]; const known=(_cloudHash[col]||new Map());
+  const idx=arr.findIndex(it=>recordId(it)===rid);
+  if(idx>=0){
+    if(known.get(rid)!==_recHash(arr[idx])) return false;                // modifié localement depuis → on garde (repartira au cloud)
+    arr.splice(idx,1);
+  }
+  known.delete(rid); if(_cloudSnap[col]) _cloudSnap[col].delete(rid);
+  return idx>=0;
 }
 /* Indicateur visible de l'état de synchro (fini les erreurs avalées en silence). */
 function setCloudSyncStatus(state){
@@ -1137,7 +1180,8 @@ function setCloudSyncStatus(state){
   if(state==="syncing"){ el.textContent="⏳ Synchro…"; el.title="Envoi des données vers le cloud en cours…"; }
   else if(state==="error"){ el.textContent="⚠️ Synchro KO"; el.title="La dernière synchronisation cloud a échoué. Tes données restent sur ce poste ; vérifie ta connexion et réessaie (une modification relance la synchro)."; }
   else if(state==="offline"){ el.textContent="📴 Saisies gardées"; el.title="Pas de réseau : tes saisies sont enregistrées sur cet appareil et partiront automatiquement au retour de la connexion — rien n'est perdu."; }
-  else { const t=new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}); el.textContent="✅ Synchro "+t; el.title="Dernière synchronisation cloud réussie à "+t+"."; }
+  else if(state==="live" && _cloudRtOk){ el.textContent="🟢 Temps réel"; el.title="Canal temps réel actif : les modifications faites sur les autres appareils arrivent instantanément."; }
+  else { const t=new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}); el.textContent="✅ Synchro "+t+(_cloudRtOk?" · 🟢 live":""); el.title="Dernière synchronisation cloud réussie à "+t+(_cloudRtOk?" — canal temps réel actif.":"."); }
 }
 /* ===== SAISIE HORS-LIGNE (chantier 19/08) =====
    Un marqueur persistant « bsm_dirty » signale des saisies locales pas encore poussées au cloud
@@ -1145,7 +1189,9 @@ function setCloudSyncStatus(state){
    d'abord et on ne tire JAMAIS le cloud par-dessus (sinon les saisies terrain seraient écrasées). */
 function cloudDirty(){ try{ return localStorage.getItem("bsm_dirty")==="1"; }catch(e){ return false; } }
 function cloudDirtySet(on){ try{ if(on) localStorage.setItem("bsm_dirty","1"); else localStorage.removeItem("bsm_dirty"); }catch(e){} }
-/* Auto-sync : quand on est connecté via le cloud, chaque enregistrement local est repoussé (débounce). */
+/* Auto-sync : quand on est connecté via le cloud, chaque enregistrement modifié est repoussé (débounce).
+   DELTA (chantier 21/08) : seuls les enregistrements dont l'empreinte a changé partent au cloud —
+   fini la base entière à chaque save (et fini la guerre des sessions qui s'écrasaient mutuellement). */
 function cloudPush(){
   if(!cloudPrimary || !cloudOrgId) return;
   if(_applyingRemote) return; // ne pas repousser ce qu'on vient de tirer du cloud (évite l'écho)
@@ -1153,24 +1199,145 @@ function cloudPush(){
   if(_cloudTimer) clearTimeout(_cloudTimer);
   _cloudTimer=setTimeout(()=>{ _cloudTimer=null;
     setCloudSyncStatus("syncing");
-    cloudImportLocal().then(()=>{ cloudDirtySet(false); setCloudSyncStatus("ok"); })
+    cloudPushDelta().then(()=>{ cloudDirtySet(false); setCloudSyncStatus("ok"); })
       .catch(()=>setCloudSyncStatus(navigator.onLine===false?"offline":"error"));
   }, 2500);
 }
+/* Pousse UNIQUEMENT les enregistrements créés/modifiés depuis le dernier état connu du cloud,
+   et propage les suppressions de ce poste (mécanique _cloudSnap inchangée). */
+async function cloudPushDelta(){
+  const c=await sbClient(); if(!cloudOrgId) await cloudLoadProfile();
+  if(!cloudOrgId) throw new Error("Profil sans organisation — vérifie le bootstrap.");
+  if(!Object.keys(_cloudHash).length) return cloudImportLocal(); // état cloud inconnu (1ʳᵉ connexion) → envoi complet
+  const nowIso=new Date().toISOString(); let sent=0, removed=0;
+  for(const col of CLOUD_COLLECTIONS){
+    const arr=Array.isArray(DB[col])?DB[col]:[];
+    const known=_cloudHash[col]||new Map();
+    const localIds=new Set(), newMap=new Map(), rows=[];
+    arr.forEach(item=>{ const rid=recordId(item), h=_recHash(item);
+      localIds.add(rid); newMap.set(rid,h);
+      if(known.get(rid)!==h) rows.push({ organization_id:cloudOrgId, collection:col, record_id:rid, data:item,
+        classification:(item.classification||"interne"), updated_at:nowIso }); // updated_at posé côté client = le delta marche même avant la migration 0006 (le trigger serveur prendra le relais)
+    });
+    for(let i=0;i<rows.length;i+=200){
+      const chunk=rows.slice(i,i+200);
+      const { error } = await c.from("records").upsert(chunk, { onConflict:"organization_id,collection,record_id" });
+      if(error) throw error;
+      sent+=chunk.length;
+    }
+    // Suppressions : UNIQUEMENT ce que ce poste avait poussé et n'a plus (jamais les ajouts des autres postes).
+    const prev=_cloudSnap[col]||new Set();
+    const toDelete=[...prev].filter(rid=>!localIds.has(rid));
+    for(let i=0;i<toDelete.length;i+=200){
+      const dchunk=toDelete.slice(i,i+200);
+      const { error:delErr } = await c.from("records").delete()
+        .eq("organization_id",cloudOrgId).eq("collection",col).in("record_id",dchunk);
+      if(delErr) throw delErr;
+      removed+=dchunk.length;
+    }
+    _cloudSnap[col]=localIds; _cloudHash[col]=newMap;
+  }
+  return { sent, removed };
+}
 /* Synchro LIVE entrante : tire les modifications faites sur un autre appareil (téléphone…).
-   Sûr : ne tourne que connecté au cloud, sans push en attente, sans modale ouverte (pas de saisie en cours), et throttlé. */
+   DELTA (chantier 21/08) : on ne tire plus toute la base — seulement ce qui a bougé depuis le curseur,
+   fusionné enregistrement par enregistrement. Toutes les ~10 min, une réconciliation légère (ids seuls)
+   rattrape les suppressions faites ailleurs pendant qu'on était hors-ligne.
+   Sûr : ne tourne que connecté au cloud, sans push en attente, sans modale ouverte, et throttlé. */
 async function cloudAutoPull(){
   if(!cloudPrimary || !cloudOrgId || _cloudTimer || _cloudPulling) return;
   if(cloudDirty()){ cloudPush(); return; } // saisies hors-ligne en attente : on pousse d'abord, on ne tire jamais par-dessus
   const ov=document.getElementById("overlay"); if(ov && ov.classList.contains("show")) return;
   if(Date.now()-_cloudLastPull < 8000) return;
   _cloudPulling=true; _applyingRemote=true;
-  try{ await cloudPullAll(); _cloudLastPull=Date.now();
+  try{ const r=await cloudPullDelta(); _cloudLastPull=Date.now();
+    let touched=(r&&r.applied)||0;
+    if(Date.now()-_cloudLastReconcile>600000){ _cloudLastReconcile=Date.now(); const rr=await cloudReconcileIds(); touched+=(rr&&rr.removed)||0; }
     // Le cloud peut ramener les anciens agents (ZEUS/HERMÈS…) : on re-consolide AUSSITÔT sur l'unique « Bras droit ».
     if(typeof enforceSingleExpert==="function" && enforceSingleExpert()) save();
-    if(typeof refreshAll==="function") refreshAll(); }
+    if(touched && typeof refreshAll==="function") refreshAll(); }
   catch(e){ /* silencieux : le prochain tick réessaiera */ }
   finally{ _applyingRemote=false; _cloudPulling=false; }
+}
+/* Tirage incrémental : uniquement les enregistrements modifiés depuis le curseur (marge 30 s pour les horloges). */
+async function cloudPullDelta(){
+  if(!_cloudSince) return cloudPullAll(); // pas encore de curseur → chargement complet initial
+  const c=await sbClient();
+  const since=new Date(new Date(_cloudSince).getTime()-30000).toISOString();
+  let applied=0, page=0;
+  for(;;){
+    const { data, error } = await c.from("records").select("collection,record_id,data,updated_at")
+      .gt("updated_at", since).order("updated_at",{ascending:true}).range(page*1000,(page+1)*1000-1);
+    if(error) throw error;
+    (data||[]).forEach(r=>{ if(_applyRemoteRecord(r.collection,r.record_id,r.data)) applied++;
+      if(r.updated_at && (!_cloudSince || r.updated_at>_cloudSince)) _cloudSince=r.updated_at; });
+    if(!data || data.length<1000 || page>=9) break;
+    page++;
+  }
+  if(applied) save(); // _applyingRemote est levé par l'appelant : pas d'écho de push
+  return { applied };
+}
+/* Réconciliation des suppressions : compare les ids du cloud aux ids locaux (requête légère, sans data).
+   Un enregistrement local absent du cloud n'est retiré QUE s'il était connu du cloud et inchangé depuis
+   (une création/modification locale pas encore poussée n'est jamais supprimée). */
+async function cloudReconcileIds(){
+  const c=await sbClient();
+  const cloudIds={}; let from=0;
+  for(;;){
+    const { data, error } = await c.from("records").select("collection,record_id").range(from, from+1999);
+    if(error) throw error;
+    (data||[]).forEach(r=>{ (cloudIds[r.collection]=cloudIds[r.collection]||new Set()).add(r.record_id); });
+    if(!data || data.length<2000) break;
+    from+=2000;
+  }
+  let removed=0;
+  CLOUD_COLLECTIONS.forEach(col=>{
+    const inCloud=cloudIds[col]||new Set();
+    const arr=Array.isArray(DB[col])?DB[col]:[]; const known=_cloudHash[col]||new Map();
+    for(let i=arr.length-1;i>=0;i--){
+      const rid=recordId(arr[i]);
+      if(inCloud.has(rid)) continue;
+      if(!known.has(rid)) continue;                       // jamais poussé → création locale en attente : on garde
+      if(known.get(rid)!==_recHash(arr[i])) continue;     // modifié localement depuis → on garde (repartira au cloud)
+      arr.splice(i,1); known.delete(rid); if(_cloudSnap[col]) _cloudSnap[col].delete(rid); removed++;
+    }
+  });
+  if(removed) save(); // _applyingRemote est levé par l'appelant
+  return { removed };
+}
+/* ===== TEMPS RÉEL (chantier 21/08) : chaque changement poussé par un autre poste arrive en direct =====
+   Canal Supabase Realtime sur la table records (RLS respectée — on ne reçoit que son organisation).
+   Chaque événement est fusionné à l'enregistrement près par les mêmes règles que le delta ;
+   l'écran se rafraîchit en différé (800 ms) et jamais pendant une modale ouverte (saisie en cours).
+   Nécessite la migration 0006 côté Supabase ; sans elle, le polling 60 s continue de tout couvrir. */
+async function cloudRealtimeStart(){
+  if(!cloudPrimary || !cloudOrgId) return;
+  try{
+    const c=await sbClient();
+    if(_cloudRt){ try{ c.removeChannel(_cloudRt); }catch(e){} _cloudRt=null; }
+    _cloudRt=c.channel("bsm-records-live")
+      .on("postgres_changes",{ event:"*", schema:"public", table:"records", filter:"organization_id=eq."+cloudOrgId }, payload=>{
+        try{
+          if(_cloudTimer || cloudDirty()) return; // push local imminent : le prochain delta réconciliera proprement
+          let changed=false;
+          if(payload.eventType==="DELETE"){
+            const o=payload.old||{}; if(o.collection && o.record_id) changed=_applyRemoteDelete(o.collection, o.record_id);
+          } else {
+            const n=payload.new||{}; if(n.collection && n.record_id) changed=_applyRemoteRecord(n.collection, n.record_id, n.data);
+            if(n.updated_at && (!_cloudSince || n.updated_at>_cloudSince)) _cloudSince=n.updated_at;
+          }
+          if(changed){
+            _applyingRemote=true; try{ save(); }finally{ _applyingRemote=false; }
+            if(_cloudRtTimer) clearTimeout(_cloudRtTimer);
+            _cloudRtTimer=setTimeout(()=>{ _cloudRtTimer=null;
+              const ov=document.getElementById("overlay");
+              if(!(ov && ov.classList.contains("show")) && typeof refreshAll==="function") refreshAll();
+            }, 800);
+          }
+        }catch(e){ /* jamais bloquant : le polling couvre */ }
+      })
+      .subscribe(status=>{ _cloudRtOk=(status==="SUBSCRIBED"); setCloudSyncStatus(_cloudRtOk?"live":"ok"); });
+  }catch(e){ _cloudRtOk=false; /* repli : polling 60 s */ }
 }
 async function sbClient(){
   if(_sb) return _sb;
@@ -1228,7 +1395,9 @@ async function cloudSignIn(email, pass){
   if(!error) await cloudLoadProfile();
   return { data, error };
 }
-async function cloudSignOut(){ const c=await sbClient(); await c.auth.signOut(); cloudOrgId=null; }
+async function cloudSignOut(){ const c=await sbClient();
+  if(_cloudRt){ try{ c.removeChannel(_cloudRt); }catch(e){} _cloudRt=null; _cloudRtOk=false; }
+  await c.auth.signOut(); cloudOrgId=null; }
 /* --- Gestion des utilisateurs CLOUD réels (profiles Supabase) : les vrais comptes de connexion --- */
 async function renderCloudUsers(){
   const el=document.getElementById("cloud-users"); if(!el) return;
@@ -1292,12 +1461,15 @@ async function cloudImportLocal(onProgress){
   }
   return { total };
 }
-/* Cloud → local : reconstruit les collections de DB. */
+/* Cloud → local : reconstruit les collections de DB (chargement initial / réparation).
+   Pose aussi le curseur _cloudSince — les tirages suivants seront incrémentaux (cloudPullDelta). */
 async function cloudPullAll(){
   const c = await sbClient();
-  const { data, error } = await c.from("records").select("collection,record_id,data").limit(10000);
+  const { data, error } = await c.from("records").select("collection,record_id,data,updated_at").limit(10000);
   if(error) throw error;
-  const grouped={}; (data||[]).forEach(r=>{ (grouped[r.collection]=grouped[r.collection]||[]).push(r.data); });
+  const grouped={}; (data||[]).forEach(r=>{ (grouped[r.collection]=grouped[r.collection]||[]).push(r.data);
+    if(r.updated_at && (!_cloudSince || r.updated_at>_cloudSince)) _cloudSince=r.updated_at; });
+  if(!_cloudSince) _cloudSince=new Date().toISOString();
   const cloudEmpty = !(data && data.length);
   // Miroir : une collection absente du cloud est vidée en local — SAUF si le cloud est totalement vide
   // (évite d'effacer les modèles/exemples par défaut lors d'une toute première connexion sur base neuve).
@@ -1335,6 +1507,7 @@ async function cloudPortalLogin(){
   if(cloudDirty()){ try{ await cloudImportLocal(); cloudDirtySet(false); }catch(e){} } // saisies hors-ligne d'abord — jamais de pull par-dessus
   try{ await cloudPullAll(); }catch(e){}
   enterApp(); setCloudSyncStatus("ok"); logEvent("login","Connexion Cloud (Supabase)", true);
+  cloudRealtimeStart(); // canal temps réel (non bloquant — repli polling si indisponible)
   toast("Bienvenue, "+currentUser.name+".");
   // Push : si l'appareil avait déjà donné son autorisation, on ré-enregistre l'abonnement en silence
   if("Notification" in window && Notification.permission==="granted") setTimeout(()=>{ try{ pushSubscribe(true); }catch(e){} }, 2500);
@@ -1352,6 +1525,7 @@ async function initCloudAuth(){
     if(cloudDirty()){ try{ await cloudImportLocal(); cloudDirtySet(false); }catch(e){} } // saisies hors-ligne d'abord — jamais de pull par-dessus
     try{ await cloudPullAll(); }catch(e){}
     enterApp(); setCloudSyncStatus("ok");
+    cloudRealtimeStart(); // canal temps réel (non bloquant — repli polling si indisponible)
     if("Notification" in window && Notification.permission==="granted") setTimeout(()=>{ try{ pushSubscribe(true); }catch(e){} }, 2500);
     return true;
   }catch(e){
