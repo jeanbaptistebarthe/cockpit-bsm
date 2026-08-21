@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.71.2";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.72.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -16190,10 +16190,111 @@ const FICHES_SEED=[
 <div><h2 class="bsm"><span class="n">4</span>Le dossier de preuve</h2><ul>
 <li>Chronologie des anomalies, datée, factuelle.</li><li>Montants et circuits concernés.</li>
 <li>Documents originaux préservés, copies de travail.</li><li>Témoignages éventuels recueillis par écrit.</li></ul></div></div>
-<div class="callout"><b>Une fraude interne dure en moyenne plus d'un an avant d'être détectée.</b> Les contrôles croisés de votre plan d'action (double signature, rapprochements, relevés contradictoires) existent précisément pour raccourcir ce délai.</div>`}
+<div class="callout"><b>Une fraude interne dure en moyenne plus d'un an avant d'être détectée.</b> Les contrôles croisés de votre plan d'action (double signature, rapprochements, relevés contradictoires) existent précisément pour raccourcir ce délai.</div>`},
+{ref:"FC-01",titre:"Cellule de crise — pilotage",icone:"🎯",band:"Quand l'incident dépasse les réflexes : UNE cellule, UN pilote, UNE main courante",html:`
+<h2 class="now"><span class="n">▶</span>Quand basculer en crise (un seul critère suffit)</h2><ul>
+<li>Des personnes sont blessées ou menacées, ou une personne manque à l'appel.</li>
+<li>L'activité sera arrêtée plus de 4 heures, ou plusieurs sites sont touchés.</li>
+<li>Des clients majeurs sont impactés, ou les médias / réseaux s'en emparent.</li>
+<li>La situation reste incertaine et grossit au lieu de se stabiliser.</li></ul>
+<h2 class="who"><span class="n">👥</span>Les 4 rôles (à nommer À VOIX HAUTE)</h2><ul>
+<li><b>PILOTE</b> — décide, arbitre, seule autorité de la cellule. Jamais cumulé avec porte-parole.</li>
+<li><b>PORTE-PAROLE</b> — seul à parler à l'extérieur (clients, médias, autorités).</li>
+<li><b>MAIN COURANTE</b> — note TOUT : heure, fait, décision, qui. C'est la mémoire et la preuve.</li>
+<li><b>LOGISTIQUE</b> — moyens, accès, relais terrain, relèves.</li></ul>
+<div style="border-left:3px solid #C7A25A;margin:12px 0 8px 8px;padding-left:14px">
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#7F1D1D;letter-spacing:.08em">T+0 → 15 MIN</div><ul>
+<li>Sécuriser les personnes. Nommer le pilote. Ouvrir la main courante (heure d'ouverture notée).</li>
+<li>Premier point : séparer les <b>faits certains</b> des suppositions. Signaler à BSM.</li></ul></div>
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#B45309;letter-spacing:.08em">T+1 H</div><ul>
+<li>Périmètre réel de l'impact. Décisions conservatoires (arrêts, fermetures, consignes).</li>
+<li>Message interne bref : les faits, la consigne, l'heure du prochain point. Prévenir les tiers critiques.</li></ul></div>
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#B5923A;letter-spacing:.08em">T+4 H</div><ul>
+<li>Trois scénarios écrits : probable / pire / meilleur — et la décision pour chacun.</li>
+<li>Moyens supplémentaires engagés. Communication externe SI nécessaire, validée par le pilote, portée par le porte-parole. Rythme de points fixé (ex. toutes les 2 h).</li></ul></div>
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#0B1B3A;letter-spacing:.08em">T+24 H</div><ul>
+<li>Organisation en relèves — personne au-delà de 16 h d'affilée, le jugement s'effondre avant la volonté.</li>
+<li>Communication de suivi. Assurance et autorités consolidées. Préparer la sortie.</li></ul></div></div>
+<h2 class="bsm"><span class="n">✔</span>Sortie de crise & retour d'expérience</h2><ul>
+<li>La sortie est <b>déclarée par le pilote</b> (critères remplis), jamais subie par épuisement.</li>
+<li>Main courante archivée et transmise à BSM via le signalement.</li>
+<li>REX sous 7 jours : ce qui a marché, ce qui a manqué → alimente votre plan d'action.</li></ul>
+<div class="callout"><b>Une cellule de crise se gagne à l'entraînement.</b> BSM anime des exercices semestriels sur scénario : on déclenche, on chronomètre, on débriefe — le jour J, chacun a déjà joué son rôle.</div>`},
+{ref:"FC-02",titre:"Crise incendie majeur",icone:"🔥",band:"Feu développé, secours engagés — piloter pendant que ça brûle",html:`
+<h2 class="now"><span class="n">▶</span>Bascule en crise incendie</h2><ul>
+<li>Feu non éteint dans les 2 premières minutes, ou fumées importantes.</li>
+<li><b>Toute personne manquante au point de rassemblement.</b></li>
+<li>Menace sur stockages dangereux, bâtiments voisins ou habitations.</li></ul>
+<div style="border-left:3px solid #C7A25A;margin:12px 0 8px 8px;padding-left:14px">
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#7F1D1D;letter-spacing:.08em">T+0 → 15 MIN</div><ul>
+<li>Évacuation totale + <b>comptage nominatif</b> — le manquant se cherche par les secours, jamais par les collègues.</li>
+<li>Accueillir et guider les pompiers : plan des locaux, énergies, produits dangereux, points d'eau.</li>
+<li>Couper les énergies. Périmètre de sécurité. Cellule ouverte, main courante lancée.</li></ul></div>
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#B45309;letter-spacing:.08em">T+1 H</div><ul>
+<li>Blessés : la <b>direction</b> informe les familles — personne d'autre.</li>
+<li>Message interne : faits, consigne (rester hors zone), prochain point. BSM + assureur alertés.</li></ul></div>
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#B5923A;letter-spacing:.08em">T+4 H</div><ul>
+<li>Continuité : que reprend-on, où, avec quoi ? Clients critiques prévenus par le porte-parole.</li>
+<li>Protéger ce qui reste : bâchage, gardiennage, photos générales dès que les secours l'autorisent.</li></ul></div>
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#0B1B3A;letter-spacing:.08em">T+24 H</div><ul>
+<li>Gardiennage de nuit. Expertise organisée — <b>rien n'est déblayé avant l'expert</b>.</li>
+<li>Plan de reprise par priorités ; consignes RH claires (qui vient, qui ne vient pas, paie maintenue).</li></ul></div></div>
+<h2 class="bsm"><span class="n">✔</span>Sortie & REX</h2><ul>
+<li>Réintégration uniquement sur autorisation des secours et contrôle électrique.</li>
+<li>REX : cause racine, alarme, extincteurs, formation — le prochain départ de feu doit mourir en 30 secondes.</li></ul>
+<div class="callout"><b>Pendant l'incendie, le pilote ne combat pas le feu :</b> il compte les personnes, guide les secours et protège la suite. Les héros improvisés remplissent les hôpitaux.</div>`},
+{ref:"FC-03",titre:"Crise cyber paralysante",icone:"🖥️",band:"Système chiffré, rançon affichée — on isole, on ne paie pas seul, on repart propre",html:`
+<h2 class="now"><span class="n">▶</span>Bascule en crise cyber</h2><ul>
+<li>Plus de 30 % des postes touchés, ou un serveur central chiffré.</li>
+<li>Demande de rançon affichée, ou fuite de données suspectée.</li>
+<li>Les outils de travail essentiels (facturation, production, paie) sont inutilisables.</li></ul>
+<h2 class="who"><span class="n">👥</span>Cellule = les 4 rôles + votre référent informatique</h2><ul>
+<li>Toutes les communications de crise passent par des canaux SAINS : téléphones 4G, jamais le réseau touché.</li></ul>
+<div style="border-left:3px solid #C7A25A;margin:12px 0 8px 8px;padding-left:14px">
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#7F1D1D;letter-spacing:.08em">T+0 → 15 MIN</div><ul>
+<li><b>Isoler</b> : câbles réseau débranchés, wifi coupé au routeur, sauvegardes déconnectées. <b>Ne rien éteindre.</b></li>
+<li>Inventaire à la main : qu'est-ce qui marche encore ? Photos des écrans de rançon.</li></ul></div>
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#B45309;letter-spacing:.08em">T+1 H</div><ul>
+<li>Mode dégradé PAPIER pour les opérations vitales (livraisons, encaissements, pointage).</li>
+<li>Banque prévenue (surveillance/blocage). Prestataire IT mobilisé sur site. BSM alerté.</li></ul></div>
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#B5923A;letter-spacing:.08em">T+4 H</div><ul>
+<li>Décision restauration vs négociation — <b>jamais seul</b>, jamais sans avis spécialisé ; payer ne garantit rien.</li>
+<li>Évaluer la fuite de données (clients ? RH ?) et les obligations d'information qui en découlent.</li></ul></div>
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#0B1B3A;letter-spacing:.08em">T+24 H</div><ul>
+<li>Restauration depuis sauvegardes saines, par ordre de priorité métier — service par service, jamais tout d'un coup.</li>
+<li>Changement général des mots de passe depuis des machines propres. Surveillance renforcée 30 jours.</li></ul></div></div>
+<h2 class="bsm"><span class="n">✔</span>Sortie & REX</h2><ul>
+<li>Sortie déclarée quand les services vitaux tournent sur des systèmes vérifiés sains.</li>
+<li>REX : porte d'entrée identifiée, sauvegardes testées, formation anti-hameçonnage relancée.</li></ul>
+<div class="callout"><b>La survie cyber se joue AVANT :</b> des sauvegardes déconnectées et testées transforment une catastrophe en mauvaise semaine. C'est une recommandation R5 qui vaut de l'or ce jour-là.</div>`},
+{ref:"FC-04",titre:"Crise cyclone / inondation",icone:"🌀",band:"Tout se gagne avant l'alerte rouge — pendant, on protège les vies, après, on reprend dans l'ordre",html:`
+<h2 class="now"><span class="n">▶</span>Bascule en crise météo</h2><ul>
+<li>Alerte officielle orange/rouge sur votre zone, ou montée des eaux constatée.</li>
+<li>Sites, stocks ou personnel directement exposés.</li></ul>
+<div style="border-left:3px solid #C7A25A;margin:12px 0 8px 8px;padding-left:14px">
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#2F855A;letter-spacing:.08em">T−48 H → T−24 H (pré-alerte)</div><ul>
+<li>Arrimer, bâcher, surélever les stocks sensibles. Contrôler toitures et évacuations d'eau.</li>
+<li>Pleins des groupes et véhicules. Sauvegardes des données. Documents vitaux en sûreté.</li>
+<li>Consignes nominatives au personnel : qui sécurise, qui reste chez soi, comment on se joint. Fermeture ordonnée.</li></ul></div>
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#7F1D1D;letter-spacing:.08em">PENDANT LE PASSAGE</div><ul>
+<li><b>Personne ne circule, personne ne « va vérifier ».</b> Aucun stock ne vaut une vie.</li>
+<li>Contact périodique de la cellule si les réseaux tiennent ; main courante à distance.</li></ul></div>
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#B45309;letter-spacing:.08em">T+0 APRÈS PASSAGE</div><ul>
+<li>Réintégration <b>uniquement après contrôle</b> : structures, électricité (rien sous tension si mouillé).</li>
+<li>Photos de TOUT avant de toucher — c'est le dossier assurance. Sécuriser les accès.</li></ul></div>
+<div style="margin:8px 0"><div style="font-size:10px;font-weight:800;color:#0B1B3A;letter-spacing:.08em">T+24 H</div><ul>
+<li>Reprise par priorités : sécurité, énergie, production, administratif. Eau potable vérifiée.</li>
+<li>Assureur saisi avec le dossier photo. Volet humain : certains employés ont leur propre maison touchée — prévoir absences et entraide, c'est aussi de la continuité.</li></ul></div></div>
+<h2 class="bsm"><span class="n">✔</span>Sortie & REX</h2><ul>
+<li>REX AVANT la prochaine saison : ce qui a tenu, ce qui a cédé → travaux et stocks de préparation dès octobre.</li></ul>
+<div class="callout"><b>À Madagascar, la saison cyclonique n'est pas un risque, c'est un rendez-vous.</b> BSM intègre le cycle de préparation (octobre) à votre plan de continuité — cette fiche est le pense-bête, le plan est l'armure.</div>`}
 ];
-function ensureFiches(){ DB.fiches=Array.isArray(DB.fiches)?DB.fiches:[]; if(DB.fiches.length) return;
-  DB.fiches=FICHES_SEED.map(f=>({ref:f.ref,titre:f.titre,icone:f.icone,band:f.band,html:f.html,version:"1.1",updatedAt:todayISO()})); save(); }
+function ensureFiches(){ DB.fiches=Array.isArray(DB.fiches)?DB.fiches:[];
+  // Semis INCRÉMENTAL : les nouvelles fiches du catalogue (ex. série FC) s'ajoutent sans jamais
+  // écraser une fiche existante (les modifications de JB sont préservées).
+  let added=0;
+  FICHES_SEED.forEach(f=>{ if(!DB.fiches.some(x=>x.ref===f.ref)){ DB.fiches.push({ref:f.ref,titre:f.titre,icone:f.icone,band:f.band,html:f.html,version:"1.1",updatedAt:todayISO()}); added++; } });
+  if(added) save(); }
 /* Rendu complet d'une fiche (gabarit premium FR v1.1). {{CLIENT}} et {{LIEN_SIGNALEMENT}} sont
    remplacés par le RÉCEPTEUR au moment du service — la fiche publiée reste générique. */
 function ficheRenderHtml(f){
