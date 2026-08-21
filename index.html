@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.75.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.76.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -732,7 +732,7 @@ function defaultDB(){
     missions:[], risks:[], recommendations:[],
     employees:[], recruitments:[], leaves:[], activities:[], documents:[], playbooks:[], aiMemory:[], aiChat:[],
     users:[], activityLog:[], notifications:[], moneyRequests:[], investments:[], decisions:[],
-    a1vehicles:[], a1logs:[], a1gensets:[], a1genlogs:[], a1offers:[], a1gpslogs:[], a1invoices:[], a1specs:[], a1docs:[],
+    a1vehicles:[], a1logs:[], a1gensets:[], a1genlogs:[], a1offers:[], a1gpslogs:[], a1invoices:[], a1specs:[], a1docs:[], a1maint:[], a1peaks:[],
     advice:{ dismissed:[], edits:{}, custom:[], readIds:[] }
   };
 }
@@ -771,6 +771,7 @@ function load(){
   DB.r5reports=DB.r5reports||[]; // rapports d'audit R5 (brouillon / édité / envoyé), archivés par client
   DB.solutionsLib=DB.solutionsLib||[]; // bibliothèque de solutions chiffrées (texte + investissement + gain, par secteur) — s'enrichit à chaque reco chiffrée
   DB.a1gpslogs=DB.a1gpslogs||[]; DB.a1invoices=DB.a1invoices||[]; DB.a1specs=DB.a1specs||[]; DB.a1docs=DB.a1docs||[];
+  DB.a1maint=DB.a1maint||[]; DB.a1peaks=DB.a1peaks||[]; // chantiers A1 B (carnet d'entretien) et A (mesure de pointe) — 21/08
   // Catalogue de fiches techniques : re-seed versionné + idempotent. On rafraîchit les fiches D'ORIGINE (catalogue BSM) sans toucher aux fiches ajoutées/importées par l'utilisateur, et on dédoublonne par marque+modèle.
   if((DB.meta.a1SpecsVersion||0) < 3){
     const isSeed=s=>s.builtin || /Référence standard|Valeur indicative/.test(s.source||"");
@@ -1117,7 +1118,7 @@ const SB_URL = "https://fxaeeplylyeitukctlph.supabase.co";
 const SB_KEY = "sb_publishable_SrXvreUFVJgLLBi6PLvA-g_ARBg2SST";
 // Clé VAPID PUBLIQUE (Web Push) — publique par nature ; la clé privée vit dans les secrets Supabase.
 const PUSH_VAPID_PUBLIC = "BM6Kpk3mQIq8bJihU4TbVho2TXy9BNz-0tlgmHtlHGg8rqbt6W1kKkJz0z_ct8aqOCEvdZFMA6bAA7xZoTkbOKw";
-const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","a1docs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge","r5reports","solutionsLib","a1execreports"]; // a1execreports ajouté 18/08 : le registre des rapports exécutifs A1 suit sur tous les appareils (le HTML archivé reste sur le PC serveur)
+const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","a1docs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge","r5reports","solutionsLib","a1execreports","a1maint","a1peaks"]; // a1maint + a1peaks ajoutés 21/08 (carnet d'entretien & mesures de pointe) ; a1execreports ajouté 18/08 : le registre des rapports exécutifs A1 suit sur tous les appareils (le HTML archivé reste sur le PC serveur)
 let _sb=null, cloudOrgId=null, cloudPrimary=false, _cloudTimer=null;
 let _cloudPulling=false, _cloudLastPull=0, _applyingRemote=false; // synchro live entrante (auto-pull sécurisé)
 /* Snapshot des identifiants déjà poussés PAR CE POSTE, par collection.
@@ -5895,6 +5896,16 @@ function generateAdvice(){
       }
     });
   }
+  // 1m. A1 CARNET D'ENTRETIEN : échéances dépassées (date passée OU compteur atteint) — traiter l'usure avant la panne.
+  {
+    const scanMaint=(kind, machines)=>{ (machines||[]).forEach(m=>{
+      let st=null; try{ st=a1MaintStatus(kind, m); }catch(e){ return; }
+      if(st && st.due.length)
+        add("a1mnt-"+m.id,"warn","🛠️","Entretien dû — "+m.name,
+          `${m.name}${m.clientId?" ("+clientName(m.clientId)+")":""} : ${st.due.map(d=>d.e.type+" — "+d.why).join(" ; ")}. Programmer l'intervention et la consigner au carnet d'entretien (fiche machine 360°).`);
+    }); };
+    scanMaint("gen", DB.a1gensets); scanMaint("fleet", DB.a1vehicles);
+  }
   // 1h. Abonnements clients en ariary : le taux du mois s'écarte de > ±5 % du taux de référence → clause d'indexation activable
   (DB.recurring||[]).forEach(rc=>{
     if(rc.active===false || rc.sens!=="entrant" || rc.currency!=="MGA" || !rc.clientId) return;
@@ -8314,6 +8325,8 @@ function openA1Diag(kind, id){
     <h2 style="font-size:14px;margin:14px 0 4px">📋 Fiche technique</h2>
     <div class="hint" style="margin:0 0 6px">${specs}</div>
     ${specsIncomplete?`<div class="card" style="border-left:3px solid var(--amber);background:#FFFBF0;margin:0 0 8px;padding:10px 12px;font-size:12.5px"><b>⚠️ Fiche incomplète.</b> Renseignez marque, année, <b>${isGen?"conso constructeur (L/h)":"conso constructeur (L/100)"}</b> et réservoir → le diagnostic (dérive, plausibilité) sera nettement plus fin. <div style="margin-top:8px"><button class="cta ghost sm" onclick="closeModal();${isGen?"openA1Genset":"openA1Vehicle"}('${id}')">✎ Compléter la fiche machine</button></div></div>`:""}
+    ${isGen?a1PeakSectionHtml(machine):""}
+    ${a1MaintSectionHtml(kind, machine)}
     <h2 style="font-size:14px;margin:12px 0 4px">📄 Historique des relevés <span style="font-weight:400;color:var(--muted);font-size:11px">— repérez précisément OÙ est l'anomalie</span></h2>
     ${histHtml}
     <div class="card" style="border-left:3px solid var(--gold);background:#FCFBF7;margin:12px 0 0">
@@ -8345,6 +8358,169 @@ function saveA1Verdict(kind, id){
   const cause=val("vd-cause"), note=val("vd-note"), status=val("vd-status");
   if(!cause && !(note||"").trim()){ delete m.verdict; } else { m.verdict={cause, status, note, by:(currentUser&&currentUser.login)||"", date:todayISO()}; }
   save(); closeModal(); a1RefreshCurrent(); toast("Conclusion enregistrée.");
+}
+/* ================== CHANTIER A1-B : CARNET D'ENTRETIEN (21/08) ==================
+   « Traiter l'usure avant la panne. » Chaque machine (groupe OU véhicule) tient son carnet :
+   interventions datées avec compteur et coût, prochaine échéance par DATE ou par COMPTEUR
+   (heures groupes / km véhicules — l'usage cumulé vient des relevés mensuels déjà saisis).
+   Une échéance d'un type donné est remplacée par l'entretien suivant du même type. */
+const A1_MAINT_TYPES=["Vidange & filtres","Filtre à air","Filtre gasoil","Courroies","Batterie","Liquide de refroidissement","Révision générale","Réparation","Contrôle / inspection","Autre"];
+function a1MaintFor(kind, machineId){
+  return (DB.a1maint||[]).filter(m=>m.kind===kind&&m.machineId===machineId)
+    .sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+}
+/* Usage cumulé depuis une date (Σ heures des relevés groupes / Σ km des relevés véhicules). */
+function a1UsageSince(kind, machineId, sinceISO){
+  const logs=kind==="gen"?(DB.a1genlogs||[]).filter(l=>l.gensetId===machineId):(DB.a1logs||[]).filter(l=>l.vehicleId===machineId);
+  return logs.reduce((s,l)=>((l.date||"")>(sinceISO||""))?s+(kind==="gen"?(+l.hours||0):(+l.km||0)):s,0);
+}
+/* État d'entretien : dernier entretien, échéances DÉPASSÉES (date passée OU compteur atteint), à venir. */
+function a1MaintStatus(kind, machine){
+  const entries=a1MaintFor(kind, machine.id);
+  const unit=kind==="gen"?"h":"km";
+  const due=[], upcoming=[];
+  entries.forEach(e=>{
+    if(!(e.nextDate||+e.nextEvery>0)) return;
+    if(entries.some(o=>o!==e && o.type===e.type && String(o.date||"")>String(e.date||""))) return; // remplacée par un entretien plus récent du même type
+    const used=+e.nextEvery>0?a1UsageSince(kind, machine.id, e.date):0;
+    if(e.nextDate && e.nextDate<=todayISO()) due.push({ e, why:"échéance du "+frDate(e.nextDate)+" atteinte" });
+    else if(+e.nextEvery>0 && used>=+e.nextEvery) due.push({ e, why:Math.round(used).toLocaleString("fr-FR")+" "+unit+" depuis l'intervention (échéance : "+(+e.nextEvery).toLocaleString("fr-FR")+" "+unit+")" });
+    else upcoming.push({ e, used });
+  });
+  return { entries, last:entries[0]||null, due, upcoming, unit };
+}
+function a1MaintSectionHtml(kind, machine){
+  const st=a1MaintStatus(kind, machine);
+  const rows=st.entries.map(e=>`<tr><td>${frDate(e.date)}</td><td>${esc(e.type||"")}</td>
+    <td style="text-align:right">${+e.at>0?(+e.at).toLocaleString("fr-FR")+" "+st.unit:"—"}</td>
+    <td style="text-align:right">${+e.cost>0?fmt(e.cost, e.currency||DB.meta.defaultCurrency):"—"}</td>
+    <td>${e.nextDate?frDate(e.nextDate):(+e.nextEvery>0?"tous les "+(+e.nextEvery).toLocaleString("fr-FR")+" "+st.unit:"—")}</td>
+    <td>${esc(e.notes||"")}</td>
+    <td style="white-space:nowrap"><button class="cta ghost sm" onclick="openA1MaintForm('${kind}','${machine.id}','${e.id}')">✎</button> <button class="cta ghost sm" onclick="delA1Maint('${kind}','${machine.id}','${e.id}')">🗑</button></td></tr>`).join("");
+  return `<h2 style="font-size:14px;margin:14px 0 4px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><span>🛠️ Carnet d'entretien ${st.due.length?`<span class="badge b-red">${st.due.length} échéance(s) dépassée(s)</span>`:(st.entries.length?'<span class="badge b-green">suivi</span>':'')}</span><button class="cta ghost sm" onclick="openA1MaintForm('${kind}','${machine.id}','')">➕ Entretien</button></h2>
+    ${st.due.map(d=>`<div class="hint" style="color:var(--red);margin:2px 0">⚠️ ${esc(d.e.type)} : ${esc(d.why)} — intervention à programmer.</div>`).join("")}
+    ${st.entries.length?`<div style="overflow-x:auto"><table style="font-size:11.5px"><thead><tr><th>Date</th><th>Type</th><th style="text-align:right">Compteur</th><th style="text-align:right">Coût</th><th>Prochaine échéance</th><th>Notes</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      :`<div class="hint">Aucune intervention au carnet. Un entretien tracé (vidanges au compteur, révisions au calendrier) protège la disponibilité pendant les délestages et la valeur de revente de la machine.</div>`}`;
+}
+function openA1MaintForm(kind, machineId, id){
+  const e=(DB.a1maint||[]).find(x=>x.id===id)||{};
+  const unit=kind==="gen"?"heures":"km";
+  openModal(`<span class="close" onclick="openA1Diag('${kind}','${machineId}')">✕</span><h2>🛠️ ${id?"Modifier l'intervention":"Ajouter un entretien"}</h2>
+    <div class="msub">L'échéance peut être une DATE (ex. révision annuelle) ou un COMPTEUR (ex. vidange toutes les ${kind==="gen"?"250 h":"10 000 km"}) — le Cockpit surveille les deux d'après les relevés.</div>
+    <div class="field row2"><label>Date & type d'intervention</label><input type="date" id="mt-date" value="${e.date||todayISO()}">
+      <select id="mt-type">${A1_MAINT_TYPES.map(t=>`<option ${e.type===t?"selected":""}>${t}</option>`).join("")}</select></div>
+    <div class="field row2"><label>Compteur (${unit}) & coût (${esc(DB.meta.defaultCurrency||"MGA")})</label>
+      <input type="number" id="mt-at" value="${+e.at>0?e.at:""}" placeholder="relevé au moment de l'intervention">
+      <input type="number" id="mt-cost" value="${+e.cost>0?e.cost:""}" placeholder="pièces + main d'œuvre"></div>
+    <div class="field row2"><label>Prochaine échéance : date OU tous les X ${unit}</label>
+      <input type="date" id="mt-next" value="${e.nextDate||""}">
+      <input type="number" id="mt-every" value="${+e.nextEvery>0?e.nextEvery:""}" placeholder="ex. ${kind==="gen"?"250":"10000"}"></div>
+    <div class="field"><label>Notes (pièces changées, intervenant, garantie…)</label><input id="mt-notes" value="${esc(e.notes||"")}"></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="openA1Diag('${kind}','${machineId}')">Annuler</button><button class="cta" onclick="saveA1Maint('${kind}','${machineId}','${id||""}')">Enregistrer</button></div>`);
+}
+function saveA1Maint(kind, machineId, id){
+  const m=(kind==="gen"?DB.a1gensets:DB.a1vehicles).find(x=>x.id===machineId);
+  const obj={ kind, machineId, clientId:(m&&m.clientId)||"", date:val("mt-date")||todayISO(), type:val("mt-type")||"Autre",
+    at:+val("mt-at")||0, cost:+val("mt-cost")||0, currency:DB.meta.defaultCurrency||"MGA",
+    nextDate:val("mt-next")||"", nextEvery:+val("mt-every")||0, notes:(val("mt-notes")||"").trim(), by:(currentUser&&currentUser.login)||"" };
+  const ex=id?(DB.a1maint||[]).find(x=>x.id===id):null;
+  if(ex){ Object.assign(ex,obj); } else { obj.id=uid(); obj.createdAt=todayISO(); DB.a1maint.push(obj); }
+  save(); toast("🛠️ Carnet d'entretien mis à jour."); openA1Diag(kind, machineId);
+}
+function delA1Maint(kind, machineId, id){
+  confirmModal("Supprimer cette intervention du carnet ?","L'historique d'entretien documente la machine — ne supprimer qu'une erreur de saisie.",()=>{
+    DB.a1maint=(DB.a1maint||[]).filter(x=>x.id!==id); save(); openA1Diag(kind, machineId); });
+}
+/* ================== CHANTIER A1-A : MESURE DE POINTE (21/08) ==================
+   La prestation « campagne de mesure 7-14 jours » (pince ampèremétrique / analyseur sur le TGBT)
+   entre au Cockpit : la POINTE MESURÉE remplace l'estimation prudente (moyenne × 1,6) partout où
+   elle existe — étude de permutation, synthèses, fiche machine. Règle BSM inchangée : un groupe se
+   dimensionne sur la pointe mesurée + démarrages moteurs + réserve, jamais sur la moyenne. */
+function a1PeakOf(gensetId){
+  const arr=(DB.a1peaks||[]).filter(p=>p.gensetId===gensetId)
+    .sort((a,b)=>String(b.dateEnd||b.dateStart||"").localeCompare(String(a.dateEnd||a.dateStart||"")));
+  return arr[0]||null;
+}
+function a1PeakVerdict(g, peakKw){
+  const st=a1GroupLoadStats(g);
+  if(!(st.kwNom>0)||!(peakKw>0)) return { status:"inconnu", pct:null, kwNom:st.kwNom||0, advice:"Puissance nominale inconnue (fiche technique) — le verdict de dimensionnement attend cette donnée." };
+  const pct=peakKw/st.kwNom*100;
+  const status=pct<=80?"ok":(pct<=100?"risque":"non");
+  let advice;
+  if(status==="non") advice="La pointe mesurée DÉPASSE le nominal : risque de décrochage aux heures les plus chargées — redimensionnement ou délestage de charges à traiter en priorité.";
+  else if(status==="risque") advice="La pointe mesurée consomme toute la marge (80–100 % du nominal) : aucun ajout de charge sans étude ; température et usure à surveiller pendant les longs délestages.";
+  else if(pct<40) advice="Même en pointe, le site reste sous 40 % du nominal : surdimensionnement confirmé PAR MESURE — un groupe d'environ "+Math.round(peakKw/0.7)+" kW couvrirait la pointe avec 30 % de marge.";
+  else advice="La pointe tient dans le nominal avec une marge saine : dimensionnement adapté au site.";
+  return { status, pct, advice, kwNom:st.kwNom };
+}
+/* Collage de relevés (une valeur kW par ligne — « date;kW » ou « kW » seul) → pointe, P95, moyenne. */
+function a1PeakParse(txt){
+  const vals=String(txt||"").split(/\n+/).map(s=>{ const parts=s.split(/[;\t]/);
+    const v=parseFloat(String(parts[parts.length-1]).trim().replace(/\s/g,"").replace(",",".")); return isFinite(v)&&v>0?v:null; }).filter(v=>v!=null);
+  if(!vals.length) return null;
+  const sorted=vals.slice().sort((a,b)=>a-b);
+  return { n:vals.length, peak:sorted[sorted.length-1], p95:sorted[Math.min(sorted.length-1,Math.floor(sorted.length*0.95))], avg:vals.reduce((s,v)=>s+v,0)/vals.length };
+}
+function a1PeakFill(){
+  const r=a1PeakParse(val("pk-paste"));
+  if(!r){ toast("Aucune valeur exploitable — une mesure kW par ligne (« date;kW » accepté)."); return; }
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.value=Math.round(v*10)/10; };
+  set("pk-peak",r.peak); set("pk-p95",r.p95); set("pk-avg",r.avg);
+  toast(r.n+" mesures lues — pointe "+Math.round(r.peak)+" kW, P95 "+Math.round(r.p95)+" kW.");
+}
+function a1PeakSectionHtml(g){
+  const all=(DB.a1peaks||[]).filter(p=>p.gensetId===g.id)
+    .sort((a,b)=>String(b.dateEnd||b.dateStart||"").localeCompare(String(a.dateEnd||a.dateStart||"")));
+  const camp=all[0]||null;
+  let verdictHtml="";
+  if(camp&&+camp.peakKw>0){
+    const v=a1PeakVerdict(g,+camp.peakKw); const [col,txt]=a1SwapStatusBadge(v.status);
+    verdictHtml=`<div class="card" style="border-left:4px solid ${col};margin:6px 0;padding:10px 12px">
+      <b style="color:${col}">${txt.split("(")[0].trim()}</b> — pointe mesurée <b>${Math.round(+camp.peakKw)} kW</b>${v.pct!=null?` = <b>${Math.round(v.pct)} %</b> du nominal (${Math.round(v.kwNom)} kW)`:""}.
+      <div class="hint" style="margin-top:4px">${esc(v.advice)}</div></div>`;
+  }
+  const rows=all.map(p=>`<tr><td>${frDate(p.dateStart)}${p.dateEnd&&p.dateEnd!==p.dateStart?" → "+frDate(p.dateEnd):""}</td>
+    <td>${esc(p.method||"")}</td><td style="text-align:right"><b>${+p.peakKw>0?Math.round(+p.peakKw)+" kW":"—"}</b></td>
+    <td style="text-align:right">${+p.p95Kw>0?Math.round(+p.p95Kw)+" kW":"—"}</td><td style="text-align:right">${+p.avgKw>0?Math.round(+p.avgKw)+" kW":"—"}</td>
+    <td>${esc(p.notes||"")}</td>
+    <td style="white-space:nowrap"><button class="cta ghost sm" onclick="openA1PeakForm('${g.id}','${p.id}')">✎</button> <button class="cta ghost sm" onclick="delA1Peak('${g.id}','${p.id}')">🗑</button></td></tr>`).join("");
+  return `<h2 style="font-size:14px;margin:14px 0 4px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><span>📈 Mesure de pointe ${camp?'<span class="badge b-green">mesurée</span>':'<span class="badge b-grey">estimation ×'+A1_SWAP_PEAK+'</span>'}</span><button class="cta ghost sm" onclick="openA1PeakForm('${g.id}','')">➕ Campagne</button></h2>
+    ${verdictHtml}
+    ${all.length?`<div style="overflow-x:auto"><table style="font-size:11.5px"><thead><tr><th>Campagne</th><th>Méthode</th><th style="text-align:right">Pointe</th><th style="text-align:right">P95</th><th style="text-align:right">Moyenne</th><th>Notes</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      :`<div class="hint">Aucune campagne de mesure : la pointe du site est ESTIMÉE (moyenne × ${A1_SWAP_PEAK}, règle prudente). Une campagne de 7 à 14 jours sur le TGBT transforme l'estimation en certitude — c'est LA donnée qui valide un redimensionnement ou une permutation.</div>`}`;
+}
+function openA1PeakForm(gensetId, id){
+  const p=(DB.a1peaks||[]).find(x=>x.id===id)||{};
+  const methods=["Pince ampèremétrique enregistreuse","Analyseur de réseau","Relevé ampèremètres TGBT (P ≈ U×I×√3×cosφ)","Autre"];
+  openModal(`<span class="close" onclick="openA1Diag('gen','${gensetId}')">✕</span><h2>📈 ${id?"Modifier la campagne":"Campagne de mesure de pointe"}</h2>
+    <div class="msub">Mesure sur le TGBT du site, 7 à 14 jours incluant les heures les plus chargées. La pointe saisie ici remplace l'estimation dans l'étude de permutation et les analyses.</div>
+    <div class="field row2"><label>Période (début → fin)</label><input type="date" id="pk-start" value="${p.dateStart||todayISO()}"><input type="date" id="pk-end" value="${p.dateEnd||""}"></div>
+    <div class="field"><label>Méthode</label><select id="pk-method">${methods.map(m=>`<option ${p.method===m?"selected":""}>${m}</option>`).join("")}</select></div>
+    <div class="field"><label>Relevés bruts (optionnel — une mesure kW par ligne, « date;kW » accepté)</label>
+      <textarea id="pk-paste" rows="4" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px" placeholder="12/08 08:00;62&#10;12/08 09:00;74&#10;…"></textarea>
+      <button class="cta ghost sm" style="margin-top:4px" onclick="a1PeakFill()">🧮 Calculer pointe / P95 / moyenne depuis les relevés</button></div>
+    <div class="field row2"><label>Pointe max (kW) — LA donnée & P95 (kW)</label>
+      <input type="number" id="pk-peak" value="${+p.peakKw>0?p.peakKw:""}" placeholder="ex. 118">
+      <input type="number" id="pk-p95" value="${+p.p95Kw>0?p.p95Kw:""}" placeholder="pointe hors évènement isolé"></div>
+    <div class="field row2"><label>Moyenne mesurée (kW) & notes</label>
+      <input type="number" id="pk-avg" value="${+p.avgKw>0?p.avgKw:""}">
+      <input id="pk-notes" value="${esc(p.notes||"")}" placeholder="conditions, charges en service, cos φ…"></div>
+    <div class="modal-actions"><button class="cta ghost" onclick="openA1Diag('gen','${gensetId}')">Annuler</button><button class="cta" onclick="saveA1Peak('${gensetId}','${id||""}')">Enregistrer</button></div>`);
+}
+function saveA1Peak(gensetId, id){
+  const peak=+val("pk-peak")||0;
+  if(!(peak>0)){ toast("La pointe max (kW) est la donnée indispensable de la campagne."); return; }
+  const g=DB.a1gensets.find(x=>x.id===gensetId);
+  const obj={ gensetId, clientId:(g&&g.clientId)||"", dateStart:val("pk-start")||todayISO(), dateEnd:val("pk-end")||val("pk-start")||todayISO(),
+    method:val("pk-method")||"", peakKw:peak, p95Kw:+val("pk-p95")||0, avgKw:+val("pk-avg")||0,
+    notes:(val("pk-notes")||"").trim(), by:(currentUser&&currentUser.login)||"" };
+  const ex=id?(DB.a1peaks||[]).find(x=>x.id===id):null;
+  if(ex){ Object.assign(ex,obj); } else { obj.id=uid(); obj.createdAt=todayISO(); DB.a1peaks.push(obj); }
+  save(); toast("📈 Campagne enregistrée — la pointe mesurée prime désormais sur l'estimation."); openA1Diag("gen", gensetId);
+}
+function delA1Peak(gensetId, id){
+  confirmModal("Supprimer cette campagne de mesure ?","Sans elle, les analyses reviendront à la pointe estimée (moyenne × "+A1_SWAP_PEAK+").",()=>{
+    DB.a1peaks=(DB.a1peaks||[]).filter(x=>x.id!==id); save(); openA1Diag("gen", gensetId); });
 }
 function a1Compute(clientId){
   const perV={};
@@ -9600,8 +9776,13 @@ function a1SwapAssess(idA, idB, opts){
     if(!(kw>0)) return {status:"inconnu", why:"aucun kWh/heure mesuré sur le site"};
     if(!(gen.kwNom>0))  return {status:"inconnu", why:"puissance nominale du groupe receveur inconnue (fiche technique)"};
     const chargeAvg=kw/gen.kwNom*100;
-    const peakKw=kw*A1_SWAP_PEAK, peakPct=peakKw/gen.kwNom*100;
-    return { kw, chargeAvg, peakKw, peakPct, status: peakPct<=80?"ok":(peakPct<=100?"risque":"non") };
+    // Pointe MESURÉE du site (campagne 7-14 j) si elle existe — sinon estimation prudente moyenne × 1,6.
+    // Une évolution prévue (kW moyens ajoutés) contribue à la pointe par sa propre estimation ×1,6.
+    const meas=(typeof a1PeakOf==="function")?a1PeakOf(site.g.id):null;
+    const measured=!!(meas&&+meas.peakKw>0);
+    const peakKw=measured?(+meas.peakKw)+((+addKw||0)*A1_SWAP_PEAK):kw*A1_SWAP_PEAK;
+    const peakPct=peakKw/gen.kwNom*100;
+    return { kw, chargeAvg, peakKw, peakPct, measured, measDate:measured?(meas.dateEnd||meas.dateStart||""):"", status: peakPct<=80?"ok":(peakPct<=100?"risque":"non") };
   };
   const AB=evalDir(A,B,0), BA=evalDir(B,A,0);   // AB = site de A sur groupe B ; BA = site de B sur groupe A
   // ÉVOLUTION PRÉVUE (ex. : bâtiment en construction bientôt raccordé) — hypothèse SAISIE, clairement étiquetée.
@@ -9641,7 +9822,7 @@ function a1SwapChecklist(A,B){
       how:"Importer le .xlsx (feuille Fiche_Technique) ou appliquer une fiche de la 📚 bibliothèque — sans elle, aucun verdict sérieux." },
     { ok:A.months>=3&&B.months>=3, label:"Au moins 3 mois de relevés sur chaque groupe (saisonnalité de la demande)",
       how:"Poursuivre la collecte mensuelle (fiches de relevé) — la demande d'un site varie selon les mois et les délestages." },
-    { ok:false, label:"Puissance de POINTE réellement appelée par chaque site — LA donnée décisive",
+    { ok:!!(typeof a1PeakOf==="function" && a1PeakOf(A.g.id) && a1PeakOf(B.g.id)), label:"Puissance de POINTE réellement appelée par chaque site — LA donnée décisive",
       how:"Mesure 7 à 14 jours à la pince ampèremétrique enregistreuse (ou analyseur de réseau) sur le TGBT de chaque site, incluant les heures les plus chargées. À défaut : relevé des ampèremètres du tableau à l'heure de pointe (P ≈ U × I × √3 × cos φ). C'est elle qui dit si le « petit » groupe tient la charge." },
     { ok:hasBuild, label:"Inventaire des charges à fort courant de démarrage (clim, ascenseurs, pompes, compresseurs)",
       how:"Importer la feuille BATIMENTS du classeur Excel : un moteur qui démarre appelle 3 à 6 × son courant nominal pendant quelques secondes — un groupe trop juste décroche à ce moment-là." },
@@ -9663,7 +9844,7 @@ function a1SwapInnerHtml(res, forPrint){
     return `<div style="border:1px solid #E5E7EB;border-left:4px solid ${col};border-radius:8px;padding:10px 13px;margin:8px 0;page-break-inside:avoid">
       <div style="font-weight:700;font-size:13px;color:#111827">${lbl}</div>
       <div style="font-size:12px;color:#374151;margin-top:4px">${r.status==="inconnu"?("Impossible à évaluer : "+esc(r.why||"données manquantes")+".")
-        :`Demande moyenne du site : <b>${F0(site.kwAvg)} kW</b> → charge moyenne <b>${F0(r.chargeAvg)} %</b> du nominal (${F0(gen.kwNom)} kW). Pointe estimée <b>${F0(r.peakKw)} kW</b> (kW moyen × ${A1_SWAP_PEAK}) = <b>${F0(r.peakPct)} %</b> du nominal.`}</div>
+        :`Demande moyenne du site : <b>${F0(site.kwAvg)} kW</b> → charge moyenne <b>${F0(r.chargeAvg)} %</b> du nominal (${F0(gen.kwNom)} kW). ${r.measured?`Pointe <b>MESURÉE sur site</b>${r.measDate?" (campagne close le "+frDate(r.measDate)+")":""} : <b>${F0(r.peakKw)} kW</b>`:`Pointe estimée <b>${F0(r.peakKw)} kW</b> (kW moyen × ${A1_SWAP_PEAK})`} = <b>${F0(r.peakPct)} %</b> du nominal.`}</div>
       <div style="font-size:12px;font-weight:700;color:${col};margin-top:4px">${txt}</div></div>`; };
   const [gcol,gtxt]=a1SwapStatusBadge(res.feasible);
   const chk=a1SwapChecklist(res.A,res.B);
@@ -9671,7 +9852,9 @@ function a1SwapInnerHtml(res, forPrint){
   return `
     <div style="border:2px solid ${gcol};border-radius:10px;padding:12px 15px;margin-bottom:12px;background:${res.feasible==="ok"?"#F0FAF4":res.feasible==="risque"?"#FDF6E9":res.feasible==="non"?"#FDF0EE":"#F9FAFB"}">
       <div style="font-size:15px;font-weight:700;color:${gcol}">${gtxt.replace(/\(.*\)/,"").trim()} — verdict provisoire de la permutation</div>
-      <div style="font-size:12px;color:#374151;margin-top:4px">Sur les données disponibles (${res.monthsRef} mois de relevés), en estimant la pointe à ${A1_SWAP_PEAK}× la puissance moyenne. <b>Ce verdict se confirme par la mesure de pointe (point n° 3 ci-dessous)</b> — jamais l'inverse.</div>
+      <div style="font-size:12px;color:#374151;margin-top:4px">${res.AB.measured&&res.BA.measured
+        ?`Sur les données disponibles (${res.monthsRef} mois de relevés) et les <b>pointes MESURÉES sur chaque site</b> — le verdict de compatibilité repose sur des mesures réelles, pas sur une estimation.`
+        :`Sur les données disponibles (${res.monthsRef} mois de relevés), en estimant la pointe à ${A1_SWAP_PEAK}× la puissance moyenne${res.AB.measured||res.BA.measured?" (pointe mesurée disponible sur un seul des deux sites)":""}. <b>Ce verdict se confirme par la mesure de pointe (point n° 3 ci-dessous)</b> — jamais l'inverse.`}</div>
     </div>
     ${dir(`Site du « ${esc(res.A.g.name)} » alimenté par « ${esc(res.B.g.name)} »`, res.A, res.B, res.AB)}
     ${dir(`Site du « ${esc(res.B.g.name)} » alimenté par « ${esc(res.A.g.name)} »`, res.B, res.A, res.BA)}
@@ -9992,7 +10175,7 @@ function saveA1Vehicle(id){
 }
 function deleteA1Vehicle(id){ const v=DB.a1vehicles.find(x=>x.id===id); if(!v) return;
   const n=DB.a1logs.filter(l=>l.vehicleId===id).length;
-  confirmModal("Supprimer ce véhicule ?", esc(v.name)+(n?` et ses ${n} relevé(s)`:""), ()=>{ DB.a1vehicles=DB.a1vehicles.filter(x=>x.id!==id); DB.a1logs=DB.a1logs.filter(l=>l.vehicleId!==id); save(); closeModal(); renderA1Fleet(); toast("Supprimé."); }); }
+  confirmModal("Supprimer ce véhicule ?", esc(v.name)+(n?` et ses ${n} relevé(s)`:""), ()=>{ DB.a1vehicles=DB.a1vehicles.filter(x=>x.id!==id); DB.a1logs=DB.a1logs.filter(l=>l.vehicleId!==id); DB.a1maint=(DB.a1maint||[]).filter(m=>!(m.kind==="fleet"&&m.machineId===id)); save(); closeModal(); renderA1Fleet(); toast("Supprimé."); }); }
 function openA1Log(id, vehicleId){
   let l;
   if(id){ l=DB.a1logs.find(x=>x.id===id); }
@@ -11160,6 +11343,12 @@ function buildFleetSynthesisMd(){
   md+=`## Synthèse par véhicule\n\n| Véhicule | Type | km | Conso | vs constructeur | Coût/km | Ralenti | État |\n|---|---|---|---|---|---|---|---|\n`;
   arr.slice().sort((a,b)=>b.consoL100-a.consoL100).forEach(p=>{ const vs=(p.driftTheo!=null)?((p.driftTheo>0?"+":"")+p.driftTheo.toFixed(0)+"%"):(p.consoTheo>0?"—":"n/c");
     md+=`| **${p.v.name}** | ${esc(p.v.type||"—")} | ${p.km.toLocaleString('fr-FR')} | ${p.consoL100?p.consoL100.toFixed(1)+" L/100":"—"} | ${vs} | ${p.costPerKm?fmtD(p.costPerKm):"—"} | ${p.idleRatio?p.idleRatio.toFixed(0)+"%":"—"} | ${String(a1FleetState(p)).replace(/ /g," ")} |\n`; });
+  // Carnet d'entretien (chantier A1-B) : état FACTUEL par véhicule — relie l'usure aux dérives de conso sans inventer.
+  const maintV=[];
+  arr.forEach(p=>{ const sm=a1MaintStatus("fleet",p.v);
+    if(sm.entries.length){ maintV.push(`- **${p.v.name}** : dernier entretien « ${sm.last.type} » le ${frDate(sm.last.date)}${sm.due.length?` — **échéance dépassée : ${sm.due.map(d=>d.e.type+" ("+d.why+")").join(" ; ")}**`:" — à jour"}.`); }
+    else if(p.km>0){ maintV.push(`- **${p.v.name}** : aucun entretien tracé au carnet malgré ${p.km.toLocaleString('fr-FR')} km relevés — l'historique d'entretien reste à reconstituer.`); } });
+  if(maintV.length){ md+=`\n## Carnet d'entretien\n\n`+maintV.join("\n")+`\n- Règle : une surconsommation sur véhicule mal entretenu (filtres, pneus, injection) s'explique d'abord par l'entretien — vérifier le carnet avant toute autre hypothèse.\n`; }
   md+=`\n## Constats\n\n`;
   const ano=arr.filter(p=>p.anomaly);
   if(ano.length) md+=`- **Surconsommation : ${ano.map(p=>p.v.name+" ("+p.consoL100.toFixed(1)+" L/100"+(p.driftTheo!=null?", +"+p.driftTheo.toFixed(0)+"% vs constructeur":"")+")").join(", ")}.** À vérifier : entretien (filtres, pneus, injection), conduite, ou détournement (cf. dépistage). ${arr.some(p=>p.consoTheo>0)?"":"⚠ Conso constructeur manquante pour certains véhicules → comparaison vs moyenne flotte (moins précise) ; la communication des consommations constructeur affinera l'analyse."}\n`;
@@ -11587,7 +11776,7 @@ function saveA1Genset(id){
 }
 function deleteA1Genset(id){ const g=DB.a1gensets.find(x=>x.id===id); if(!g) return;
   const n=DB.a1genlogs.filter(l=>l.gensetId===id).length;
-  confirmModal("Supprimer ce groupe ?", esc(g.name)+(n?` et ses ${n} relevé(s)`:""), ()=>{ DB.a1gensets=DB.a1gensets.filter(x=>x.id!==id); DB.a1genlogs=DB.a1genlogs.filter(l=>l.gensetId!==id); save(); closeModal(); renderA1Genset(); toast("Supprimé."); }); }
+  confirmModal("Supprimer ce groupe ?", esc(g.name)+(n?` et ses ${n} relevé(s)`:""), ()=>{ DB.a1gensets=DB.a1gensets.filter(x=>x.id!==id); DB.a1genlogs=DB.a1genlogs.filter(l=>l.gensetId!==id); DB.a1maint=(DB.a1maint||[]).filter(m=>!(m.kind==="gen"&&m.machineId===id)); DB.a1peaks=(DB.a1peaks||[]).filter(p=>p.gensetId!==id); save(); closeModal(); renderA1Genset(); toast("Supprimé."); }); }
 function openA1GenLog(id, gensetId){
   let l;
   if(id){ l=DB.a1genlogs.find(x=>x.id===id); }
@@ -12083,10 +12272,19 @@ function buildGensetSynthesisMd(){
   // Repères de DIMENSIONNEMENT (l'IA peut raisonner permutation/redéploiement sans inventer : pointe estimée ≠ pointe mesurée)
   if(arr.length>=2){
     md+=`\n## Dimensionnement des groupes (repères pour permutation / redéploiement)\n\n`;
-    arr.forEach(p=>{ const st=a1GroupLoadStats(p.g);
-      md+=`- **${p.g.name}** : nominal ${st.kwNom?Math.round(st.kwNom)+" kW":"inconnu (fiche technique manquante)"} · puissance moyenne produite ${st.kwAvg?Math.round(st.kwAvg)+" kW":"—"}${st.charge!=null?` (charge moyenne ${Math.round(st.charge)} %)`:""} · pointe ESTIMÉE ≈ ${st.kwAvg?Math.round(st.kwAvg*A1_SWAP_PEAK)+" kW":"—"} (moyenne × ${A1_SWAP_PEAK}, à confirmer par mesure).\n`; });
+    arr.forEach(p=>{ const st=a1GroupLoadStats(p.g); const meas=a1PeakOf(p.g.id);
+      const peakTxt=(meas&&+meas.peakKw>0)
+        ?`pointe **MESURÉE** ${Math.round(+meas.peakKw)} kW (campagne close le ${frDate(meas.dateEnd||meas.dateStart)}${meas.method?", "+meas.method:""})${st.kwNom>0?` = ${Math.round(+meas.peakKw/st.kwNom*100)} % du nominal`:""}`
+        :`pointe ESTIMÉE ≈ ${st.kwAvg?Math.round(st.kwAvg*A1_SWAP_PEAK)+" kW":"—"} (moyenne × ${A1_SWAP_PEAK}, à confirmer par mesure)`;
+      md+=`- **${p.g.name}** : nominal ${st.kwNom?Math.round(st.kwNom)+" kW":"inconnu (fiche technique manquante)"} · puissance moyenne produite ${st.kwAvg?Math.round(st.kwAvg)+" kW":"—"}${st.charge!=null?` (charge moyenne ${Math.round(st.charge)} %)`:""} · ${peakTxt}.\n`; });
     md+=`- Règle : un échange de groupes ne se valide que si la **pointe mesurée** du site (pince ampèremétrique 7 à 14 jours sur le tableau général) + démarrages moteurs + réserve ~20 % tiennent dans le nominal du groupe receveur. La moyenne ne suffit jamais à conclure. Une étude de permutation détaillée (verdict par sens d'échange, mesures à réaliser) est disponible auprès de BSM.\n`;
   }
+  // Carnet d'entretien (chantier A1-B) : état FACTUEL — l'IA peut relier fiabilité et entretien sans rien inventer.
+  const maintG=[];
+  arr.forEach(p=>{ const sm=a1MaintStatus("gen",p.g);
+    if(sm.entries.length){ maintG.push(`- **${p.g.name}** : dernier entretien « ${sm.last.type} » le ${frDate(sm.last.date)}${sm.due.length?` — **échéance dépassée : ${sm.due.map(d=>d.e.type+" ("+d.why+")").join(" ; ")}**`:" — à jour"}.`); }
+    else if(p.hours>0){ maintG.push(`- **${p.g.name}** : aucun entretien tracé au carnet malgré ${Math.round(p.hours)} h de marche relevées — l'historique d'entretien reste à reconstituer.`); } });
+  if(maintG.length){ md+=`\n## Carnet d'entretien\n\n`+maintG.join("\n")+`\n- Règle : un diesel s'entretient au compteur d'heures (vidange, filtres) et au calendrier ; un carnet tenu protège la disponibilité pendant les délestages et la valeur de revente.\n`; }
   md+=`\n## Constats\n\n`;
   const low=arr.filter(p=>p.lowLoad);
   if(low.length) md+=`- **Dimensionnement — sous-charge : ${low.map(p=>p.g.name+" ("+p.chargePct.toFixed(0)+"%)").join(", ")}.** Ces groupes tournent très en dessous de leur plage optimale (50–85 % de charge). Un diesel chroniquement sous-chargé subit : rendement dégradé (plus de litres par kWh), **cokéfaction / wet-stacking** (encrassement injecteurs et turbo), usure prématurée et surcoût de carburant. **C'est le constat principal, chiffrable et actionnable.**\n`;
