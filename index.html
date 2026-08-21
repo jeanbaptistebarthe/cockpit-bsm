@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.81.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.82.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -2987,6 +2987,7 @@ function openContractWizard(){
   setTimeout(()=>{ const e=document.getElementById("cw-company"); if(e) e.focus(); },60);
 }
 function saveContractWizard(){
+  if(!isDirection()){ toast("🔒 La création de clients est réservée à la direction."); return; }
   const company=(val("cw-company")||"").trim(); if(!company){ toast("Le nom de la société est obligatoire."); return; }
   const sector=(val("cw-sector")||"").trim();
   // Règle BSM d'exclusivité sectorielle : un client par secteur d'intervention — on prévient, la direction décide.
@@ -3015,7 +3016,7 @@ function renderClients(){
       ${isDirection()?`<button class="cta ghost" onclick="openClientMerge()" title="Basculer un client de test vers sa vraie fiche, ou fusionner un doublon">⇄ Fusionner</button>`:""}
       ${isDirection()?`<button class="cta gold" onclick="openContractWizard()" title="Un formulaire, tout est créé et relié : fiche client + mission + première échéance de facturation">🚀 Nouveau contrat</button>`:""}
       ${isDirection()?`<button class="cta gold" onclick="openOnboarding()" title="Étapes obligatoires bloquantes puis envoi EN UN COUP du dossier complet : livret + contrat pré-rempli + CGPS + NDA + charte + annexe des accès">📝 Circuit signature</button>`:""}
-      <button class="cta" onclick="openClientForm()">+ Nouveau client</button></div>
+      ${isDirection()?`<button class="cta" onclick="openClientForm()">+ Nouveau client</button>`:""}</div>
     <div class="filters">
       ${["tous","prospect","actif","archive"].map(f=>`<button class="chip ${clientFilter===f?'active':''}" onclick="clientFilter='${f}';renderClients()">${f==='tous'?'Tous':cap(f)}</button>`).join("")}
       <input class="searchbox" placeholder="Rechercher…" value="${esc(clientSearch)}" oninput="clientSearch=this.value;renderClients()">
@@ -3036,7 +3037,7 @@ function renderClients(){
         <td>${ca?fmtD(ca):"—"}</td>
         <td onclick="event.stopPropagation()"><div class="rowact"><button class="iconbtn" title="Fiche 360°" onclick="openClientFiche('${c.id}')">👁</button><button class="iconbtn" title="Modifier" onclick="openClientForm('${c.id}')">✎</button><button class="iconbtn del" title="Supprimer" onclick="deleteClient('${c.id}')">🗑</button></div></td></tr>`;
       }).join("")+`</tbody></table>`
-      : `<div class="empty">Aucun client ${clientFilter!=='tous'?'dans ce filtre':'pour le moment'}. Cliquez « + Nouveau client ».</div>`}
+      : `<div class="empty">Aucun client ${clientFilter!=='tous'?'dans ce filtre':'pour le moment'}. ${isDirection()?"Cliquez « + Nouveau client ».":"La direction t'affectera tes clients."}</div>`}
     </div>`;
 }
 /* ------- Classification des données : Public / Interne / Confidentiel / Très confidentiel ------- */
@@ -3066,6 +3067,9 @@ function classifPolicyTableHtml(){
     <div class="hint" style="margin-top:6px">👑 <b>Administrateur & Direction voient tout</b>, quel que soit le niveau. Ces règles restreignent les profils à accès limité, l'export et l'envoi à l'IA — <b>application progressive</b> (lecture cloisonnée déjà active côté serveur ; export & IA en cours d'implémentation).</div>`;
 }
 function openClientForm(id){
+  // Règle JB 21/08 : la CRÉATION de clients est un acte de direction (exclusivité sectorielle,
+  // affectations, contrat). Un collaborateur travaille ses clients affectés, il n'en ajoute pas.
+  if(!id && !isDirection()){ toast("🔒 La création de clients est réservée à la direction — demande l'ouverture de la fiche."); return; }
   const c = id? DB.clients.find(x=>x.id===id) : {status:"prospect"};
   openModal(`
     <span class="close" onclick="closeModal()">✕</span>
@@ -3639,6 +3643,41 @@ let monShowProspects=false;
 let monResp="__init"; // "__init" = à définir selon le rôle ; "" = tous ; sinon login du responsable
 function toggleMonProspects(){ monShowProspects=!monShowProspects; renderMonitoring(); }
 function respName(login){ if(!login) return "—"; const u=(DB.users||[]).find(x=>x.login===login); return u?(u.name||u.login):login; }
+/* 🎯 MON SUIVI (demande JB 21/08) : le collaborateur voit le bilan de SES actions — audits menés,
+   risques saisis, recommandations suivies, mises en place, décisions obtenues, prochains RDV.
+   100 % factuel, calculé sur son périmètre (ses clients affectés) + ses saisies signées (champ by). */
+function myTrackingCard(){
+  if(isDirection()) return ""; // la direction a la Revue du lundi et les vues portefeuille
+  const t=todayISO(), mk=t.slice(0,7), me=(currentUser&&currentUser.login)||"";
+  const mine=x=>!x.by||x.by===me; // les saisies non signées (historique) restent comptées : c'est son périmètre
+  const risks=DB.risks.filter(mine);
+  const recos=DB.recommendations.filter(mine);
+  const audits=DB.missions.filter(m=>/audit/i.test(m.type||""));
+  const enCours=recos.filter(r=>r.status!=="fait");
+  const faites=recos.filter(r=>r.status==="fait");
+  const late=enCours.filter(r=>r.dateCible&&r.dateCible<t);
+  const pendDec=enCours.filter(r=>!r.clientDecision);
+  const moisRisks=risks.filter(r=>(r.dateSaisie||"").slice(0,7)===mk).length;
+  const moisRecos=recos.filter(r=>(r.createdAt||"").slice(0,7)===mk).length;
+  const rdv=(DB.events||[]).filter(e=>(e.date||"")>=t).sort((a,b)=>String(a.date+a.time).localeCompare(b.date+b.time)).slice(0,3);
+  const acts=(DB.activityLog||[]).filter(l=>l.user===me).slice(-4).reverse();
+  const stat=(v,l,col)=>`<div class="kpi"><div class="v"${col?` style="color:${col}"`:""}>${v}</div><div class="l">${l}</div></div>`;
+  return `<div class="card" style="border-left:3px solid var(--gold);margin-bottom:12px">
+    <h2 style="margin:0 0 8px">🎯 Mon suivi</h2>
+    <div class="kpis" style="margin:0">
+      ${stat(audits.length,"Audit(s) sur mes clients")}
+      ${stat(risks.length+(moisRisks?` <span style="font-size:11px;color:var(--muted)">+${moisRisks} ce mois</span>`:""),"Risques saisis")}
+      ${stat(enCours.length+(moisRecos?` <span style="font-size:11px;color:var(--muted)">+${moisRecos} ce mois</span>`:""),"Recos en cours",late.length?"var(--orange)":"")}
+      ${stat(faites.length,"Mises en place ✓","var(--green)")}
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:12.5px">
+      ${late.length?`<span style="color:var(--red)">⏰ ${late.length} reco(s) en retard d'échéance</span>`:""}
+      ${pendDec.length?`<span style="color:var(--navy)">🗳️ ${pendDec.length} décision(s) client à obtenir</span>`:""}
+      ${rdv.length?`<span>📅 ${rdv.map(e=>frDate(e.date)+(e.time?" "+e.time:"")+" — "+esc((e.title||"").slice(0,26))).join(" · ")}</span>`:`<span class="hint" style="margin:0">📅 Aucun rendez-vous planifié.</span>`}
+    </div>
+    ${acts.length?`<div class="hint" style="margin-top:8px">Dernières actions (ce poste) : ${acts.map(l=>esc(l.label||l.type)).join(" · ")}</div>`:""}
+  </div>`;
+}
 function renderMonitoring(){
   const el=document.getElementById("scr-monitoring");
   // Cloisonnement 21/08 : un collaborateur cloud ne REÇOIT déjà que ses clients affectés (RLS) —
@@ -3672,6 +3711,7 @@ function renderMonitoring(){
 
   el.innerHTML=`
     <div class="pagetitle"><div><h1>Monitoring & suivi</h1><div class="sub">${monAdmin?"Où en est-on, client par client — paperasse administrative & pilotage terrain, pour éviter oublis et retards.":"Où en est-on, client par client — pilotage terrain de tes clients (le suivi administratif est géré par la direction)."}</div></div></div>
+    ${myTrackingCard()}
     <div class="kpis">
       <div class="kpi"><div class="v">${tracked.length}</div><div class="l">Clients suivis</div></div>
       ${monAdmin?`<div class="kpi"><div class="v" style="color:${pgColor(adminAvg)}">${adminAvg}%</div><div class="l">Administratif à jour (moy.)</div></div>`:""}
@@ -7609,7 +7649,7 @@ function saveRisk(id){
   if(obj.status==="traite" && !obj.lastReview) obj.lastReview=todayISO(); // 1re mise sous contrôle = 1re revue
   obj.secteur=val("f-rbranch")||"";
   obj.lastReview=todayISO(); // chaque édition vaut revue — base de la vigilance « le contrôle tient-il ? »
-  if(id){Object.assign(DB.risks.find(x=>x.id===id),obj);}else{obj.id=uid();obj.dateSaisie=todayISO();DB.risks.push(obj);
+  if(id){Object.assign(DB.risks.find(x=>x.id===id),obj);}else{obj.id=uid();obj.dateSaisie=todayISO();obj.by=(currentUser&&currentUser.login)||"";DB.risks.push(obj);
     const crit=(obj.probabilite*obj.impact)>=15;
     notify("risk", crit?"⚠️ Risque critique identifié":"Nouveau risque", (obj.description||obj.categorie||obj.ref||"Risque")+" · "+clientName(obj.clientId), {clientId:obj.clientId}); }
   save();closeModal();refreshAll();toast("Risque enregistré.");
@@ -7863,7 +7903,7 @@ function saveReco(id){
     horizon:val("f-xhorizon"),priorite:val("f-xprio"),responsable:val("f-xresp"),moyens:val("f-xmoyens"),indicateur:val("f-xind"),
     invest:val("f-xinvest"),gain:val("f-xgain"),secteur:val("f-xbranch")||"",
     status:val("f-xstatus"),avancement:Math.max(0,Math.min(100,parseInt(val("f-xav"))||0)),clientDecision:val("f-xdecision"),dateCible:val("f-xcible"),dateReal:val("f-xreal"),commentaire:val("f-xcom")};
-  if(id){Object.assign(DB.recommendations.find(x=>x.id===id),obj);}else{obj.id=uid();DB.recommendations.push(obj);
+  if(id){Object.assign(DB.recommendations.find(x=>x.id===id),obj);}else{obj.id=uid();obj.createdAt=todayISO();obj.by=(currentUser&&currentUser.login)||"";DB.recommendations.push(obj);
     notify("reco","Nouvelle recommandation", (obj.texte||obj.ref||"Recommandation")+" · "+clientName(obj.clientId), {clientId:obj.clientId}); }
   // Bibliothèque de solutions : chaque reco CHIFFRÉE enrichit le catalogue réutilisable (par secteur).
   if((obj.invest||obj.gain) && (obj.texte||"").trim()){
@@ -12891,6 +12931,7 @@ function applyImportAudit(rows){
     let cl=DB.clients.find(x=>norm(x.company)===norm(ent));
     const infos=[gv(r,cEff)&&("Effectif : "+gv(r,cEff)), gv(r,cCA)&&("CA estimé : "+gv(r,cCA)), gv(r,cPres)&&("Présence : "+gv(r,cPres)), gv(r,cInter)&&("Contact : "+gv(r,cInter))].filter(Boolean).join(" · ");
     if(cl){ if(gv(r,cSect))cl.sector=gv(r,cSect); if(infos)cl.notes=infos; if(cl.status==="prospect")cl.status="actif"; uc++; }
+    else if(!isDirection()){ continue; } // hors direction : jamais de création de client par la synchro (la RLS la refuserait de toute façon)
     else { cl={id:uid(),company:ent,sector:gv(r,cSect),contactName:gv(r,cInter),contactEmail:"",contactPhone:"",status:"actif",notes:infos,createdAt:todayISO()}; DB.clients.push(cl); nc++; }
     const dAudit=toISODate(gv(r,cDate));
     const cBranch=ix("branche"); const rowBranch=cBranch>=0?(gv(r,cBranch)||"").trim():""; // v2 : branche auditée → les risques de la ligne y sont rattachés
