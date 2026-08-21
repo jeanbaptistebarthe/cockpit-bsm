@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.85.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.86.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -2030,11 +2030,17 @@ async function googleCall(action, payload){
 /* Tout e-mail CLIENT part aussi en copie sur la boîte professionnelle BSM (DB.meta.mailCopyTo, réglable dans ⚙ Paramètres) :
    la preuve d'envoi vit dans la boîte pro. Copie = 2e envoi séparé (invisible pour le client, compatible avec le pont Google déjà déployé). */
 async function bsmClientMail(payload){
-  // 🚨 Chaque mail client porte le lien de signalement d'incident (bouton panique) en pied de message.
+  // 🚨 Chaque mail client porte le lien de signalement d'incident (bouton panique) en pied de message,
+  // et 📕 le lien de son PORTAIL documentaire (fiches réflexes, ligne de crise) dès qu'un accès lui est ouvert.
   try{
     const iurl=payload.client?incidentUrlForName(payload.client):"";
-    if(iurl && payload.html) payload=Object.assign({}, payload, { html: payload.html+
-      '<div style="max-width:820px;margin:16px auto 0;padding:10px 14px;border-top:1px solid #E5E7EB;font-family:Arial,sans-serif;font-size:11.5px;color:#6B7280;text-align:center">🚨 Un événement s\'est produit (vol, panne, accident, constat…) ? <a href="'+iurl+'" style="color:#C0392B;font-weight:bold">Signalez-le à BSM en 2 minutes</a> — nous sommes alertés immédiatement et corrigeons pour la suite.</div>' });
+    const pc=payload.client?DB.clients.find(x=>norm(x.company||"")===norm(payload.client)):null;
+    const hasPortal=pc&&((pc.fichesAccess==="ALL")||(Array.isArray(pc.fichesAccess)&&pc.fichesAccess.length)||pc.crisisLine);
+    const purl=(hasPortal&&typeof portalUrl==="function")?portalUrl(pc.id):"";
+    let foot="";
+    if(purl) foot+='<div style="max-width:820px;margin:16px auto 0;padding:10px 14px;border-top:1px solid #E5E7EB;font-family:Arial,sans-serif;font-size:11.5px;color:#6B7280;text-align:center">📕 Vos fiches réflexes et procédures d\'urgence sont disponibles à tout moment : <a href="'+purl+'" style="color:#0D1F45;font-weight:bold">Accéder à mon espace BSM</a> — toujours à jour, sans fichier à conserver.</div>';
+    if(iurl) foot+='<div style="max-width:820px;margin:'+(purl?'6px':'16px')+' auto 0;padding:10px 14px;'+(purl?'':'border-top:1px solid #E5E7EB;')+'font-family:Arial,sans-serif;font-size:11.5px;color:#6B7280;text-align:center">🚨 Un événement s\'est produit (vol, panne, accident, constat…) ? <a href="'+iurl+'" style="color:#C0392B;font-weight:bold">Signalez-le à BSM en 2 minutes</a> — nous sommes alertés immédiatement et corrigeons pour la suite.</div>';
+    if(foot && payload.html) payload=Object.assign({}, payload, { html: payload.html+foot });
   }catch(_e){}
   const res=await googleCall("mail", payload);
   // Version interactive demandée mais ni hébergée ni jointe → l'ancien google_bridge.gs est encore déployé.
@@ -17845,8 +17851,19 @@ function renderReports(){
         ${r.clientId&&reportAudienceFor(r)==="client"?`<button class="cta ghost sm" onclick="openReportSend('${r.id}')" title="Envoyer au client (après validation)">✉️</button>`:""}
         <button class="cta ghost sm" onclick="printReportPDF('${r.id}')" title="PDF">🖨</button>
         <button class="cta ghost sm" style="color:var(--red)" onclick="deleteReport('${r.id}')" title="Supprimer">🗑</button></td></tr>`).join("");
+  // 🔐 Rapports d'audit R5 soumis par les collaborateurs — la direction valide (= envoie) depuis ici aussi
+  const pendingVal=(DB.r5reports||[]).filter(r=>r.status==="brouillon"&&r.askValidation)
+    .sort((a,b)=>String(b.askAt||b.date||"").localeCompare(String(a.askAt||a.date||"")));
+  const pendingCard=pendingVal.length?`<div class="card" style="border-left:4px solid var(--red);margin-bottom:12px">
+      <h2 style="margin-top:0">🔐 En attente de ta validation (${pendingVal.length})</h2>
+      <div class="mini-list">${pendingVal.map(r=>`
+        <div class="li"><span><b>${esc(clientName(r.clientId))}</b> — rapport d'audit R5® préparé par <b>${esc(r.askBy||"un collaborateur")}</b> le ${frDate(r.askAt||r.date)}</span>
+        <button class="cta sm" onclick="focusClient='${r.clientId}';openR5Report('${r.clientId}')">📑 Relire & valider</button></div>`).join("")}</div>
+      <div class="hint" style="margin-top:6px">Relis l'analyse du collaborateur, corrige si besoin, puis « ✉️ Envoyer au client » = ta validation. Aucun document ne sort sans elle.</div>
+    </div>`:"";
   host.innerHTML=`
     <div class="pagetitle"><div><h1>Rapports</h1><div class="sub">Le point central — rapports générés, classés, datés, archivés, exportables (PDF · copie · mail)</div></div></div>
+    ${pendingCard}
     <div class="card" style="border-left:3px solid var(--gold)">
       <h2 style="margin-top:0">Générer un rapport</h2>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
