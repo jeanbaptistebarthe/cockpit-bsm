@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.73.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.74.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -16664,14 +16664,38 @@ async function onbSend(){
     await bsmClientMail({ to, subject:"[BSM] Votre dossier de signature — "+(c.company||""), html:body, pdfHtml:doc,
       pdfName:"BSM_Dossier_Signature_"+(c.company||"client").replace(/[^A-Za-z0-9._-]+/g,"_"), client:c.company||"" });
     c.onboardingSentAt=new Date().toISOString(); c.onboardingTo=to;
+    const kk=onbCalc(o);
     if(o.type==="a1"){
       // ⏳ Crédit-passerelle : 90 jours décomptés depuis l'ÉMISSION — le Cockpit surveille et relance.
-      const kk=onbCalc(o);
       c.a1BridgeUntil=isoPlus(todayISO(),90); c.a1BridgeAmount=kk.m; c.a1BridgeCurrency=o.devise; c.a1BridgeNotified={};
       logEvent("action","⏳ Crédit-passerelle A1 ouvert : "+(c.company||"")+" — "+fmt(kk.m,o.devise)+" déductibles jusqu'au "+frDate(c.a1BridgeUntil), true);
     }
+    // 🔗 SOUDURE FINANCIÈRE : le contrat envoyé crée (ou relie) la MISSION + l'ÉCHÉANCIER PRÉVU dans
+    // le financier — une seule saisie au wizard, zéro écart entre le contrat et les chiffres du Cockpit.
+    let finNote="";
+    try{
+      let mid=o.missionId;
+      if(!mid){
+        const m={ id:uid(), ref:nextRef("MIS",DB.missions), clientId:c.id,
+          type:o.type==="a1"?"Audit Flash A1":"Accompagnement R5", phase:o.type==="a1"?"REVEAL":"CONNECT",
+          montantHT:kk.m, currency:o.devise, status:"encours", startDate:todayISO() };
+        DB.missions.push(m); mid=m.id; o.missionId=mid;
+      } else { const mm=DB.missions.find(x=>x.id===mid); if(mm){ mm.montantHT=kk.m; mm.currency=o.devise; } }
+      if(!c.onbFinanceRef){ // anti-doublon : un seul échéancier généré par dossier client (un renvoi ne recrée rien)
+        const base={ sens:"entrant", status:"prevu", currency:o.devise, clientId:c.id, missionId:mid, entity:"bsmac", cat:"Prestations" };
+        const label=(o.type==="a1"?"Audit Flash A1":"Accompagnement R5")+" — "+(c.company||"");
+        const txs=[];
+        txs.push(Object.assign({},base,{ id:uid(), label:label+" · "+(o.type==="a1"?(o.paiement==="5050"?"50 % à la commande":"règlement à la commande"):"acompte 30 %"), amount:kk.ac, date:todayISO(), dueDate:todayISO() }));
+        if(o.type==="a1"){ if(o.paiement==="5050") txs.push(Object.assign({},base,{id:uid(),label:label+" · solde à la remise du rapport",amount:kk.solde,date:todayISO(),dueDate:isoPlus(todayISO(),(+o.delaiJours||15)+5)})); }
+        else { for(let i=1;i<=kk.n;i++){ txs.push(Object.assign({},base,{id:uid(),label:label+" · mensualité "+i+"/"+kk.n,amount:(i===kk.n?(kk.solde-kk.mens*(kk.n-1)):kk.mens),date:todayISO(),dueDate:isoPlus(todayISO(),30*i)})); } }
+        txs.forEach(t=>{ t.fx=txFxSnap(t.currency); DB.transactions.push(t); }); // taux FIGÉ à l'émission (politique de change)
+        c.onbFinanceRef="ONB-"+todayISO(); c.onbMissionId=mid;
+        finNote=" · mission + "+txs.length+" échéance(s) créées au financier";
+        logEvent("action","🔗 Contrat → financier : "+label+" ("+txs.length+" échéance(s), taux figé)", true);
+      } else finNote=" · échéancier déjà en place (pas de doublon)";
+    }catch(_e){ finNote=" · ⚠ échéancier non créé ("+(_e.message||_e)+")"; }
     save();
-    closeModal(); toast("📤 Dossier envoyé à "+to+" ✅ — "+(o.type==="a1"?"paiement à la commande attendu ; crédit-passerelle suivi jusqu'au "+frDate(isoPlus(todayISO(),90))+".":"acompte 30 % attendu avant lancement."));
+    closeModal(); toast("📤 Dossier envoyé à "+to+" ✅ — "+(o.type==="a1"?"paiement à la commande attendu ; crédit-passerelle suivi jusqu'au "+frDate(isoPlus(todayISO(),90)):"acompte 30 % attendu avant lancement")+finNote);
   }catch(e){ toast("Échec de l'envoi : "+(e.message||e)); }
 }
 function onbPreview(){ const w=window.open("","_blank"); if(!w){ toast("Autorise les pop-ups."); return; }
