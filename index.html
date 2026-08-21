@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.86.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.87.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -7487,10 +7487,15 @@ async function r5ReportAI(clientId){
   if(st) st.textContent="⏳ Rédaction en cours — sur tes données d'audit uniquement…";
   try{
     const c=DB.clients.find(x=>x.id===clientId)||{};
+    // Les CONSTATS DÉJÀ ÉCRITS (analyse de l'auditeur + complément du collaborateur) entrent dans le
+    // contexte : l'IA les intègre et les enrichit — elle ne les perd ni ne les contredit jamais.
+    const aEl=document.getElementById("r5r-analysis"), cEl=document.getElementById("r5r-ai");
+    const fieldNotes=[(aEl&&aEl.value||"").trim(),(cEl&&cEl.value||"").trim()].filter(Boolean).join("\n\n");
     const data={ client:c.company, secteur:c.sector||"",
+      constatsAuditeur:fieldNotes||"(aucun constat rédigé pour l'instant)",
       risques:DB.risks.filter(r=>r.clientId===clientId).map(r=>({ref:r.ref,famille:r.famille,categorie:r.categorie,desc:r.description,P:+r.probabilite||0,I:+r.impact||0,score:(+r.probabilite||0)*(+r.impact||0),mesures:r.mesures||"",coutEstime:r.coutEstime||"",statut:r.status,decisionClient:r.clientDecision||""})),
       recommandations:DB.recommendations.filter(r=>r.clientId===clientId).map(r=>({ref:r.ref,texte:r.texte,priorite:r.priorite,horizon:r.horizon,statut:r.status,echeance:r.dateCible||"",investissement:r.invest||"",gainAttendu:r.gain||""})) };
-    const sys="Tu es l'analyste senior de BSM Advisory & Consulting (gouvernance des risques, méthode R5®, Madagascar). À partir des SEULES données JSON fournies, rédige en français une analyse d'audit en 3 parties courtes : « ## Lecture d'ensemble » (2-3 phrases), « ## Points critiques » (puces, cite les réf. des risques), « ## Trajectoire recommandée » (puces reliées aux recommandations). Quand un coût estimé de risque, un investissement ou un gain attendu figure dans les données, articule le raisonnement décisionnel : coût de l'inaction vs investissement vs gain — c'est la valeur ajoutée BSM, apporteur de solutions. Règle absolue : n'invente AUCUN chiffre, fait ou risque absent des données ; si un chiffrage manque, écris « à chiffrer » plutôt qu'une estimation. Style sobre, destiné à une direction générale qui n'a qu'à décider.";
+    const sys="Tu es l'analyste senior de BSM Advisory & Consulting (gouvernance des risques, méthode R5®, Madagascar). À partir des SEULES données JSON fournies, rédige en français une analyse d'audit en 3 parties courtes : « ## Lecture d'ensemble » (2-3 phrases), « ## Points critiques » (puces, cite les réf. des risques), « ## Trajectoire recommandée » (puces reliées aux recommandations). Le champ constatsAuditeur contient les CONSTATS TERRAIN déjà rédigés par l'équipe : ils PRIMENT sur toute déduction — intègre-les, reformule-les proprement, ne les contredis pas et n'en perds AUCUN élément factuel. Quand un coût estimé de risque, un investissement ou un gain attendu figure dans les données, articule le raisonnement décisionnel : coût de l'inaction vs investissement vs gain — c'est la valeur ajoutée BSM, apporteur de solutions. Règle absolue : n'invente AUCUN chiffre, fait ou risque absent des données ; si un chiffrage manque, écris « à chiffrer » plutôt qu'une estimation. Style sobre, destiné à une direction générale qui n'a qu'à décider.";
     const txt=await aiComplete([{role:"user",content:sys+"\n\nDONNÉES :\n"+JSON.stringify(data)}], 900, c.sector);
     const el=document.getElementById("r5r-ai"); if(el) el.value=String(txt||"").trim();
     if(st) st.textContent="✓ Proposition rédigée — relis, corrige, complète : le rapport n'engage que ta signature.";
@@ -7729,14 +7734,31 @@ function r5AskValidation(clientId){
 }
 function r5ReportSend(clientId){
   if(typeof isDirection==="function" && !isDirection()){ r5AskValidation(clientId); return; }
-  const d=r5ReportSaveDraft(clientId);
-  d.askValidation=false; // la direction envoie : la demande est soldée
+  r5ReportSaveDraft(clientId);
   const c=DB.clients.find(x=>x.id===clientId);
   // Rapport de branche → adressé au REPRÉSENTANT de la branche (DG de branche) s'il existe, sinon au contact principal.
-  const bc=d.branch?branchContact(clientId,d.branch):null;
-  const to=(bc&&bc.email)||(c&&c.contactEmail)||"";
-  if(!to){ toast("Renseigne l'e-mail du contact (ou du représentant de la branche) dans la fiche client — ou utilise 🖨 Aperçu / PDF."); return; }
-  confirmModal("Envoyer le rapport d'audit ?", "Destinataire : "+esc(to)+". Relis l'aperçu d'abord si ce n'est pas fait — après envoi, le rapport est figé et archivé.", async ()=>{
+  const d0=(DB.r5reports||[]).find(r=>r.clientId===clientId&&r.status==="brouillon")||{};
+  const bc=d0.branch?branchContact(clientId,d0.branch):null;
+  const suggested=(bc&&bc.email)||(c&&c.contactEmail)||"";
+  const source=bc&&bc.email?"représentant de la branche "+(d0.branch||""):(c&&c.contactEmail?"contact principal de la fiche client":"aucun e-mail sur la fiche — saisis-le ici");
+  // Destinataire VISIBLE et MODIFIABLE avant envoi (demande JB 21/08) — l'adresse tapée fait foi.
+  openModal(`<span class="close" onclick="openR5Report('${clientId}')">✕</span><h2>✉️ Envoyer le rapport d'audit — ${esc((c&&c.company)||"")}</h2>
+    <div class="msub">Ta validation = cet envoi. Relis l'aperçu d'abord si ce n'est pas fait — après envoi, le rapport est figé et archivé.</div>
+    <div class="field"><label>Destinataire (modifiable) <span style="font-weight:400;color:var(--muted);font-size:11.5px">— pré-rempli : ${esc(source)}</span></label>
+      <input id="r5s-to" type="email" value="${esc(suggested)}" placeholder="direction@client.mg"></div>
+    ${(!d0.branch)?`<label style="display:flex;gap:8px;align-items:center;font-size:12.5px;cursor:pointer;margin:2px 0 6px"><input type="checkbox" id="r5s-remember"> Mémoriser cette adresse comme contact principal de la fiche client</label>`:""}
+    <div class="modal-actions"><button class="cta ghost" onclick="openR5Report('${clientId}')">Annuler</button><button class="cta" onclick="r5ReportSendGo('${clientId}')">✉️ Envoyer maintenant</button></div>`);
+}
+async function r5ReportSendGo(clientId){
+  const to=(val("r5s-to")||"").trim();
+  if(!to||to.indexOf("@")<=0){ toast("Adresse e-mail invalide."); return; }
+  const c=DB.clients.find(x=>x.id===clientId);
+  const d=(DB.r5reports||[]).find(r=>r.clientId===clientId&&r.status==="brouillon");
+  if(!d){ toast("Brouillon introuvable — rouvre le rapport."); return; }
+  d.askValidation=false; // la direction envoie : la demande est soldée
+  const rem=document.getElementById("r5s-remember");
+  if(rem&&rem.checked&&c&&to.toLowerCase()!==String(c.contactEmail||"").toLowerCase()){ c.contactEmail=to; toast("📇 Contact principal de la fiche mis à jour."); }
+  await (async ()=>{
     closeModal();
     if(!d.ref) d.ref=r5ReportRefNext();
     d.snap={ date:todayISO(), risks:r5Snapshot(clientId), recosOpen:DB.recommendations.filter(x=>x.clientId===clientId&&x.status!=="fait").length,
@@ -7765,7 +7787,7 @@ function r5ReportSend(clientId){
       d.status="edite"; d.sentAt=""; save(); refreshAll();
       toast("⚠️ Envoi impossible ("+(e.message||e)+") — rapport "+d.ref+" archivé ; imprime le PDF depuis l'aperçu (serveur local requis pour le mail).");
     }
-  });
+  })();
 }
 function renderRisks(){
   let list=DB.risks.slice();
