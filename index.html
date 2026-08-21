@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.73.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.73.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -16485,17 +16485,20 @@ const A1_FORMULES=[
 const SERVICES_OFFERTS=["Espace sécurité & QR de signalement","Fiches réflexes (sélection en annexe)","Exercice de crise annuel","Restitution sur site","1 mois de suivi offert"];
 function onbGet(){ window.__onb=window.__onb||{ step:1, clientId:focusClient||"", missionId:"", montant:0, devise:DB.meta.defaultCurrency||"EUR",
   type:"r5", formule:"", delaiJours:10, paiement:"integral",
+  priceMode:"mensuel", prixMensuel:0, // R5 : saisie en €/mois comme le simulateur (ou en total)
   remise:0, remiseMode:"pct", gifts:[], giftOther:"",
   dureeMois:12, rythme:"mensuel", nEch:0, paiementJours:15, comite:"trimestriel", preavisJours:60 }; return window.__onb; }
 function onbCalc(o){
-  const brut=+o.montant||0;
+  const brut=(o.type==="r5" && o.priceMode==="mensuel")
+    ? Math.round((+o.prixMensuel||0)*(+o.dureeMois||0))
+    : (+o.montant||0);
   const rem=Math.max(0, Math.min(brut, o.remiseMode==="pct" ? Math.round(brut*(+o.remise||0)/100) : Math.round(+o.remise||0)));
   const m=brut-rem; // NET après remise — base de tout l'échéancier
   if(o.type==="a1"){ const ac=(o.paiement==="5050")?Math.round(m/2):m;
     return { brut, rem, m, ac, solde:m-ac, n:(o.paiement==="5050")?1:0, mens:m-ac }; }
   const ac=Math.round(m*0.30), solde=m-ac;
-  const n=Math.max(1, +o.nEch || (o.dureeMois>1?Math.min(o.dureeMois-1,11):1));
-  return { brut, rem, m, ac, solde, n, mens: Math.round(solde/n) };
+  const n=Math.max(1, +o.nEch || (o.dureeMois>1?Math.min(o.dureeMois-1,35):1));
+  return { brut, rem, m, ac, solde, n, mens: Math.round(solde/n), parMois: o.dureeMois>0?Math.round(m/o.dureeMois):m };
 }
 function onbBlockers(o){
   const c=DB.clients.find(x=>x.id===o.clientId); const b=[];
@@ -16503,8 +16506,9 @@ function onbBlockers(o){
     else { if(!(c.contactName||"").trim()) b.push("Fiche client : interlocuteur décisionnaire manquant.");
       if(!(c.contactEmail||"").trim()) b.push("Fiche client : e-mail du décisionnaire manquant.");
       if(!(c.sector||"").trim()) b.push("Fiche client : secteur (exclusivité) manquant."); } }
-  if(o.step>=2){ if(!(+o.montant>0)) b.push("Prestation financière non renseignée — montant HT obligatoire.");
+  if(o.step>=2){ if(!(onbCalc(o).brut>0)) b.push("Prestation financière non renseignée — prix mensuel ou montant HT obligatoire.");
     if(o.type==="r5" && !(+o.dureeMois>=1)) b.push("Durée du contrat (mois) obligatoire.");
+    if(o.type==="r5" && +o.dureeMois>36) b.push("Durée maximale de l'accompagnement : 36 mois (3 ans).");
     if(o.type==="a1" && !o.formule) b.push("Choisir la formule Audit Flash A1.");
     const k=onbCalc(o); if(k.m<=0) b.push("La remise ne peut pas absorber la totalité du prix."); }
   return b;
@@ -16581,16 +16585,21 @@ function renderOnb(){
         <div class="li"><span>🎁 Crédit-passerelle R5®</span><b>100 % déduit si contrat-cadre signé avant le ${esc(frDate(isoPlus(todayISO(),90)))}</b></div></div></div>`:""}`;
     } else {
       body=`${typeUI}
-      <div class="field"><label>Mission de rattachement (option — reprend le montant)</label>
-      <select onchange="onbSet('missionId',this.value);var m=DB.missions.find(x=>x.id===this.value);if(m&&m.montantHT){onbSet('montant',+m.montantHT);if(m.currency)onbSet('devise',m.currency);}renderOnb()">
+      <div class="field"><label>Mission de rattachement (option — reprend le montant total)</label>
+      <select onchange="onbSet('missionId',this.value);var m=DB.missions.find(x=>x.id===this.value);if(m&&m.montantHT){onbSet('priceMode','total');onbSet('montant',+m.montantHT);if(m.currency)onbSet('devise',m.currency);}renderOnb()">
       <option value="">— Saisie manuelle —</option>${ms.map(m=>`<option value="${m.id}" ${o.missionId===m.id?"selected":""}>${esc(m.ref||"")} ${esc(m.type||"")} ${m.montantHT?("— "+m.montantHT+" "+(m.currency||"")):""}</option>`).join("")}</select></div>
-      <div class="field row2"><label>Montant HT & devise</label>
-        <input type="number" value="${o.montant||""}" placeholder="⛔ obligatoire" onchange="onbSet('montant',+this.value);renderOnb()">
-        <select onchange="onbSet('devise',this.value)">${["EUR","USD","MGA"].map(d=>`<option ${o.devise===d?"selected":""}>${d}</option>`).join("")}</select></div>
+      <div class="field row2"><label>Prix HT (${o.priceMode==="mensuel"?"par MOIS, comme le simulateur":"TOTAL du contrat"}) & mode de saisie</label>
+        <input type="number" value="${o.priceMode==="mensuel"?(o.prixMensuel||""):(o.montant||"")}" placeholder="⛔ obligatoire" onchange="onbSet(onbGet().priceMode==='mensuel'?'prixMensuel':'montant',+this.value);renderOnb()">
+        <select onchange="onbSet('priceMode',this.value);renderOnb()"><option value="mensuel" ${o.priceMode==="mensuel"?"selected":""}>€ / mois (× durée)</option><option value="total" ${o.priceMode==="total"?"selected":""}>montant total</option></select></div>
+      <div class="field"><label>Devise <span style="font-weight:400;color:var(--muted);font-size:11.5px">— politique de change BSM : devise selon la durée du contrat, taux du 1ᵉʳ figés, clause ±5 %</span></label>
+        <select onchange="onbSet('devise',this.value)">${[["EUR","Euro (€)"],["USD","Dollar US ($)"],["MGA","Ariary (Ar)"]].map(d=>`<option value="${d[0]}" ${o.devise===d[0]?"selected":""}>${d[1]}</option>`).join("")}</select></div>
       ${remiseUI}
-      <div class="field row2"><label>Durée (mois) & rythme de restitution</label>
-        <input type="number" min="1" max="60" value="${o.dureeMois}" onchange="onbSet('dureeMois',+this.value);onbSet('nEch',0);renderOnb()">
-        <select onchange="onbSet('rythme',this.value)">${["mensuel","trimestriel"].map(r=>`<option ${o.rythme===r?"selected":""}>${r}</option>`).join("")}</select></div>
+      <div class="field"><label>Durée de l'accompagnement <span style="font-weight:400;color:var(--muted);font-size:11.5px">— jusqu'à 36 mois (3 ans)</span></label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          ${[12,24,36].map(dm=>`<button type="button" class="chip ${+o.dureeMois===dm?"active":""}" onclick="onbSet('dureeMois',${dm});onbSet('nEch',0);renderOnb()">${dm} mois${dm===36?" (3 ans)":dm===24?" (2 ans)":" (1 an)"}</button>`).join("")}
+          <input type="number" min="1" max="36" value="${o.dureeMois}" style="width:90px" onchange="onbSet('dureeMois',+this.value);onbSet('nEch',0);renderOnb()">
+          <select onchange="onbSet('rythme',this.value)" title="Rythme des restitutions">${["mensuel","trimestriel"].map(r=>`<option ${o.rythme===r?"selected":""}>restitution ${r}</option>`).join("")}</select>
+        </div></div>
       <div class="field row2"><label>Nombre de mensualités du solde & comité de suivi</label>
         <input type="number" min="1" max="24" value="${k.n}" onchange="onbSet('nEch',+this.value);renderOnb()">
         <select onchange="onbSet('comite',this.value)">${["mensuel","trimestriel","semestriel"].map(r=>`<option ${o.comite===r?"selected":""}>${r}</option>`).join("")}</select></div>
@@ -16598,7 +16607,7 @@ function renderOnb(){
       ${k.m>0?`<div class="card" style="background:#FCFBF7;margin-top:8px"><b>Échéancier calculé</b> (règle BSM : 30 % à la commande, avant lancement)
         <div class="mini-list" style="margin-top:6px">
         ${k.rem?`<div class="li"><span>Prix catalogue</span><b>${fmt(k.brut,o.devise)}</b></div><div class="li"><span>Remise${o.remiseMode==="pct"?" ("+o.remise+" %)":""}</span><b style="color:var(--green)">− ${fmt(k.rem,o.devise)}</b></div>`:""}
-        <div class="li"><span>Net HT</span><b>${fmt(k.m,o.devise)}</b></div>
+        <div class="li"><span>Net HT (${o.dureeMois} mois)</span><b>${fmt(k.m,o.devise)} — soit ≈ ${fmt(k.parMois,o.devise)}/mois</b></div>
         <div class="li"><span>Acompte à la signature (30 %)</span><b>${fmt(k.ac,o.devise)}</b></div>
         <div class="li"><span>Solde</span><b>${fmt(k.solde,o.devise)} en ${k.n} mensualité${k.n>1?"s":""} de ≈ ${fmt(k.mens,o.devise)}</b></div>
         <div class="li"><span>Paiement des factures</span><b>${o.paiementJours} jours · pénalités 1 % par mois de retard</b></div></div></div>`:""}`;
@@ -16622,7 +16631,7 @@ function renderOnb(){
           <div class="li"><span>Conditions</span><b>${k.rem?fmt(k.brut,o.devise)+" − remise "+fmt(k.rem,o.devise)+" = ":""}${fmt(k.m,o.devise)} HT · ${o.paiement==="5050"?"50 % / 50 %":"intégral à la commande"} · rapport sous ${o.delaiJours} j ouvrés</b></div>
           <div class="li"><span>🎁 Crédit-passerelle R5®</span><b>100 % déduit si signature avant le ${esc(frDate(isoPlus(todayISO(),90)))} — suivi automatique dans le Cockpit</b></div>`
         :`<div class="li"><span>Contrat</span><b>♾ Accompagnement R5® — ${o.dureeMois} mois · restitution ${esc(o.rythme)} · comité ${esc(o.comite)}</b></div>
-          <div class="li"><span>Conditions</span><b>${k.rem?fmt(k.brut,o.devise)+" − remise "+fmt(k.rem,o.devise)+" = ":""}${fmt(k.m,o.devise)} HT — acompte ${fmt(k.ac,o.devise)} + ${k.n} × ≈ ${fmt(k.mens,o.devise)}</b></div>`}
+          <div class="li"><span>Conditions</span><b>${k.rem?fmt(k.brut,o.devise)+" − remise "+fmt(k.rem,o.devise)+" = ":""}${fmt(k.m,o.devise)} HT (≈ ${fmt(k.parMois,o.devise)}/mois) — acompte ${fmt(k.ac,o.devise)} + ${k.n} × ≈ ${fmt(k.mens,o.devise)}</b></div>`}
       ${giftsAll.length?`<div class="li"><span>🎁 Services offerts</span><b>${esc(giftsAll.join(" · "))}</b></div>`:""}
       <div class="li"><span>Dossier généré</span><b>Couverture + Livret + ${o.type==="a1"?"Conditions A1 pré-remplies":"Contrat-cadre pré-rempli"} + CGPS + NDA + Charte sécurité + Annexe accès</b></div></div>
       <div class="field" style="margin-top:10px"><label>Destinataire (décisionnaire)</label><input id="onb-to" value="${esc((c&&c.contactEmail)||"")}"></div>
@@ -16766,7 +16775,7 @@ ${o.type==="a1"?contratDoc:`<div class="doc">${hd("BSM-CC-"+(new Date().getFullY
   <h2>Article 4 — Conditions financières</h2>
   <table><tr><th>Élément</th><th>Montant</th></tr>
   ${remRows}
-  <tr><td>Montant net de l'accompagnement (${o.dureeMois} mois)</td><td><b>${fmt(k.m,o.devise)} HT</b></td></tr>
+  <tr><td>Montant net de l'accompagnement (${o.dureeMois} mois)</td><td><b>${fmt(k.m,o.devise)} HT</b> — soit une redevance indicative de <b>≈ ${fmt(k.parMois,o.devise)} / mois</b></td></tr>
   <tr><td>Acompte à la signature (30 %) — avant lancement</td><td><b>${fmt(k.ac,o.devise)}</b></td></tr>
   <tr><td>Solde en ${k.n} mensualité${k.n>1?"s":""}</td><td><b>≈ ${fmt(k.mens,o.devise)} / mois</b></td></tr>
   <tr><td>Paiement des factures</td><td>${o.paiementJours} jours — pénalités de retard : 1 % par mois, tout mois commencé étant dû</td></tr>
