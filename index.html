@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.79.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.80.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -1386,10 +1386,12 @@ async function cloudForgotPassword(){
   }catch(e){ toast("Cloud indisponible — demande à la direction de réinitialiser depuis Supabase."); }
 }
 async function cloudRecoveryCheck(){
-  if(String(location.hash||"").indexOf("type=recovery")===-1) return;
+  const h=String(location.hash||"");
+  const invite=h.indexOf("type=invite")>=0; // invitation 1 clic : même écran que la récupération
+  if(h.indexOf("type=recovery")===-1 && !invite) return;
   try{ await sbClient();
-    openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🔑 Choisis ton nouveau mot de passe</h2>
-      <div class="msub">Lien de réinitialisation vérifié — 8 caractères minimum.</div>
+    openModal(`<span class="close" onclick="closeModal()">✕</span><h2>${invite?"👋 Bienvenue — choisis ton mot de passe":"🔑 Choisis ton nouveau mot de passe"}</h2>
+      <div class="msub">${invite?"Ton compte BSM Cockpit est prêt : définis ton mot de passe pour entrer (8 caractères minimum).":"Lien de réinitialisation vérifié — 8 caractères minimum."}</div>
       <div class="field"><label>Nouveau mot de passe</label><input type="password" id="rp-1" autocomplete="new-password"></div>
       <div class="field"><label>Confirme-le</label><input type="password" id="rp-2" autocomplete="new-password"></div>
       <div class="modal-actions"><button class="cta" onclick="cloudRecoverySet()">Enregistrer</button></div>`);
@@ -1441,15 +1443,35 @@ async function renderCloudUsers(){
       || '<tr><td colspan="4"><div class="empty">Aucun compte cloud.</div></td></tr>'}</tbody></table>
     <div class="hint" style="margin-top:6px">🔒 <b>Cloisonnement</b> (migration 0007) : le serveur ne livre à un profil non-direction que <b>ses clients affectés</b> — et jamais les finances, la RH (hors rôle RH) ni les rapports. Un profil sans affectation ne reçoit aucune donnée client.</div>
     <div class="card" style="background:var(--cream);border-left:3px solid var(--gold);margin-top:12px">
-      <b style="font-size:12.5px">➕ Ajouter un utilisateur (ex. un membre de la direction)</b>
-      <ol style="font-size:12px;color:var(--ink);margin:8px 0 0 18px;line-height:1.8">
-        <li>Supabase → <b>Authentication → Add user</b> : email + mot de passe de la personne (coche « Auto Confirm User »).</li>
-        <li>Copie son <b>UID</b>, puis dans <b>SQL Editor</b> exécute (remplace juste l'UID entre les guillemets, <b>sans chevrons</b>) :<br>
-          <code style="font-size:11px;display:block;background:#fff;border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-top:4px">update public.profiles set organization_id=(select id from public.organizations where name='BSM Advisory &amp; Consulting' limit 1), role='direction' where id='COLLE_UID_ICI';</code></li>
-        <li>Elle se connecte sur le cockpit avec cet email/mot de passe. Le rôle se règle ensuite ici, sans SQL.</li>
-      </ol>
-      <div class="hint" style="margin-top:6px">Pourquoi cette étape manuelle ? Créer un compte = clé secrète, qui ne doit jamais être dans le navigateur. L'ajout « en un clic » depuis l'app viendra avec le backend (Edge Functions).</div>
+      <b style="font-size:12.5px">➕ Inviter un utilisateur — en 1 clic</b>
+      <div class="hint" style="margin:6px 0 8px">La personne reçoit un e-mail d'invitation, clique, choisit son mot de passe sur le Cockpit — et arrive déjà <b>cloisonnée</b> : aucun client visible tant que tu ne lui en as pas affecté (colonne « Clients affectés » ci-dessus). Jamais de rôle admin par invitation.</div>
+      <div class="field row2" style="margin:0 0 6px"><label>E-mail & nom</label>
+        <input id="inv-cemail" type="email" placeholder="prenom.nom@bsmconseils.com" autocomplete="off">
+        <input id="inv-cname" placeholder="Prénom Nom"></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="inv-crole"><option value="collaborateur">Collaborateur</option><option value="analyste">Analyste</option><option value="commercial">Commercial</option><option value="rh">RH</option><option value="direction">Direction</option></select>
+        <button class="cta sm" onclick="cloudInviteUser()">📨 Envoyer l'invitation</button>
+        <span class="hint" id="inv-cmsg" style="margin:0"></span></div>
     </div>`;
+}
+/* Invitation d'un utilisateur en 1 clic — via le mode "invite" de la fonction send-alerts
+   (le compte se crée côté serveur avec la clé service ; le navigateur ne voit jamais de secret). */
+async function cloudInviteUser(){
+  const msg=document.getElementById("inv-cmsg");
+  const email=(val("inv-cemail")||"").trim(), name=(val("inv-cname")||"").trim(), role=val("inv-crole")||"collaborateur";
+  if(!email||email.indexOf("@")<=0){ if(msg){ msg.style.color="var(--red)"; msg.textContent="E-mail invalide."; } return; }
+  if(msg){ msg.style.color="var(--muted)"; msg.textContent="Invitation en cours…"; }
+  try{
+    const c=await sbClient();
+    const { data, error }=await c.functions.invoke("send-alerts",{ body:{ mode:"invite", email, fullName:name, role,
+      redirectTo:location.origin+location.pathname } });
+    const err=error?String(error.message||error):(data&&data.error?String(data.error):"");
+    if(err){ if(msg){ msg.style.color="var(--red)"; msg.textContent="Échec : "+err+(err.indexOf("invite")>=0||err.indexOf("mode")>=0?" — recolle la dernière version de send-alerts et redéploie.":""); } return; }
+    if(msg){ msg.style.color="var(--green)"; msg.textContent="✅ Invitation envoyée à "+email+" ("+roleLabel(role)+")."; }
+    toast("📨 Invitation envoyée — pense à lui affecter ses clients (✎ dans la liste).");
+    if(typeof logEvent==="function") logEvent("update","Invitation utilisateur envoyée : "+email+" (rôle "+role+")", true);
+    renderCloudUsers();
+  }catch(e){ if(msg){ msg.style.color="var(--red)"; msg.textContent="Cloud indisponible : "+(e.message||e); } }
 }
 /* Affectation de clients à un profil (cloisonnement par client — RLS serveur, migration 0007). */
 function openClientAssign(profileId){
