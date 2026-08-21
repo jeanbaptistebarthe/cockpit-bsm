@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.78.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.79.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -3021,6 +3021,8 @@ function openClientForm(id){
       <button type="button" class="cta ghost sm" onclick="cliContactAdd()">+ Représentant</button></div>
     <div class="field row2"><label>Email & trigramme (n° de facture)</label><input id="f-cemail" placeholder="Email" value="${esc(c.contactEmail||'')}">
       <input id="f-ctrigram" maxlength="4" placeholder="Ex. ACM" value="${esc(c.trigram||'')}" style="text-transform:uppercase" title="3 lettres identifiant le client dans les numéros de facture (ex. FAC-2026-ACM-001). Vide = déduit du nom."></div>
+    <div class="field"><label>💳 E-mail facturation / compta <span style="font-weight:400;color:var(--muted);font-size:11.5px">— factures et relances d'impayés partent ICI (on n'encombre pas le dirigeant) ; vide = e-mail principal. À partir de la 3ᵉ relance, le dirigeant est ajouté automatiquement.</span></label>
+      <input id="f-cbilling" placeholder="compta@client.mg" value="${esc(c.billingEmail||'')}"></div>
     <div class="field row2"><label>Statut & responsable</label><select id="f-status">
       ${["prospect","actif","archive"].map(s=>`<option value="${s}" ${c.status===s?'selected':''}>${cap(s)}</option>`).join("")}</select>
       <select id="f-cresp"><option value="">— Responsable non attribué —</option>${(DB.users||[]).filter(u=>u.active!==false).map(u=>`<option value="${esc(u.login)}" ${c.responsable===u.login?'selected':''}>${esc(u.name||u.login)}</option>`).join("")}</select></div>
@@ -3070,7 +3072,7 @@ function saveClient(id){
   const company=val("f-company").trim();
   if(!company){ toast("Le nom de la société est obligatoire."); return; }
   const obj={ company, sector:val("f-sector"), contactName:val("f-cname"), contactPhone:val("f-cphone"),
-    contactEmail:val("f-cemail"), trigram:(val("f-ctrigram")||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,4), status:val("f-status"), responsable:val("f-cresp"), classification:val("f-cclassif"), notes:val("f-notes"),
+    contactEmail:val("f-cemail"), billingEmail:(val("f-cbilling")||"").trim(), trigram:(val("f-ctrigram")||"").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,4), status:val("f-status"), responsable:val("f-cresp"), classification:val("f-cclassif"), notes:val("f-notes"),
     signatureDate:val("f-sign"), contractType:val("f-ctype"), ndaSigned:document.getElementById("f-cnda").checked,
     ndaDate:val("f-cndadate"), contractInfo:val("f-cinfo"), missionSummary:val("f-msum"), followupSummary:val("f-fsum"),
     fichesDues:document.getElementById("f-cfiches").checked };
@@ -6917,7 +6919,7 @@ function assignInvoiceNo(t){
 // Champs de facture lus depuis le formulaire (ou depuis la transaction si le formulaire est absent).
 function invoiceData(t){
   const relance=window.__invMode==="relance";
-  if(!document.getElementById("inv-amount")) return { date:t.invoiceDate||todayISO(), label:t.label, amount:t.amount, due:t.dueDate||t.date, notes:"", msg:"", to:((DB.clients.find(x=>x.id===t.clientId)||{}).contactEmail||""), relance };
+  if(!document.getElementById("inv-amount")) return { date:t.invoiceDate||todayISO(), label:t.label, amount:t.amount, due:t.dueDate||t.date, notes:"", msg:"", to:(function(c){ return (c.billingEmail||c.contactEmail||"").trim(); })(DB.clients.find(x=>x.id===t.clientId)||{}), relance };
   return { date:val("inv-date")||todayISO(), label:(val("inv-label")||t.label||"").trim(), amount:Math.round(parseFloat(val("inv-amount"))||0),
     due:val("inv-due")||t.dueDate||t.date, notes:(val("inv-notes")||"").trim(), msg:(val("inv-msg")||"").trim(), to:(val("inv-to")||"").trim(), relance };
 }
@@ -6932,11 +6934,13 @@ function openRelanceBatch(){
   const list=overdueRelanceList().sort((a,b)=>String(a.dueDate||a.date).localeCompare(String(b.dueDate||b.date)));
   if(!list.length){ toast("✅ Aucun encaissement en retard."); return; }
   const recent=t=>t.lastRelanceAt && t.lastRelanceAt>addDaysISO(todayISO(),-7);
-  const rows=list.map(t=>{ const c=DB.clients.find(x=>x.id===t.clientId)||{}; const mail=(c.contactEmail||"").trim();
+  const rows=list.map(t=>{ const c=DB.clients.find(x=>x.id===t.clientId)||{}; const r=relanceRecipient(t,c); const mail=r.to;
     return `<div class="li"><label style="display:flex;gap:8px;align-items:center;flex:1;cursor:pointer">
       <input type="checkbox" class="rb-cb" data-tx="${t.id}" ${mail&&!recent(t)?"checked":""} ${mail?"":"disabled"}>
       <span>${esc(t.label||"—")}<span class="d"> · ${fmt(t.amount,t.currency)} · ${esc(c.company||"—")} · échu le ${frDate(t.dueDate||t.date)}</span>
-      ${!mail?'<span class="badge b-red" style="margin-left:6px">e-mail manquant</span>':(recent(t)?`<span class="badge b-grey" style="margin-left:6px">relancé le ${frDate(t.lastRelanceAt)}</span>`:"")}</span></label></div>`; }).join("");
+      ${!mail?'<span class="badge b-red" style="margin-left:6px">e-mail manquant</span>':(recent(t)?`<span class="badge b-grey" style="margin-left:6px">relancé le ${frDate(t.lastRelanceAt)}</span>`:"")}
+      ${mail&&r.viaBilling?'<span class="badge b-grey" style="margin-left:6px" title="Part vers l’e-mail facturation/compta de la fiche client">→ compta</span>':""}
+      ${mail&&r.escalated?'<span class="badge b-orange" style="margin-left:6px" title="3ᵉ relance de cette échéance : le dirigeant est ajouté au destinataire">⬆ dirigeant ajouté</span>':""}</span></label></div>`; }).join("");
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📨 Relance groupée — encaissements en retard</h2>
     <div class="msub">${list.length} échéance(s) en retard. Un e-mail de rappel courtois part par échéance cochée, avec copie sur ta boîte — et la relance est tracée sur le mouvement.</div>
     ${serverEnabled?"":`<div class="hint" style="color:#A6641A;background:#FDF1E3;border:1px solid #F3D8B4;border-radius:8px;padding:9px;margin-bottom:8px">🖥️ L'envoi se fait depuis le <b>Cockpit local</b> (pont Google). Ici tu peux préparer, mais pas envoyer.</div>`}
@@ -6953,26 +6957,38 @@ async function runRelanceBatch(){
   for(let i=0;i<cbs.length;i++){
     if(btn){ btn.disabled=true; btn.textContent="Envoi "+(i+1)+"/"+cbs.length+"…"; }
     const t=DB.transactions.find(x=>x.id===cbs[i].dataset.tx); if(!t){ ko++; continue; }
-    const c=DB.clients.find(x=>x.id===t.clientId)||{}; const to=(c.contactEmail||"").trim(); if(!to){ ko++; continue; }
+    const c=DB.clients.find(x=>x.id===t.clientId)||{}; const r=relanceRecipient(t,c); if(!r.to){ ko++; continue; }
     try{
-      await bsmClientMail({ to, subject:"Rappel d'échéance — "+(t.invoiceNo?("facture "+t.invoiceNo):(t.label||"")), html:relanceMailHtml(t,c,msg) });
-      t.lastRelanceAt=todayISO(); ok++;
+      await bsmClientMail({ to:r.to, subject:(r.n>=3?"Relance n°"+r.n+" — ":"Rappel d'échéance — ")+(t.invoiceNo?("facture "+t.invoiceNo):(t.label||"")), html:relanceMailHtml(t,c,msg,r.n) });
+      t.lastRelanceAt=todayISO(); t.relanceCount=r.n; ok++;
     }catch(e){ ko++; }
   }
   save(); closeModal(); refreshAll();
   toast("📨 "+ok+" relance(s) envoyée(s)"+(ko?", "+ko+" échec(s)":"")+" — tracées sur les mouvements.");
 }
+/* Destinataire des relances (décision JB 21/08) : la boîte FACTURATION/COMPTA du client si elle est
+   renseignée (on n'encombre pas le dirigeant), sinon le correspondant principal. ESCALADE : à partir
+   de la 3ᵉ relance de la même échéance, le dirigeant est AJOUTÉ au destinataire. */
+function relanceRecipient(t, c){
+  const bill=(c.billingEmail||"").trim(), main=(c.contactEmail||"").trim();
+  const base=bill||main;
+  const n=(+t.relanceCount||0)+1;   // n° de la relance qui va partir
+  const escalated=n>=3 && !!main && main.toLowerCase()!==base.toLowerCase();
+  return { to: escalated? base+", "+main : base, n, escalated, viaBilling:!!bill };
+}
 /* Gabarit commun du rappel d'échéance (relance groupée manuelle ET tournée automatique). */
-function relanceMailHtml(t, c, msg){
+function relanceMailHtml(t, c, msg, n){
   const s=docIdentity(); const cab=DB.meta.cabinetName||"BSM Advisory & Consulting";
+  const late=(n||1)>=3;
   return `<div style="max-width:560px;margin:0 auto;font-family:Arial,sans-serif">
     <div style="border-bottom:3px solid #B5923A;padding-bottom:10px;margin-bottom:14px"><div style="font-family:Georgia,serif;font-size:20px;font-weight:bold;color:#0D1F45">${esc(cab)}</div></div>
     <p style="font-size:14px;line-height:1.7">Bonjour${c.contact?" "+esc(c.contact):""},</p>
-    <p style="font-size:14px;line-height:1.7">Sauf erreur de notre part, l'échéance suivante reste en attente de règlement :</p>
-    <div style="background:#F6F1E8;border-left:3px solid #B5923A;padding:12px 16px;border-radius:6px;margin:10px 0;font-size:14px">
+    <p style="font-size:14px;line-height:1.7">${late?"Malgré nos précédents rappels, l'échéance suivante demeure en attente de règlement :":"Sauf erreur de notre part, l'échéance suivante reste en attente de règlement :"}</p>
+    <div style="background:#F6F1E8;border-left:3px solid ${late?"#C0392B":"#B5923A"};padding:12px 16px;border-radius:6px;margin:10px 0;font-size:14px">
       <b>${esc(t.label||"Prestation")}</b>${t.invoiceNo?" · Facture "+esc(t.invoiceNo):""}<br>
-      Montant : <b>${fmt(t.amount,t.currency)}</b> · Échéance : <b>${frDate(t.dueDate||t.date)}</b></div>
+      Montant : <b>${fmt(t.amount,t.currency)}</b> · Échéance : <b>${frDate(t.dueDate||t.date)}</b>${late?`<br><span style="color:#C0392B;font-size:12.5px">Relance n° ${n}</span>`:""}</div>
     ${msg?`<p style="font-size:14px;line-height:1.7">${esc(msg)}</p>`:`<p style="font-size:13px;line-height:1.7;color:#4A5568">Si le règlement est déjà parti, merci de ne pas tenir compte de ce rappel.</p>`}
+    ${late?`<p style="font-size:13px;line-height:1.7;color:#4A5568">Un simple mot de votre part sur la date de règlement prévue nous suffira pour clore ce suivi.</p>`:""}
     <p style="font-size:14px;line-height:1.7">Nous restons à votre disposition pour toute question.<br>Bien cordialement,<br><b>${esc(cab)}</b>${s.tel?" · "+esc(s.tel):""}</p></div>`;
 }
 /* ===== TOURNÉE DE RELANCES AUTOMATIQUE (décision JB 21/08) =====
@@ -6991,7 +7007,7 @@ async function autoRelanceTick(){
     if(localStorage.getItem("bsm_autorelance_day")===day) return;  // un seul passage par jour
     const due=overdueRelanceList().filter(t=>{
       const c=DB.clients.find(x=>x.id===t.clientId)||{};
-      if(!(c.contactEmail||"").trim()) return false;
+      if(!relanceRecipient(t,c).to) return false;                             // ni compta ni correspondant : rien à envoyer
       if(!t.lastRelanceAt) return (t.dueDate||t.date)<=addDaysISO(day,-7);   // 1ʳᵉ relance à J+7
       return t.lastRelanceAt<=addDaysISO(day,-14);                            // puis toutes les 2 semaines
     });
@@ -7000,11 +7016,13 @@ async function autoRelanceTick(){
     let ok=0, ko=0; const names=[];
     for(const t of due){
       const c=DB.clients.find(x=>x.id===t.clientId)||{};
+      const r=relanceRecipient(t,c);   // compta d'abord ; dirigeant AJOUTÉ à partir de la 3ᵉ relance (décision JB)
       try{
-        await bsmClientMail({ to:(c.contactEmail||"").trim(),
-          subject:"Rappel d'échéance — "+(t.invoiceNo?("facture "+t.invoiceNo):(t.label||"")),
-          html:relanceMailHtml(t, c, "") });
-        t.lastRelanceAt=day; ok++; names.push((c.company||"?")+" ("+fmt(t.amount,t.currency)+")");
+        await bsmClientMail({ to:r.to,
+          subject:(r.n>=3?"Relance n°"+r.n+" — ":"Rappel d'échéance — ")+(t.invoiceNo?("facture "+t.invoiceNo):(t.label||"")),
+          html:relanceMailHtml(t, c, "", r.n) });
+        t.lastRelanceAt=day; t.relanceCount=r.n; ok++;
+        names.push((c.company||"?")+" ("+fmt(t.amount,t.currency)+(r.escalated?", ⬆ dirigeant":"")+")");
       }catch(e){ ko++; }
     }
     if(ok||ko){
@@ -7025,7 +7043,7 @@ function openInvoiceSend(txId, mode){
   window.__invTx=t.id; window.__invMode=mode||"";
   const relance=mode==="relance";
   const c=DB.clients.find(x=>x.id===t.clientId)||{};
-  const to=(c.contactEmail||"").trim();
+  const to=(c.billingEmail||c.contactEmail||"").trim(); // factures → boîte facturation/compta si renseignée (modifiable avant envoi)
   const no=t.invoiceNo||invoiceNoPreview(t.clientId);
   openModal(`<span class="close" onclick="closeModal()">✕</span>
     <h2>${relance?"🔔 Relance — Facture":"✉ Facture"} ${esc(no)}</h2>
