@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.70.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.71.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -1587,6 +1587,9 @@ async function serverSyncInit(){
     // 🔄 Miroir automatique Cockpit → Sheet (lecture propre & actualisée partout, demande JB 21/08)
     setTimeout(()=>{ try{ autoPushR5(); }catch(e){} }, 12000);
     setInterval(()=>{ try{ autoPushR5(); }catch(e){} }, 15*60*1000);
+    // ⚓ Ancrage quotidien de la chaîne d'audit (P2) — témoin externe dans le Sheet
+    setTimeout(()=>{ try{ auditAnchor(true); }catch(e){} }, 20000);
+    setInterval(()=>{ try{ auditAnchor(true); }catch(e){} }, 6*60*60*1000);
   }catch(e){ /* pas de serveur : on reste en local, sans afficher d'erreur */ }
 }
 /* ---- Proxy IA serveur : le navigateur ne stocke plus les clés API ; il sait seulement quels fournisseurs sont prêts. ---- */
@@ -2099,6 +2102,7 @@ function notify(type,title,detail,opts){
   DB.notifications.push({ id:uid(), ts:new Date().toISOString(), type:type, title:title,
     detail:detail||"", clientId:opts.clientId||"", go:opts.go||(NOTIF_META[type]&&NOTIF_META[type].go)||"",
     forUser:opts.forUser||"", forRole:opts.forRole||"", read:false });
+  try{ auditSeal(type, String(title||"")+(detail?" — "+String(detail).slice(0,80):"")); }catch(_e){} // 🧾 scellé
   if(DB.notifications.length>400) DB.notifications=DB.notifications.slice(-400);
   // Vigilance renforcée : les événements critiques sortent du Cockpit (bip + notification système)
   if(type==="report"||type==="risk"||type==="login") bsmDesktopAlert(title, detail);
@@ -7069,6 +7073,7 @@ function r5ReportSend(clientId){
     const recosOpen=DB.recommendations.filter(x=>x.clientId===clientId&&x.status!=="fait"&&x.clientDecision!=="refuse");
     if(hook && recosOpen.length){
       const payload={ c:c.company||"", r:recosOpen.slice(0,12).map(r=>[r.ref||"",String(r.texte||"").slice(0,90),String(r.invest||"").slice(0,40),String(r.gain||"").slice(0,40)]) };
+      if(clientKey(c)) payload.k=clientKey(c);
       const b64=btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
       mailHtml=`<div style="max-width:820px;margin:0 auto 16px;background:#0D1F45;border-radius:8px;padding:20px 24px;text-align:center;font-family:Arial,sans-serif">
         <div style="color:#fff;font-size:14px;margin-bottom:12px"><b>Vos décisions en un clic</b> — après lecture du rapport ci-dessous, validez, différez ou refusez chaque recommandation du plan d'action :</div>
@@ -8874,6 +8879,7 @@ function decisionPageUrl(clientId){
   const recos=(DB.recommendations||[]).filter(r=>r.clientId===clientId&&r.status!=="fait"&&r.clientDecision!=="refuse");
   if(!recos.length) return "";
   const payload={ c:c.company||"", r:recos.slice(0,12).map(r=>[r.ref||"",String(r.texte||"").slice(0,90),String(r.invest||"").slice(0,40),String(r.gain||"").slice(0,40)]) };
+  if(clientKey(c)) payload.k=clientKey(c);
   const b64=btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
   return hook+(hook.indexOf("?")>=0?"&":"?")+"d="+b64; // robuste même si l'URL du récepteur porte déjà des paramètres
 }
@@ -8884,9 +8890,29 @@ function decisionPageUrl(clientId){
    comme les décisions), alerte (bip + push), et propose : créer/mettre à jour le risque,
    générer des recommandations de RÉSILIENCE (IA). Les incidents nourrissent aussi le contexte
    des rapports (« le Cockpit apprend »). Les petits risques d'aujourd'hui = les crises de demain. */
+/* 🔑 Jeton secret par client (P2, opt-in) : quand un client est « sécurisé », TOUS ses liens
+   (décisions, signalement, portail, fiches) embarquent un jeton que le récepteur vérifie contre
+   l'onglet ACCES CLIENTS — un lien forgé sans le jeton est rejeté. Opt-in : sécuriser un client
+   invalide ses ANCIENS liens déjà envoyés (renvoyer rapport / réimprimer QR). */
+function clientKey(c){ return (c&&c.portalKey)||""; }
+function ensureClientKey(clientId){
+  const c=DB.clients.find(x=>x.id===clientId); if(!c) return "";
+  if(!c.portalKey){ const b=crypto.getRandomValues(new Uint8Array(5)); c.portalKey=Array.from(b).map(x=>x.toString(16).padStart(2,"0")).join(""); save();
+    logEvent("action","🔑 Liens sécurisés (jeton) : "+(c.company||""), true); }
+  return c.portalKey;
+}
+function secureClientLinks(clientId){
+  const c=DB.clients.find(x=>x.id===clientId); if(!c) return;
+  confirmModal("Sécuriser les liens de "+(c.company||"ce client")+" ?",
+    "Un <b>jeton secret</b> sera exigé par le récepteur pour tous ses accès (décisions, signalement, portail, fiches).<br><b>Conséquence :</b> les liens et QR <b>déjà envoyés</b> cesseront de fonctionner — renvoie le prochain rapport et réimprime son QR.",
+    async ()=>{ ensureClientKey(clientId); try{ await pushAccessTab(); }catch(e){ toast("⚠️ Sheet non mis à jour : "+(e.message||e)); }
+      closeModal(); openDocsModal(); toast("🔑 Liens sécurisés — renvoie rapport et QR à ce client."); });
+}
 function incidentUrlForName(companyName){
   const hook=(DB.meta.decisionWebhook||"").trim(); if(!hook||!companyName) return "";
-  const b64=btoa(unescape(encodeURIComponent(JSON.stringify({c:String(companyName)})))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  const c=(DB.clients||[]).find(x=>norm(x.company||"")===norm(String(companyName)));
+  const p={c:String(companyName)}; if(c&&clientKey(c)) p.k=clientKey(c);
+  const b64=btoa(unescape(encodeURIComponent(JSON.stringify(p)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
   return hook+(hook.indexOf("?")>=0?"&":"?")+"i="+b64;
 }
 function incidentPageUrl(clientId){ const c=DB.clients.find(x=>x.id===clientId); return c?incidentUrlForName(c.company||""):""; }
@@ -16215,18 +16241,19 @@ li::before{content:"›";position:absolute;left:2px;color:#C7A25A;font-weight:80
    stable pour toujours, le contenu servi évolue côté BSM. */
 function portalUrl(clientId){ const c=DB.clients.find(x=>x.id===clientId); if(!c) return "";
   const hook=(DB.meta.decisionWebhook||"").trim(); if(!hook) return "";
-  const b64=btoa(unescape(encodeURIComponent(JSON.stringify({c:c.company||""})))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  const p={c:c.company||""}; if(clientKey(c)) p.k=clientKey(c);
+  const b64=btoa(unescape(encodeURIComponent(JSON.stringify(p)))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
   return hook+(hook.indexOf("?")>=0?"&":"?")+"p="+b64;
 }
 /* Pousse l'onglet « ACCES CLIENTS » complet : [Client | Signalement | Fiches | Ligne de crise | MàJ].
    Ligne absente = signalement OUI, aucune fiche, pas de ligne de crise (comportement par défaut). */
 async function pushAccessTab(){
-  const rows=[["Client","Signalement d'incident","Fiches réflexes","Ligne de crise","Mis à jour"]];
+  const rows=[["Client","Signalement d'incident","Fiches réflexes","Ligne de crise","Clé","Mis à jour"]];
   DB.clients.forEach(c=>{
-    const hasSetting=c.incidentAccessOff||c.crisisLine||(c.fichesAccess&&c.fichesAccess.length);
+    const hasSetting=c.incidentAccessOff||c.crisisLine||(c.fichesAccess&&c.fichesAccess.length)||c.portalKey;
     if(!hasSetting) return;
     const fiches=c.fichesAccess==="ALL"?"TOUTES":(Array.isArray(c.fichesAccess)?c.fichesAccess.join(","):"");
-    rows.push([c.company||"", c.incidentAccessOff?"NON":"OUI", fiches, c.crisisLine?"OUI":"NON", frDate(todayISO())]);
+    rows.push([c.company||"", c.incidentAccessOff?"NON":"OUI", fiches, c.crisisLine?"OUI":"NON", c.portalKey||"", frDate(todayISO())]);
   });
   await googleCall("sheetOps",{ops:[{a:"write",name:"ACCES CLIENTS",rows:rows}]});
 }
@@ -16257,6 +16284,7 @@ function openDocsModal(){
         <button class="cta ghost sm" onclick="setFichesAll('${c.id}',false)">✖ Aucune</button>
         <button class="cta ghost sm" onclick="toggleCrisis('${c.id}')">${c.crisisLine?"☎ Ligne de crise : ACTIVE — couper":"☎ Activer la ligne de crise"}</button>
         <button class="cta ghost sm" onclick="openPortalQR('${c.id}')">🔳 QR PORTAIL (carte métal)</button>
+        ${c.portalKey?`<span class="badge b-green" style="align-self:center" title="Tous ses nouveaux liens embarquent un jeton secret vérifié par le récepteur — les liens forgés sont rejetés">🔑 liens sécurisés</span>`:`<button class="cta ghost sm" onclick="secureClientLinks('${c.id}')" title="Exige un jeton secret sur tous ses accès — attention : les anciens liens déjà envoyés cesseront de fonctionner">🔑 Sécuriser les liens</button>`}
       </div>
       <div class="hint" style="margin-top:6px">Le portail du client n'affiche QUE ce qui est coché ici — effet immédiat. Le signalement d'incident se gère dans 🚨 Incidents reçus.</div>
     </div>`:`<div class="hint" style="margin:8px 0">💡 Choisis un client en <b>Focus</b> pour gérer ses accès et générer son QR portail.</div>`;
@@ -16433,6 +16461,8 @@ async function onbSend(){
   const to=(val("onb-to")||"").trim(); if(!to){ toast("Renseigne l'e-mail du décisionnaire."); return; }
   if(!serverEnabled){ toast("Envoi : ouvre le Cockpit local (pont Google)."); return; }
   if(onbBlockers({...o,step:4}).length){ toast("⛔ Des étapes bloquantes subsistent."); return; }
+  // 🔑 Un client qui signe part SÉCURISÉ d'office : jeton secret sur tous ses liens dès le premier jour.
+  ensureClientKey(o.clientId); try{ await pushAccessTab(); }catch(_e){}
   const doc=dossierSignatureHtml(o);
   const body='<p style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7">Bonjour '+esc(c.contactName||"")+',<br><br>'
     +'Bienvenue chez '+esc(bsmIdent().cab)+'. Vous trouverez ci-joint votre <b>dossier de signature complet</b> : livret d\'accueil, contrat-cadre pré-rempli, conditions générales, accord de confidentialité, charte de sécurité des données et le périmètre de vos accès en ligne.<br><br>'
@@ -16935,6 +16965,34 @@ const SESSION_KEY="bsm_session";
 /* ================== SANTÉ & SAUVEGARDES (admin) — l'état du Cockpit en un coup d'œil ================== */
 function fmtKo(bytes){ if(!(bytes>=0)) return "—"; if(bytes<1024) return bytes+" o"; if(bytes<1048576) return (bytes/1024).toFixed(0)+" Ko"; return (bytes/1048576).toFixed(1)+" Mo"; }
 function localStorageBytes(){ let t=0; try{ for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); t+=(k.length+(localStorage.getItem(k)||"").length)*2; } }catch(e){} return t; }
+/* 🛡 CENTRE DE SÉCURITÉ (P2) : l'état de la défense en profondeur en un coup d'œil —
+   le tableau vivant de ce que décrit la charte BSM-SEC-2026-001. */
+function openSecurityCenter(){
+  const users=DB.users||[]; const strong=users.filter(u=>u.ph&&u.ph.h).length;
+  const clientsActifs=(DB.clients||[]).filter(c=>c.status!=="archive");
+  const keyed=clientsActifs.filter(c=>c.portalKey).length;
+  const audit=DB.audit||[]; const anchors=DB.meta.auditAnchors||[]; const lastA=anchors.length?anchors[anchors.length-1]:null;
+  const fails=(DB.notifications||[]).filter(n=>n.type==="login"&&/échec/i.test(String(n.title||""))).length;
+  const paired=!!localStorage.getItem("bsm_api_token");
+  const lockMin=(DB.meta&&DB.meta.autoLockMin!=null)?+DB.meta.autoLockMin:20;
+  const att=DB.meta.deviceEncAttested||"";
+  const row=(st,label,detail,act)=>`<div class="li"><span>${st===true?"✅":st===false?"❌":"⚠️"} <b>${label}</b>${detail?` <span style="color:var(--muted);font-size:11px">— ${detail}</span>`:""}</span><span>${act||""}</span></div>`;
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🛡 Centre de sécurité</h2>
+    <div class="msub">Ta défense en profondeur, en un coup d'œil — le tableau vivant de la charte BSM-SEC-2026-001.</div>
+    <div class="mini-list" style="margin-top:8px">
+      ${row(bsmEncOn(), "Coffre chiffré (navigateur)", bsmEncOn()?"AES-256-GCM actif":"non activé — active-le après une sauvegarde fichier", `<button class="cta ghost sm" onclick="openSecurityPanel()">Régler</button>`)}
+      ${row(lockMin>0, "Verrouillage automatique", lockMin>0?lockMin+" min d'inactivité":"désactivé", `<button class="cta ghost sm" onclick="openSecurityPanel()">Régler</button>`)}
+      ${row(strong===users.length&&users.length>0, "Mots de passe forts (PBKDF2)", strong+"/"+users.length+" compte(s) migré(s)"+(strong<users.length?" — les autres migrent à leur prochaine connexion":""), "")}
+      ${row(fails===0?true:"warn", "Échecs de connexion signalés", fails?fails+" alerte(s) — vérifie qui a essayé":"aucune alerte", "")}
+      ${row(paired, "Appairage serveur (cet appareil)", paired?"jeton présent":"non appairé — code dans la fenêtre du serveur", "")}
+      ${row(!!DB.meta.lastAutoPush, "Miroir Sheet automatique", DB.meta.lastAutoPush?"dernier envoi "+fmtDateTime(DB.meta.lastAutoPush):"jamais poussé (serveur local requis)", "")}
+      ${row(audit.length>0, "Chaîne d'audit scellée", audit.length+" événement(s)"+(lastA?" · dernier ancrage "+lastA.d+" (n° "+lastA.i+")":" · jamais ancrée"),
+        `<button class="cta ghost sm" onclick="secVerifyChain()">🔎 Vérifier</button><button class="cta ghost sm" onclick="auditAnchor(false)">⚓ Ancrer</button>`)}
+      ${row(keyed===clientsActifs.length&&clientsActifs.length>0?true:(keyed>0?"warn":false), "Liens clients à jeton secret", keyed+"/"+clientsActifs.length+" client(s) sécurisé(s) — 📕 Fiches → 🔑", "")}
+      ${row(att?true:"warn", "Chiffrement du disque (BitLocker)", att?"attesté le "+frDate(att)+" — clé au coffre papier":"à attester après vérification", att?"":`<button class="cta ghost sm" onclick="DB.meta.deviceEncAttested=todayISO();save();closeModal();openSecurityCenter()">✓ J'atteste</button>`)}
+    </div>
+    <div class="hint" style="margin-top:8px">Rappels : B2 hors-site chiffré à chaque sauvegarde quotidienne (fenêtre serveur) · garde anti-fuite à chaque publication · démos en données fictives · un client par secteur.</div>`);
+}
 function renderAdminSante(){
   const host=document.getElementById("scr-admin-sante"); if(!host) return;
   if(!isAdmin()){ host.innerHTML=""; return; }
@@ -16946,6 +17004,7 @@ function renderAdminSante(){
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="cta ghost sm" onclick="openTrash()">🗑 Corbeille${(DB.trash||[]).length?" ("+DB.trash.length+")":""}</button>
       <button class="cta ghost sm" onclick="exportData()">⬇ Sauvegarde fichier</button>
+      <button class="cta ghost sm" onclick="openSecurityCenter()">🛡 Centre de sécurité</button>
       <button class="cta sm" onclick="save();renderAdminSante();toast('Enregistré — serveur & cloud notifiés.')">💾 Enregistrer maintenant</button>
     </div></div>
   <div class="kpis">
@@ -17103,11 +17162,71 @@ function clearSession(){ localStorage.removeItem(SESSION_KEY); sessionStorage.re
 
 /* --- Journal d'activité --- */
 function refreshAdminLogIfActive(){ const a=document.querySelector(".screen.active"); if(a && a.id==="scr-admin-log") renderAdminLog(); }
+/* ===== 🧾 CHAÎNE D'AUDIT SCELLÉE (P2 — niveau « logiciel archivage ») =====
+   Chaque événement est scellé par SHA-256 avec l'empreinte du précédent : toute altération ou
+   suppression dans l'historique CASSE la chaîne et devient détectable (🛡 Centre de sécurité →
+   Vérifier). Un ANCRAGE quotidien dépose l'empreinte de tête dans l'onglet « ANCRAGE AUDIT »
+   du Sheet : même un effacement local complet reste confrontable à ce témoin externe. */
+let _auditP=Promise.resolve();
+async function sha256Hex(s){ const b=await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(s))); return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join(""); }
+function auditSeal(type,label){
+  _auditP=_auditP.then(async()=>{
+    try{
+      DB.audit=Array.isArray(DB.audit)?DB.audit:[];
+      const prev=DB.audit.length?DB.audit[DB.audit.length-1]:null;
+      const e={ i:prev?prev.i+1:1, ts:new Date().toISOString(), who:(currentUser&&currentUser.login)||"système",
+        type:String(type||""), label:String(label==null?"":label).replace(/\s+/g," ").trim().slice(0,120), p:prev?prev.h:"genesis" };
+      e.h=await sha256Hex(e.p+"|"+e.i+"|"+e.ts+"|"+e.who+"|"+e.type+"|"+e.label);
+      DB.audit.push(e);
+      // Taille maîtrisée SANS casser la chaîne : le début est compacté en un maillon-témoin qui porte son empreinte.
+      if(DB.audit.length>4000){ const cut=DB.audit[DB.audit.length-3001]; const keep=DB.audit.slice(-3000);
+        keep.unshift({ i:cut.i, ts:cut.ts, who:"système", type:"compactage", label:"Maillon-témoin — "+cut.i+" événements antérieurs scellés en amont", p:cut.p, h:cut.h });
+        DB.audit=keep; }
+    }catch(_e){}
+  });
+  return _auditP;
+}
+async function verifyAuditChain(){
+  const a=DB.audit||[]; if(!a.length) return { ok:true, n:0 };
+  let prev=a[0];
+  if(prev.p==="genesis"){ const h0=await sha256Hex(prev.p+"|"+prev.i+"|"+prev.ts+"|"+prev.who+"|"+prev.type+"|"+prev.label);
+    if(h0!==prev.h) return { ok:false, at:prev.i, n:a.length }; }
+  for(let k=1;k<a.length;k++){ const e=a[k];
+    const h=await sha256Hex(e.p+"|"+e.i+"|"+e.ts+"|"+e.who+"|"+e.type+"|"+e.label);
+    if(e.p!==prev.h || h!==e.h) return { ok:false, at:e.i, n:a.length };
+    prev=e; }
+  return { ok:true, n:a.length, head:prev.h };
+}
+async function auditAnchor(silent){
+  try{
+    await _auditP;
+    const a=DB.audit||[]; if(!a.length){ if(!silent) toast("Rien à ancrer encore."); return; }
+    if(!serverEnabled){ if(!silent) toast("Ancrage : serveur local requis."); return; }
+    DB.meta.auditAnchors=Array.isArray(DB.meta.auditAnchors)?DB.meta.auditAnchors:[];
+    const today=todayISO();
+    if(silent && DB.meta.auditAnchors.some(x=>x.d===today)) return; // déjà ancré aujourd'hui
+    const last=a[a.length-1];
+    DB.meta.auditAnchors=DB.meta.auditAnchors.filter(x=>x.d!==today);
+    DB.meta.auditAnchors.push({ d:today, at:new Date().toISOString(), i:last.i, h:last.h });
+    if(DB.meta.auditAnchors.length>400) DB.meta.auditAnchors=DB.meta.auditAnchors.slice(-400);
+    const rows=[["Date","Horodatage","Dernier n°","Empreinte de tête (SHA-256)"]].concat(DB.meta.auditAnchors.map(x=>[x.d,x.at,x.i,x.h]));
+    await googleCall("sheetOps",{ops:[{a:"write",name:"ANCRAGE AUDIT",rows:rows},{a:"color",name:"ANCRAGE AUDIT",hex:"#7F1D1D"}]});
+    save();
+    if(!silent) toast("⚓ Chaîne ancrée dans le Sheet — événement n° "+last.i+".");
+  }catch(e){ if(!silent) toast("Ancrage : "+(e.message||e)); }
+}
+async function secVerifyChain(){
+  toast("🔎 Vérification de la chaîne d'audit…"); await _auditP;
+  const r=await verifyAuditChain();
+  if(r.ok) toast("✅ Chaîne intègre — "+r.n+" événement(s) scellé(s), aucune altération.");
+  else toast("❌ ALTÉRATION détectée à l'événement n° "+r.at+" — l'historique ne correspond plus aux scellés.");
+}
 function logEvent(type,label,immediate){
   if(!currentUser) return;                 // on ne journalise que les sessions authentifiées
   if(!DB.activityLog) DB.activityLog=[];
   DB.activityLog.push({ id:uid(), ts:new Date().toISOString(), user:currentUser.login, name:currentUser.name||"",
     role:currentUser.role||"—", type:type, label:String(label==null?"":label).replace(/\s+/g," ").trim().slice(0,90), screen:currentScreen });
+  try{ auditSeal(type, label); }catch(_e){}   // 🧾 scellé dans la chaîne d'audit
   if(DB.activityLog.length>3000) DB.activityLog=DB.activityLog.slice(-3000);
   const uu=(DB.users||[]).find(x=>x.id===currentUser.id); if(uu) uu.lastSeen=new Date().toISOString();
   if(immediate){ if(_logTimer){ clearTimeout(_logTimer); _logTimer=null; } save(); refreshAdminLogIfActive(); }
