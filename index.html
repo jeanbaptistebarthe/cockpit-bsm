@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.76.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.77.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -1119,6 +1119,22 @@ const SB_KEY = "sb_publishable_SrXvreUFVJgLLBi6PLvA-g_ARBg2SST";
 // Clé VAPID PUBLIQUE (Web Push) — publique par nature ; la clé privée vit dans les secrets Supabase.
 const PUSH_VAPID_PUBLIC = "BM6Kpk3mQIq8bJihU4TbVho2TXy9BNz-0tlgmHtlHGg8rqbt6W1kKkJz0z_ct8aqOCEvdZFMA6bAA7xZoTkbOKw";
 const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","a1docs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge","r5reports","solutionsLib","a1execreports","a1maint","a1peaks"]; // a1maint + a1peaks ajoutés 21/08 (carnet d'entretien & mesures de pointe) ; a1execreports ajouté 18/08 : le registre des rapports exécutifs A1 suit sur tous les appareils (le HTML archivé reste sur le PC serveur)
+/* ===== CLOISONNEMENT PAR RÔLE (chantier 21/08) — miroir de la table collection_policies =====
+   La VRAIE barrière est la RLS serveur (migration 0007) : le cloud ne LIVRE et n'ACCEPTE que ce que
+   le rôle autorise. Ce miroir côté app évite simplement de pousser des collections interdites
+   (erreurs de synchro) et documente la règle. admin/direction voient tout ; toute collection absente
+   d'ici est visible par tous les membres. */
+const CLOUD_COLLECTION_SCOPE={
+  transactions:"direction", investments:"direction", recurring:"direction", aiUsage:"direction",
+  reports:"direction", r5reports:"direction", a1execreports:"direction",
+  aiChat:"direction", aiMemory:"direction", assistants:"direction", aiSettings:"direction", knowledge:"direction",
+  employees:"rh", recruitments:"rh", leaves:"rh", jobs:"rh", primes:"rh",
+  devis:"commercial", docTemplates:"commercial" };
+function cloudCollectionAllowed(col){
+  const sc=CLOUD_COLLECTION_SCOPE[col]||"all"; if(sc==="all") return true;
+  const r=(currentUser&&currentUser.role)||"";
+  return r==="admin"||r==="direction"||sc===r;
+}
 let _sb=null, cloudOrgId=null, cloudPrimary=false, _cloudTimer=null;
 let _cloudPulling=false, _cloudLastPull=0, _applyingRemote=false; // synchro live entrante (auto-pull sécurisé)
 /* Snapshot des identifiants déjà poussés PAR CE POSTE, par collection.
@@ -1212,6 +1228,7 @@ async function cloudPushDelta(){
   if(!Object.keys(_cloudHash).length) return cloudImportLocal(); // état cloud inconnu (1ʳᵉ connexion) → envoi complet
   const nowIso=new Date().toISOString(); let sent=0, removed=0;
   for(const col of CLOUD_COLLECTIONS){
+    if(!cloudCollectionAllowed(col)) continue; // cloisonnement : ce rôle ne pousse pas cette collection (la RLS la refuserait)
     const arr=Array.isArray(DB[col])?DB[col]:[];
     const known=_cloudHash[col]||new Map();
     const localIds=new Set(), newMap=new Map(), rows=[];
@@ -1404,16 +1421,25 @@ async function renderCloudUsers(){
   const el=document.getElementById("cloud-users"); if(!el) return;
   el.innerHTML=`<div class="hint">Chargement des comptes cloud…</div>`;
   let c; try{ c=await sbClient(); }catch(e){ el.innerHTML=`<div class="hint" style="color:var(--orange)">Cloud indisponible.</div>`; return; }
-  const { data, error } = await c.from("profiles").select("id,full_name,role,is_active").order("full_name",{nullsFirst:false});
+  const { data, error } = await c.from("profiles").select("id,full_name,role,is_active,allowed_clients").order("full_name",{nullsFirst:false});
   if(error){ el.innerHTML=`<div class="hint" style="color:var(--red)">Erreur : ${esc(error.message)}</div>`; return; }
+  window._cloudProfiles=data||[]; // pour l'éditeur d'affectation
   const roles=["admin","direction","analyste","commercial","rh","collaborateur"];
+  const assignCell=p=>{
+    if(p.role==="admin"||p.role==="direction") return '<span class="badge b-grey" title="La direction voit l’ensemble du portefeuille">tous les clients</span>';
+    const n=(p.allowed_clients||[]).length;
+    return `<span class="badge ${n?"b-actif":"b-red"}" title="${n?"Ce profil ne reçoit que les données de ses clients affectés":"Aucun client affecté : ce profil ne reçoit AUCUNE donnée client (sécurité par défaut)"}">${n?n+" client(s)":"aucun client"}</span>
+      <button class="cta ghost sm" onclick="openClientAssign('${p.id}')" title="Choisir les clients dont ce profil reçoit les données (cloisonnement serveur)">✎</button>`;
+  };
   el.innerHTML=`
-    <table><thead><tr><th>Nom</th><th>Rôle (modifiable)</th><th>État</th></tr></thead><tbody>${
+    <table><thead><tr><th>Nom</th><th>Rôle (modifiable)</th><th>Clients affectés</th><th>État</th></tr></thead><tbody>${
       (data||[]).map(p=>`<tr>
         <td><b>${esc(p.full_name||p.id.slice(0,8))}</b>${p.id===(currentUser&&currentUser.id)?' <span class="badge b-green">vous</span>':''}</td>
         <td><select onchange="cloudSetRole('${p.id}', this.value)" ${p.id===(currentUser&&currentUser.id)?'title="Évite de retirer ton propre accès admin"':''}>${roles.map(r=>`<option value="${r}" ${p.role===r?"selected":""}>${roleLabel(r)}</option>`).join("")}</select></td>
+        <td>${assignCell(p)}</td>
         <td>${p.is_active===false?'<span class="badge b-red">désactivé</span>':'<span class="badge b-actif">actif</span>'}</td></tr>`).join("")
-      || '<tr><td colspan="3"><div class="empty">Aucun compte cloud.</div></td></tr>'}</tbody></table>
+      || '<tr><td colspan="4"><div class="empty">Aucun compte cloud.</div></td></tr>'}</tbody></table>
+    <div class="hint" style="margin-top:6px">🔒 <b>Cloisonnement</b> (migration 0007) : le serveur ne livre à un profil non-direction que <b>ses clients affectés</b> — et jamais les finances, la RH (hors rôle RH) ni les rapports. Un profil sans affectation ne reçoit aucune donnée client.</div>
     <div class="card" style="background:var(--cream);border-left:3px solid var(--gold);margin-top:12px">
       <b style="font-size:12.5px">➕ Ajouter un utilisateur (ex. un membre de la direction)</b>
       <ol style="font-size:12px;color:var(--ink);margin:8px 0 0 18px;line-height:1.8">
@@ -1425,6 +1451,31 @@ async function renderCloudUsers(){
       <div class="hint" style="margin-top:6px">Pourquoi cette étape manuelle ? Créer un compte = clé secrète, qui ne doit jamais être dans le navigateur. L'ajout « en un clic » depuis l'app viendra avec le backend (Edge Functions).</div>
     </div>`;
 }
+/* Affectation de clients à un profil (cloisonnement par client — RLS serveur, migration 0007). */
+function openClientAssign(profileId){
+  const p=(window._cloudProfiles||[]).find(x=>x.id===profileId); if(!p){ toast("Profil introuvable — recharge le panneau."); return; }
+  const cur=new Set(p.allowed_clients||[]);
+  const clients=DB.clients.slice().sort((a,b)=>String(a.company||"").localeCompare(String(b.company||"")));
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>👥 Clients affectés — ${esc(p.full_name||p.id.slice(0,8))}</h2>
+    <div class="msub">Ce profil (${esc(roleLabel(p.role))}) ne recevra du cloud QUE les données des clients cochés — dossiers, risques, recommandations, machines A1, documents. Aucune coche = aucune donnée client (sécurité par défaut). Les finances, la RH et les rapports restent hors de son périmètre quel que soit ce choix.</div>
+    <div style="max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:8px 0">
+      ${clients.map(c=>`<label style="display:flex;gap:8px;align-items:center;padding:4px 0;cursor:pointer;font-size:13px">
+        <input type="checkbox" class="ca-cli" value="${c.id}" ${cur.has(c.id)?"checked":""}>
+        <span><b>${esc(c.company||"—")}</b>${c.status&&c.status!=="actif"?` <span class="badge b-grey">${esc(c.status)}</span>`:""}</span></label>`).join("")||'<div class="empty">Aucun client dans la base.</div>'}
+    </div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="cloudSetClients('${profileId}')">Enregistrer l'affectation</button></div>`);
+}
+async function cloudSetClients(profileId){
+  const ids=[...document.querySelectorAll(".ca-cli:checked")].map(x=>x.value);
+  try{
+    const c=await sbClient();
+    const { error }=await c.from("profiles").update({ allowed_clients:ids }).eq("id", profileId);
+    if(error){ toast("Erreur : "+error.message+(String(error.message).indexOf("allowed_clients")>=0?" — exécute d'abord la migration 0007.":"")); return; }
+    closeModal(); toast("🔒 Affectation enregistrée — effective à la prochaine synchro de ce profil.");
+    if(typeof logEvent==="function") logEvent("update","Affectation clients modifiée pour le profil "+profileId.slice(0,8)+" ("+ids.length+" client(s))", true);
+    renderCloudUsers();
+  }catch(e){ toast("Cloud indisponible."); }
+}
 async function cloudSetRole(id, role){
   try{ const c=await sbClient(); const { error }=await c.from("profiles").update({role}).eq("id", id);
     if(error){ toast("Erreur : "+error.message); return; }
@@ -1435,8 +1486,9 @@ async function cloudSetRole(id, role){
 async function cloudImportLocal(onProgress){
   const c = await sbClient(); if(!cloudOrgId) await cloudLoadProfile();
   if(!cloudOrgId) throw new Error("Profil sans organisation — vérifie le bootstrap.");
-  let total=0, done=0; CLOUD_COLLECTIONS.forEach(col=>{ if(Array.isArray(DB[col])) total+=DB[col].length; });
+  let total=0, done=0; CLOUD_COLLECTIONS.forEach(col=>{ if(cloudCollectionAllowed(col)&&Array.isArray(DB[col])) total+=DB[col].length; });
   for(const col of CLOUD_COLLECTIONS){
+    if(!cloudCollectionAllowed(col)) continue; // cloisonnement : collection hors du périmètre de ce rôle
     const arr = Array.isArray(DB[col]) ? DB[col] : [];
     const localIds = new Set();
     const rows = arr.map(item => { const rid=recordId(item); localIds.add(rid);
@@ -2616,18 +2668,85 @@ function dashAIBriefingCard(){
     return `<div class="card" style="border-left:3px solid var(--gold)">
       <h2 style="margin:0">🔮 Éclairage IA</h2>
       <div class="hint" style="margin-top:6px">Obtenez une <b>synthèse stratégique</b> de votre portefeuille en un clic (CA, risques, recommandations, alertes). Ouvre le Cockpit via le <b>serveur local</b> ou renseigne une clé Claude dans ⚙ Paramètres.
-        <div style="margin-top:10px"><button class="cta ghost sm" onclick="openSettings()">⚙ Ouvrir les paramètres</button></div></div></div>`;
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap"><button class="cta ghost sm" onclick="openSettings()">⚙ Ouvrir les paramètres</button><button class="cta ghost sm" onclick="openMondayReview()">🗂️ Revue du lundi</button></div></div></div>`;
   }
   const b=DB.meta.aiBriefing; const stale = b && b.date!==todayISO();
   return `<div class="card" style="border-left:3px solid var(--gold)">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <h2 style="margin:0">🔮 Éclairage IA — synthèse du portefeuille</h2>
-      <button class="cta ghost sm" onclick="dashGenBriefing()">${b?'↻ Actualiser':'✦ Générer la synthèse'}</button></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="cta ghost sm" onclick="openMondayReview()" title="Rapport portefeuille déterministe : chaque client en carte-jauges (scores, risques critiques, retards, encaissements, prochain RDV) — imprimable">🗂️ Revue du lundi</button><button class="cta ghost sm" onclick="dashGenBriefing()">${b?'↻ Actualiser':'✦ Générer la synthèse'}</button></div></div>
     <div id="dash-briefing" style="margin-top:10px">
       ${b? `<div class="ai-md" style="font-size:13px;line-height:1.6">${mdToHtml(b.text)}</div>
         <div class="hint" style="margin-top:8px">Généré ${frDate(b.date)}${b.time?" à "+b.time:""}${b.model?" · "+esc(b.model):""}${stale?' · <span style="color:var(--orange)">à actualiser</span>':''}</div>`
       : `<div class="empty">Aucune synthèse encore. Cliquez « ✦ Générer la synthèse » pour une lecture stratégique de votre portefeuille.</div>`}
     </div></div>`;
+}
+/* ===== 🗂️ REVUE DU LUNDI (chantier 21/08) — rapport portefeuille DÉTERMINISTE en cartes-jauges =====
+   Un coup d'œil hebdomadaire pour piloter : chaque client actif en carte (4 jauges scores R5,
+   risques critiques, recos en retard, décisions client en attente, encaissements échus [direction],
+   prochain rendez-vous, dernier rapport envoyé). Aucune IA — uniquement les faits de la base.
+   Tri : les clients qui réclament de l'attention d'abord. Imprimable. */
+function _mrGauge(label, v){
+  const val=Math.max(0,Math.min(100,Math.round(+v||0)));
+  const col=val>=70?"#2F855A":(val>=45?"#B5923A":"#C0392B");
+  const r=15.5, c=2*Math.PI*r, off=c*(1-val/100);
+  return `<div style="width:60px;text-align:center">
+    <div style="position:relative;width:46px;height:46px;margin:0 auto">
+      <svg width="46" height="46" viewBox="0 0 40 40" style="transform:rotate(-90deg)"><circle cx="20" cy="20" r="${r}" fill="none" stroke="#EEE9DD" stroke-width="4"/><circle cx="20" cy="20" r="${r}" fill="none" stroke="${col}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/></svg>
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:${col}">${val}</div>
+    </div>
+    <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:2px">${label}</div></div>`;
+}
+function _mrClientData(c){
+  const t=todayISO();
+  const sc=clientScores(c.id);
+  const open=DB.risks.filter(r=>r.clientId===c.id).filter(riskOpen);
+  const crit=open.filter(r=>r.probabilite*r.impact>=15).length;
+  const recos=DB.recommendations.filter(r=>r.clientId===c.id&&r.status!=="fait");
+  const late=recos.filter(r=>r.dateCible&&r.dateCible<t).length;
+  const pendDec=recos.filter(r=>!r.clientDecision).length;
+  const dueIn=DB.transactions.filter(x=>x.clientId===c.id&&x.sens==="entrant"&&x.status==="prevu"&&x.date<=t);
+  const dueAmt=dueIn.reduce((s,x)=>s+txDefault(x),0);
+  const nextEv=(DB.events||[]).filter(e=>e.clientId===c.id&&(e.date||"")>=t).sort((a,b)=>String(a.date).localeCompare(String(b.date)))[0]||null;
+  const sent=[].concat(DB.r5reports||[],DB.reports||[],DB.a1execreports||[]).filter(r=>r.clientId===c.id&&r.sentAt);
+  const lastRep=sent.length?sent.map(r=>String(r.sentAt).slice(0,10)).sort().pop():"";
+  // Poids d'attention : critiques et retards d'abord, puis scores faibles
+  const attention=crit*40+late*18+pendDec*7+(dueIn.length?15:0)+Math.max(0,45-Math.min(sc.gouvernance,sc.resilience));
+  return { c, sc, nOpen:open.length, crit, late, pendDec, dueN:dueIn.length, dueAmt, nextEv, lastRep, attention };
+}
+function openMondayReview(){
+  const t=todayISO();
+  const rows=DB.clients.filter(c=>c.status==="actif"||!c.status).map(_mrClientData).sort((a,b)=>b.attention-a.attention);
+  const fin=typeof canFinance==="function"?canFinance():false;
+  const chip=(txt,color,bg)=>`<span style="display:inline-block;font-size:10.5px;font-weight:600;color:${color};background:${bg};border-radius:20px;padding:2px 9px;margin:2px 3px 0 0;white-space:nowrap">${txt}</span>`;
+  const cards=rows.map(d=>{
+    const chips=[
+      d.crit?chip("🔴 "+d.crit+" risque(s) critique(s)","#7B1F1F","#FBEAEA"):"",
+      d.late?chip("⏰ "+d.late+" reco(s) en retard","#7A5A12","#FCF3DC"):"",
+      d.pendDec?chip("🗳️ "+d.pendDec+" décision(s) client en attente","#1F3A5F","#E8F0FA"):"",
+      (fin&&d.dueN)?chip("💰 "+fmtD(d.dueAmt)+" à encaisser ("+d.dueN+")","#7A5A12","#FCF3DC"):"",
+      d.nextEv?chip("📅 "+frDate(d.nextEv.date)+(d.nextEv.time?" "+d.nextEv.time:"")+" — "+esc((d.nextEv.title||"RDV").slice(0,32)),"#234E52","#E6F4F1"):"",
+      d.lastRep?chip("📤 dernier rapport : "+frDate(d.lastRep),"#4A5568","#EFEDE6"):chip("📤 aucun rapport envoyé","#7B1F1F","#FBEAEA")
+    ].filter(Boolean).join("");
+    const calm=!d.crit&&!d.late&&!d.pendDec&&(!fin||!d.dueN);
+    return `<div style="border:1px solid var(--line);border-left:4px solid ${d.crit?"#C0392B":(d.late||d.pendDec?"#B5923A":"#2F855A")};border-radius:10px;padding:10px 13px;margin:8px 0;background:#fff;page-break-inside:avoid">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap">
+        <div style="min-width:180px">
+          <b class="clink" style="cursor:pointer;font-size:14px" onclick="closeModal();focusGo('${d.c.id}','clients')">${esc(d.c.company||"—")}</b>
+          <div style="font-size:11px;color:var(--muted)">${d.nOpen} risque(s) ouvert(s)${d.sc.hasData?"":" · dossier à ouvrir"}</div>
+          <div style="margin-top:4px">${chips||chip("✓ rien à signaler cette semaine","#22543D","#E9F7EF")}</div>
+        </div>
+        <div style="display:flex;gap:2px">${_mrGauge("Maturité",d.sc.maturite)}${_mrGauge("Résilience",d.sc.resilience)}${_mrGauge("Gouvern.",d.sc.gouvernance)}${_mrGauge("Maîtrise",d.sc.risque)}</div>
+      </div></div>`;
+  }).join("");
+  const totCrit=rows.reduce((s,d)=>s+d.crit,0), totLate=rows.reduce((s,d)=>s+d.late,0), totDue=rows.reduce((s,d)=>s+d.dueAmt,0);
+  openModal(`<span class="close" onclick="closeModal()">✕</span>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <h2 style="margin:0">🗂️ Revue du lundi — portefeuille</h2>
+      <button class="cta ghost sm" onclick="window.print()">🖨️ Imprimer</button></div>
+    <div class="msub">Semaine du ${frDate(t)} · ${rows.length} client(s) actif(s) · ${totCrit} risque(s) critique(s) · ${totLate} reco(s) en retard${fin&&totDue?` · ${fmtD(totDue)} à encaisser`:""} — les clients qui réclament de l'attention sont en tête.</div>
+    ${cards||'<div class="empty">Aucun client actif.</div>'}
+    <div class="hint" style="margin-top:8px">Lecture : liseré rouge = risque critique ouvert · doré = retard ou décision en attente · vert = rien à signaler. Clique un nom pour ouvrir la fiche 360°.</div>`);
 }
 async function dashGenBriefing(){
   const box=document.getElementById("dash-briefing"); if(box) box.innerHTML=aiSkeleton();
