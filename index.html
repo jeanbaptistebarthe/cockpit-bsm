@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.72.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.73.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -1590,6 +1590,9 @@ async function serverSyncInit(){
     // ⚓ Ancrage quotidien de la chaîne d'audit (P2) — témoin externe dans le Sheet
     setTimeout(()=>{ try{ auditAnchor(true); }catch(e){} }, 20000);
     setInterval(()=>{ try{ auditAnchor(true); }catch(e){} }, 6*60*60*1000);
+    // ⏳ Surveillance des crédits-passerelles A1 (J-15 / J-5 / dernier jour / expiré)
+    setTimeout(()=>{ try{ bridgeWatch(); }catch(e){} }, 25000);
+    setInterval(()=>{ try{ bridgeWatch(); }catch(e){} }, 6*60*60*1000);
   }catch(e){ /* pas de serveur : on reste en local, sans afficher d'erreur */ }
 }
 /* ---- Proxy IA serveur : le navigateur ne stocke plus les clés API ; il sait seulement quels fournisseurs sont prêts. ---- */
@@ -16472,11 +16475,28 @@ function bsmIdent(){ const s=docIdentity(); return { forme:"SARL", cab:DB.meta.c
   legal:"BSM Sécurité", // entité juridique : c'est ELLE qui contracte et qui facture — « BSM Advisory & Consulting » est le nom commercial (mention discrète mais systématique, demande JB 21/08)
   nif:s.nif||"4018819403", stat:s.stat||"74905 41 2024 0 01103", adr:s.adr||"Ivato, Antananarivo, Madagascar",
   email:s.email||"jeanbaptiste.barthe@bsmconseils.com", tel:s.tel||"" }; }
+/* Grille A1 (avenant BSM-A1) : prix PRÉ-REMPLIS et MODIFIABLES ; remise et services offerts sur toute offre. */
+const A1_FORMULES=[
+  {k:"essentiel", label:"A1 Essentiel — 1 site · 1 famille d'équipements", prix:400,  delai:10, paiement:"integral"},
+  {k:"approfondi",label:"A1 Approfondi — multi-équipements · comparatif mensuel", prix:900,  delai:15, paiement:"integral"},
+  {k:"complet",   label:"A1 Complet — multi-sites · restitution direction", prix:2100, delai:20, paiement:"5050"},
+  {k:"mesure",    label:"Sur mesure (prix libre)", prix:0, delai:15, paiement:"integral"}
+];
+const SERVICES_OFFERTS=["Espace sécurité & QR de signalement","Fiches réflexes (sélection en annexe)","Exercice de crise annuel","Restitution sur site","1 mois de suivi offert"];
 function onbGet(){ window.__onb=window.__onb||{ step:1, clientId:focusClient||"", missionId:"", montant:0, devise:DB.meta.defaultCurrency||"EUR",
+  type:"r5", formule:"", delaiJours:10, paiement:"integral",
+  remise:0, remiseMode:"pct", gifts:[], giftOther:"",
   dureeMois:12, rythme:"mensuel", nEch:0, paiementJours:15, comite:"trimestriel", preavisJours:60 }; return window.__onb; }
-function onbCalc(o){ const m=+o.montant||0, ac=Math.round(m*0.30), solde=m-ac;
+function onbCalc(o){
+  const brut=+o.montant||0;
+  const rem=Math.max(0, Math.min(brut, o.remiseMode==="pct" ? Math.round(brut*(+o.remise||0)/100) : Math.round(+o.remise||0)));
+  const m=brut-rem; // NET après remise — base de tout l'échéancier
+  if(o.type==="a1"){ const ac=(o.paiement==="5050")?Math.round(m/2):m;
+    return { brut, rem, m, ac, solde:m-ac, n:(o.paiement==="5050")?1:0, mens:m-ac }; }
+  const ac=Math.round(m*0.30), solde=m-ac;
   const n=Math.max(1, +o.nEch || (o.dureeMois>1?Math.min(o.dureeMois-1,11):1));
-  return { m, ac, solde, n, mens: Math.round(solde/n) }; }
+  return { brut, rem, m, ac, solde, n, mens: Math.round(solde/n) };
+}
 function onbBlockers(o){
   const c=DB.clients.find(x=>x.id===o.clientId); const b=[];
   if(o.step>=1){ if(!c) b.push("Choisir le client.");
@@ -16484,11 +16504,33 @@ function onbBlockers(o){
       if(!(c.contactEmail||"").trim()) b.push("Fiche client : e-mail du décisionnaire manquant.");
       if(!(c.sector||"").trim()) b.push("Fiche client : secteur (exclusivité) manquant."); } }
   if(o.step>=2){ if(!(+o.montant>0)) b.push("Prestation financière non renseignée — montant HT obligatoire.");
-    if(!(+o.dureeMois>=1)) b.push("Durée du contrat (mois) obligatoire."); }
+    if(o.type==="r5" && !(+o.dureeMois>=1)) b.push("Durée du contrat (mois) obligatoire.");
+    if(o.type==="a1" && !o.formule) b.push("Choisir la formule Audit Flash A1.");
+    const k=onbCalc(o); if(k.m<=0) b.push("La remise ne peut pas absorber la totalité du prix."); }
   return b;
 }
 function onbSet(k,v){ onbGet()[k]=v; }
 function openOnboarding(){ const o=onbGet(); if(focusClient&&!o.clientId) o.clientId=focusClient; renderOnb(); }
+/* ⏳ Crédit-passerelle A1 : décompte interne des 90 jours depuis l'émission du contrat.
+   Relances automatiques (cloche + push) à J-15, J-5, dernier jour, puis clôture à l'expiration —
+   le commercial n'a plus à surveiller le calendrier, le Cockpit s'en charge. */
+function bridgeWatch(){
+  const today=todayISO(); let changed=false;
+  (DB.clients||[]).forEach(c=>{
+    if(!c.a1BridgeUntil) return;
+    c.a1BridgeNotified=c.a1BridgeNotified||{};
+    const days=Math.ceil((new Date(c.a1BridgeUntil)-new Date(today))/86400000);
+    const amt=fmt(c.a1BridgeAmount||0, c.a1BridgeCurrency||DB.meta.defaultCurrency||"EUR");
+    const fire=(key,title,detail)=>{ if(c.a1BridgeNotified[key]) return; c.a1BridgeNotified[key]=true; changed=true;
+      notify("client", title, detail, {clientId:c.id}); };
+    if(days<0){ fire("expired","⌛ Crédit-passerelle A1 expiré — "+(c.company||""), amt+" n'est plus déductible (limite "+frDate(c.a1BridgeUntil)+" dépassée). Une prolongation commerciale reste ta décision.");
+      delete c.a1BridgeUntil; changed=true; return; }
+    if(days<=1) fire("d1","🔥 Crédit-passerelle A1 — DERNIER JOUR ("+(c.company||"")+")", amt+" déductibles seulement jusqu'à CE SOIR ("+frDate(c.a1BridgeUntil)+") — appelle le client.");
+    else if(days<=5) fire("d5","⏳ Crédit-passerelle A1 — J-"+days+" ("+(c.company||"")+")", amt+" déductibles jusqu'au "+frDate(c.a1BridgeUntil)+" — dernière ligne droite pour proposer l'accompagnement R5.");
+    else if(days<=15) fire("d15","⏳ Crédit-passerelle A1 — J-"+days+" ("+(c.company||"")+")", amt+" déductibles jusqu'au "+frDate(c.a1BridgeUntil)+" — bon moment pour relancer sur l'accompagnement R5.");
+  });
+  if(changed) save();
+}
 function renderOnb(){
   const o=onbGet(); ensureFiches();
   const c=DB.clients.find(x=>x.id===o.clientId);
@@ -16509,23 +16551,58 @@ function renderOnb(){
   } else if(o.step===2){
     const ms=DB.missions.filter(m=>m.clientId===o.clientId);
     const k=onbCalc(o);
-    body=`<div class="field"><label>Mission de rattachement (option — reprend le montant)</label>
+    const giftsUI=`<div class="field"><label>🎁 Services offerts (apparaissent « OFFERT » au contrat)</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${SERVICES_OFFERTS.map((s,i)=>`<label style="display:inline-flex;gap:5px;align-items:center;border:1px solid var(--line);border-radius:99px;padding:5px 11px;font-size:11.5px;cursor:pointer;background:${(o.gifts||[]).indexOf(s)>=0?'#EAF3EC':'#fff'}"><input type="checkbox" ${(o.gifts||[]).indexOf(s)>=0?"checked":""} onchange="var g=onbGet().gifts||[];var i=g.indexOf('${s.replace(/'/g,"\\'")}');if(i>=0)g.splice(i,1);else g.push('${s.replace(/'/g,"\\'")}');onbSet('gifts',g);renderOnb()" style="width:auto">${esc(s)}</label>`).join("")}</div>
+      <input style="margin-top:6px" placeholder="Autre service offert (libre)" value="${esc(o.giftOther||"")}" onchange="onbSet('giftOther',this.value)"></div>`;
+    const remiseUI=`<div class="field row2"><label>Remise commerciale (option)</label>
+      <input type="number" min="0" value="${o.remise||""}" placeholder="0" onchange="onbSet('remise',+this.value);renderOnb()">
+      <select onchange="onbSet('remiseMode',this.value);renderOnb()"><option value="pct" ${o.remiseMode==="pct"?"selected":""}>% du prix</option><option value="mnt" ${o.remiseMode==="mnt"?"selected":""}>montant fixe</option></select></div>`;
+    const typeUI=`<div class="field"><label>Type de contrat</label><div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="chip ${o.type==="r5"?"active":""}" onclick="onbSet('type','r5');renderOnb()">♾ Accompagnement R5® (récurrent)</button>
+      <button type="button" class="chip ${o.type==="a1"?"active":""}" onclick="onbSet('type','a1');renderOnb()">⚡ Audit Flash A1® (ponctuel)</button></div></div>`;
+    if(o.type==="a1"){
+      body=`${typeUI}
+      <div class="field"><label>Formule A1 (prix pré-rempli, MODIFIABLE ensuite)</label>
+        <select onchange="onbSet('formule',this.value);var f=A1_FORMULES.find(x=>x.k===this.value);if(f){if(f.prix)onbSet('montant',f.prix);onbSet('delaiJours',f.delai);onbSet('paiement',f.paiement);}renderOnb()">
+        <option value="">— Choisir —</option>${A1_FORMULES.map(f=>`<option value="${f.k}" ${o.formule===f.k?"selected":""}>${esc(f.label)}${f.prix?" · "+f.prix+" €":""}</option>`).join("")}</select></div>
+      <div class="field row2"><label>Prix HT (adaptable) & devise</label>
+        <input type="number" value="${o.montant||""}" placeholder="⛔ obligatoire" onchange="onbSet('montant',+this.value);renderOnb()">
+        <select onchange="onbSet('devise',this.value)">${["EUR","USD","MGA"].map(d=>`<option ${o.devise===d?"selected":""}>${d}</option>`).join("")}</select></div>
+      ${remiseUI}
+      <div class="field row2"><label>Paiement & délai de remise du rapport (jours ouvrés)</label>
+        <select onchange="onbSet('paiement',this.value);renderOnb()"><option value="integral" ${o.paiement==="integral"?"selected":""}>Intégral à la commande</option><option value="5050" ${o.paiement==="5050"?"selected":""}>50 % commande · 50 % à la remise</option></select>
+        <input type="number" min="3" max="60" value="${o.delaiJours}" onchange="onbSet('delaiJours',+this.value)"></div>
+      ${giftsUI}
+      ${k.m>0?`<div class="card" style="background:#FCFBF7;margin-top:8px"><b>Conditions calculées</b>
+        <div class="mini-list" style="margin-top:6px">
+        ${k.rem?`<div class="li"><span>Prix catalogue</span><b>${fmt(k.brut,o.devise)}</b></div><div class="li"><span>Remise${o.remiseMode==="pct"?" ("+o.remise+" %)":""}</span><b style="color:var(--green)">− ${fmt(k.rem,o.devise)}</b></div>`:""}
+        <div class="li"><span>Net HT</span><b>${fmt(k.m,o.devise)}</b></div>
+        <div class="li"><span>À la commande</span><b>${fmt(k.ac,o.devise)}${o.paiement==="5050"?" · solde "+fmt(k.solde,o.devise)+" à la remise":" (intégral — l'analyse démarre à l'encaissement)"}</b></div>
+        <div class="li"><span>🎁 Crédit-passerelle R5®</span><b>100 % déduit si contrat-cadre signé avant le ${esc(frDate(isoPlus(todayISO(),90)))}</b></div></div></div>`:""}`;
+    } else {
+      body=`${typeUI}
+      <div class="field"><label>Mission de rattachement (option — reprend le montant)</label>
       <select onchange="onbSet('missionId',this.value);var m=DB.missions.find(x=>x.id===this.value);if(m&&m.montantHT){onbSet('montant',+m.montantHT);if(m.currency)onbSet('devise',m.currency);}renderOnb()">
       <option value="">— Saisie manuelle —</option>${ms.map(m=>`<option value="${m.id}" ${o.missionId===m.id?"selected":""}>${esc(m.ref||"")} ${esc(m.type||"")} ${m.montantHT?("— "+m.montantHT+" "+(m.currency||"")):""}</option>`).join("")}</select></div>
       <div class="field row2"><label>Montant HT & devise</label>
         <input type="number" value="${o.montant||""}" placeholder="⛔ obligatoire" onchange="onbSet('montant',+this.value);renderOnb()">
         <select onchange="onbSet('devise',this.value)">${["EUR","USD","MGA"].map(d=>`<option ${o.devise===d?"selected":""}>${d}</option>`).join("")}</select></div>
+      ${remiseUI}
       <div class="field row2"><label>Durée (mois) & rythme de restitution</label>
         <input type="number" min="1" max="60" value="${o.dureeMois}" onchange="onbSet('dureeMois',+this.value);onbSet('nEch',0);renderOnb()">
         <select onchange="onbSet('rythme',this.value)">${["mensuel","trimestriel"].map(r=>`<option ${o.rythme===r?"selected":""}>${r}</option>`).join("")}</select></div>
       <div class="field row2"><label>Nombre de mensualités du solde & comité de suivi</label>
         <input type="number" min="1" max="24" value="${k.n}" onchange="onbSet('nEch',+this.value);renderOnb()">
         <select onchange="onbSet('comite',this.value)">${["mensuel","trimestriel","semestriel"].map(r=>`<option ${o.comite===r?"selected":""}>${r}</option>`).join("")}</select></div>
+      ${giftsUI}
       ${k.m>0?`<div class="card" style="background:#FCFBF7;margin-top:8px"><b>Échéancier calculé</b> (règle BSM : 30 % à la commande, avant lancement)
         <div class="mini-list" style="margin-top:6px">
+        ${k.rem?`<div class="li"><span>Prix catalogue</span><b>${fmt(k.brut,o.devise)}</b></div><div class="li"><span>Remise${o.remiseMode==="pct"?" ("+o.remise+" %)":""}</span><b style="color:var(--green)">− ${fmt(k.rem,o.devise)}</b></div>`:""}
+        <div class="li"><span>Net HT</span><b>${fmt(k.m,o.devise)}</b></div>
         <div class="li"><span>Acompte à la signature (30 %)</span><b>${fmt(k.ac,o.devise)}</b></div>
         <div class="li"><span>Solde</span><b>${fmt(k.solde,o.devise)} en ${k.n} mensualité${k.n>1?"s":""} de ≈ ${fmt(k.mens,o.devise)}</b></div>
         <div class="li"><span>Paiement des factures</span><b>${o.paiementJours} jours · pénalités 1 % par mois de retard</b></div></div></div>`:""}`;
+    }
   } else if(o.step===3){
     const acc=c?(c.fichesAccess==="ALL"?DB.fiches.map(f=>f.ref):(Array.isArray(c.fichesAccess)?c.fichesAccess:[])):[];
     body=`<p style="font-size:12.5px">Le périmètre coché ici devient l'<b>Annexe 4</b> du contrat, et le portail du client l'applique immédiatement.</p>
@@ -16537,11 +16614,17 @@ function renderOnb(){
       <div class="hint" style="margin-top:6px">Astuce : mets ce client en Focus pour retrouver ce panneau dans 📕 Fiches.</div>`;
   } else {
     const k=onbCalc(o);
+    const giftsAll=(o.gifts||[]).concat((o.giftOther||"").trim()?[o.giftOther.trim()]:[]);
     body=`<div class="mini-list">
       <div class="li"><span>Client</span><b>${esc(c?c.company:"")}</b></div>
-      <div class="li"><span>Contrat</span><b>${o.dureeMois} mois · restitution ${esc(o.rythme)} · comité ${esc(o.comite)}</b></div>
-      <div class="li"><span>Conditions</span><b>${fmt(k.m,o.devise)} HT — acompte ${fmt(k.ac,o.devise)} + ${k.n} × ≈ ${fmt(k.mens,o.devise)}</b></div>
-      <div class="li"><span>Dossier généré</span><b>Couverture + Livret + Contrat pré-rempli + CGPS + NDA + Charte sécurité + Annexe accès</b></div></div>
+      ${o.type==="a1"
+        ?`<div class="li"><span>Prestation</span><b>⚡ Audit Flash A1® — ${esc((A1_FORMULES.find(f=>f.k===o.formule)||{}).label||"")}</b></div>
+          <div class="li"><span>Conditions</span><b>${k.rem?fmt(k.brut,o.devise)+" − remise "+fmt(k.rem,o.devise)+" = ":""}${fmt(k.m,o.devise)} HT · ${o.paiement==="5050"?"50 % / 50 %":"intégral à la commande"} · rapport sous ${o.delaiJours} j ouvrés</b></div>
+          <div class="li"><span>🎁 Crédit-passerelle R5®</span><b>100 % déduit si signature avant le ${esc(frDate(isoPlus(todayISO(),90)))} — suivi automatique dans le Cockpit</b></div>`
+        :`<div class="li"><span>Contrat</span><b>♾ Accompagnement R5® — ${o.dureeMois} mois · restitution ${esc(o.rythme)} · comité ${esc(o.comite)}</b></div>
+          <div class="li"><span>Conditions</span><b>${k.rem?fmt(k.brut,o.devise)+" − remise "+fmt(k.rem,o.devise)+" = ":""}${fmt(k.m,o.devise)} HT — acompte ${fmt(k.ac,o.devise)} + ${k.n} × ≈ ${fmt(k.mens,o.devise)}</b></div>`}
+      ${giftsAll.length?`<div class="li"><span>🎁 Services offerts</span><b>${esc(giftsAll.join(" · "))}</b></div>`:""}
+      <div class="li"><span>Dossier généré</span><b>Couverture + Livret + ${o.type==="a1"?"Conditions A1 pré-remplies":"Contrat-cadre pré-rempli"} + CGPS + NDA + Charte sécurité + Annexe accès</b></div></div>
       <div class="field" style="margin-top:10px"><label>Destinataire (décisionnaire)</label><input id="onb-to" value="${esc((c&&c.contactEmail)||"")}"></div>
       ${c&&c.onboardingSentAt?`<div class="hint">Déjà envoyé le ${esc(fmtDateTime(c.onboardingSentAt))} à ${esc(c.onboardingTo||"")} — un renvoi remplace proprement.</div>`:""}`;
   }
@@ -16571,8 +16654,15 @@ async function onbSend(){
   try{
     await bsmClientMail({ to, subject:"[BSM] Votre dossier de signature — "+(c.company||""), html:body, pdfHtml:doc,
       pdfName:"BSM_Dossier_Signature_"+(c.company||"client").replace(/[^A-Za-z0-9._-]+/g,"_"), client:c.company||"" });
-    c.onboardingSentAt=new Date().toISOString(); c.onboardingTo=to; save();
-    closeModal(); toast("📤 Dossier de signature envoyé à "+to+" ✅ — acompte 30 % attendu avant lancement.");
+    c.onboardingSentAt=new Date().toISOString(); c.onboardingTo=to;
+    if(o.type==="a1"){
+      // ⏳ Crédit-passerelle : 90 jours décomptés depuis l'ÉMISSION — le Cockpit surveille et relance.
+      const kk=onbCalc(o);
+      c.a1BridgeUntil=isoPlus(todayISO(),90); c.a1BridgeAmount=kk.m; c.a1BridgeCurrency=o.devise; c.a1BridgeNotified={};
+      logEvent("action","⏳ Crédit-passerelle A1 ouvert : "+(c.company||"")+" — "+fmt(kk.m,o.devise)+" déductibles jusqu'au "+frDate(c.a1BridgeUntil), true);
+    }
+    save();
+    closeModal(); toast("📤 Dossier envoyé à "+to+" ✅ — "+(o.type==="a1"?"paiement à la commande attendu ; crédit-passerelle suivi jusqu'au "+frDate(isoPlus(todayISO(),90))+".":"acompte 30 % attendu avant lancement."));
   }catch(e){ toast("Échec de l'envoi : "+(e.message||e)); }
 }
 function onbPreview(){ const w=window.open("","_blank"); if(!w){ toast("Autorise les pop-ups."); return; }
@@ -16586,6 +16676,30 @@ function dossierSignatureHtml(o){
   const hd=(ref,ver)=>`<div class="dhd"><div><div class="dcab">${esc(I.cab)}</div><div class="dtag">Risk Governance · Operational Resilience · Crisis Management</div></div><div class="dmeta">${esc(I.legal)} ${esc(I.forme)} — NIF ${esc(I.nif)} · STAT ${esc(I.stat)}<br>${esc(I.adr)}<br>Réf. <b>${esc(ref)}</b> · v${esc(ver)} — ${esc(D)}</div></div>`;
   const dft=t=>`<div class="dft">« ${esc(I.cab)} » est le nom commercial de ${esc(I.legal)} ${esc(I.forme)} — NIF ${esc(I.nif)} · STAT ${esc(I.stat)} — ${esc(I.adr)} · ${esc(t)} · Document confidentiel, propriété exclusive de ${esc(I.legal)} ${esc(I.forme)}</div>`;
   const sig=`<div class="sig"><div><b>Pour ${esc(I.legal)} ${esc(I.forme)}</b> (${esc(I.cab)})<br>Jean-Baptiste Barthe, Gérant<br><br><br>Signature et cachet :</div><div><b>Pour ${esc(c.company||"le Client")}</b><br>${esc(c.contactName||"[Nom, qualité]")}<br><br><br>Signature et cachet :</div></div>`;
+  const giftsAll=(o.gifts||[]).concat((o.giftOther||"").trim()?[o.giftOther.trim()]:[]);
+  const remRows=k.rem?`<tr><td>Prix catalogue</td><td>${fmt(k.brut,o.devise)} HT</td></tr><tr><td>Remise commerciale${o.remiseMode==="pct"?" ("+o.remise+" %)":""}</td><td style="color:#2F855A"><b>− ${fmt(k.rem,o.devise)}</b></td></tr>`:"";
+  const giftRows=giftsAll.length?`<tr><td>🎁 Services inclus sans supplément</td><td><b>${giftsAll.map(esc).join("<br>")}</b> — <span style="color:#2F855A">OFFERT</span></td></tr>`:"";
+  const bridgeDate=frDate(isoPlus(todayISO(),90));
+  // Le document contractuel du dossier dépend du TYPE : contrat-cadre R5 (récurrent) ou conditions A1 (ponctuel).
+  const contratDoc = (o.type==="a1") ? `
+<div class="doc">${hd("BSM-A1-"+(new Date().getFullYear())+"-"+((c.company||"CLI").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,3)),"1.0")}
+  <h1>Conditions particulières — Audit Flash A1®</h1>
+  <div class="sub">Entre <b>${esc(I.legal)}</b>, ${esc(I.forme)}, NIF ${esc(I.nif)}, STAT ${esc(I.stat)}, siège ${esc(I.adr)}, exerçant sous le nom commercial « ${esc(I.cab)} », représentée par Jean-Baptiste Barthe (« BSM »)<br>et <b>${esc(c.company||"[CLIENT]")}</b>${c.sector?" — secteur "+esc(c.sector):""}, représentée par <b>${esc(c.contactName||"[représentant]")}</b> (« le Client ») — rattachées aux CGPS (Annexe 1)</div>
+  <h2>Article 1 — Objet</h2><p>Prestation ponctuelle d'analyse énergétique et d'exploitation (Audit Flash A1®) : mesure des coûts réels, détection des dérives et gisements d'économie, recommandations chiffrées. Porte d'entrée vers l'accompagnement Méthode R5®, sans obligation de suite.</p>
+  <h2>Article 2 — Formule et conditions financières</h2>
+  <table><tr><th>Élément</th><th>Détail</th></tr>
+  <tr><td>Formule retenue</td><td><b>${esc((A1_FORMULES.find(f=>f.k===o.formule)||{}).label||"Audit Flash A1")}</b></td></tr>
+  ${remRows}
+  <tr><td>Prix net</td><td><b>${fmt(k.m,o.devise)} HT</b></td></tr>
+  <tr><td>Paiement</td><td>${o.paiement==="5050"?("50 % à la commande ("+fmt(k.ac,o.devise)+"), solde à la remise du rapport"):("<b>Intégral à la commande ("+fmt(k.m,o.devise)+")</b>")} — l'analyse démarre à l'encaissement</td></tr>
+  <tr><td>Remise du rapport</td><td>Sous <b>${o.delaiJours} jours ouvrés</b> après réception complète des données et encaissement</td></tr>
+  ${giftRows}</table>
+  <h2>Article 3 — Crédit-passerelle R5®</h2>
+  <div class="frame"><p><b>Si le Client signe un contrat-cadre d'accompagnement R5® au plus tard le ${esc(bridgeDate)}</b> (90 jours après l'émission des présentes), <b>100 % du montant net réglé au titre du présent audit est déduit</b> de la première facturation de l'accompagnement. Sans suite, le rapport reste un livrable complet, définitivement acquis au Client.</p></div>
+  <h2>Article 4 — Données, livrables, rattachement</h2>
+  <p>Le Client fournit sous 10 jours les factures d'énergie/carburant, relevés d'exploitation et caractéristiques des équipements — l'analyse repose sur ces données. Livrables : rapport exécutif PDF (archive) + version interactive en ligne (consultation personnelle révocable). La méthodologie A1®, modèles et outils demeurent la propriété exclusive de BSM. Pour tout le reste, les CGPS (Annexe 1) s'appliquent ; en cas de contradiction, les présentes prévalent.</p>
+  <p style="margin-top:10px">Fait à Antananarivo, le ${esc(D)}, en deux exemplaires originaux.</p>${sig}
+  ${dft("Conditions particulières Audit Flash A1® v1.0")}</div>` : "";
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Dossier de signature — ${esc(c.company||"")}</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Raleway:wght@300;400;600;800&display=swap" rel="stylesheet">
 <style>*{box-sizing:border-box;margin:0;padding:0}
@@ -16617,13 +16731,15 @@ th{background:#F6F1E8;color:#0B1B3A;font-weight:800;font-size:8.5px;letter-spaci
   <div style="font-size:11px;color:#6B7280">Établi le ${esc(D)} · à l'attention de ${esc(c.contactName||"la Direction")}</div>
   <div class="toc">
     <div>1 · Livret d'accueil — votre partenariat au quotidien</div>
-    <div>2 · Contrat-cadre d'accompagnement Méthode R5® (pré-rempli)</div>
+    <div>2 · ${o.type==="a1"?"Conditions particulières Audit Flash A1® (pré-remplies)":"Contrat-cadre d'accompagnement Méthode R5® (pré-rempli)"}</div>
     <div>3 · Conditions Générales de Prestation de Services (Annexe 1)</div>
     <div>4 · Accord de confidentialité réciproque (Annexe 3)</div>
     <div>5 · Charte de sécurité des données (Annexe 2)</div>
     <div>6 · Périmètre de vos accès en ligne (Annexe 4)</div></div>
   ${qr?`<div class="qrbox">${qr}</div><div style="font-size:9.5px;color:#6B7280">Votre espace sécurité — actif dès la signature</div>`:""}
-  <div class="frame" style="text-align:left;margin-top:18px"><b>Pour démarrer :</b> signez le contrat-cadre (page suivante), réglez l'acompte de <b>${fmt(k.ac,o.devise)}</b> (30 %) — la mission et vos accès sont lancés dès son encaissement.</div></div>
+  <div class="frame" style="text-align:left;margin-top:18px"><b>Pour démarrer :</b> ${o.type==="a1"
+    ?`signez les conditions A1 (page suivante), réglez <b>${fmt(k.ac,o.devise)}</b>${o.paiement==="5050"?" (50 %)":""} — l'analyse démarre dès l'encaissement, rapport sous ${o.delaiJours} jours ouvrés. Et si vous poursuivez en accompagnement R5® avant le ${esc(bridgeDate)}, <b>ce montant vous est intégralement déduit</b>.`
+    :`signez le contrat-cadre (page suivante), réglez l'acompte de <b>${fmt(k.ac,o.devise)}</b> (30 %) — la mission et vos accès sont lancés dès son encaissement.`}</div></div>
   ${dft("Dossier de signature")}</div>
 <div class="doc">${hd("BSM-ACC-2026-001","1.0")}
   <h1>Livret d'accueil</h1><div class="sub">Votre partenariat BSM au quotidien — 5 minutes de lecture</div>
@@ -16641,7 +16757,7 @@ th{background:#F6F1E8;color:#0B1B3A;font-weight:800;font-size:8.5px;letter-spaci
   <li><b>Vous</b> : informations exactes, décisions rendues, protection de vos liens d'accès (personnels, à ne pas faire circuler).</li></ul>
   <h2>Conditions pratiques</h2><p>Acompte de 30 % à la commande avant lancement, solde échelonné ; montants figés à leur taux d'origine, révision au-delà de ±5 % de variation de change ; en fin de contrat, vous conservez vos PDF, les accès en ligne sont suspendus, méthode et supports restent la propriété de BSM.</p>
   ${dft("Livret d'accueil BSM-ACC-2026-001 v1.0")}</div>
-<div class="doc">${hd("BSM-CC-"+(new Date().getFullYear())+"-"+((c.company||"CLI").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,3)),"1.0")}
+${o.type==="a1"?contratDoc:`<div class="doc">${hd("BSM-CC-"+(new Date().getFullYear())+"-"+((c.company||"CLI").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,3)),"1.0")}
   <h1>Contrat-cadre d'accompagnement — Méthode R5®</h1>
   <div class="sub">Entre <b>${esc(I.legal)}</b>, ${esc(I.forme)}, NIF ${esc(I.nif)}, STAT ${esc(I.stat)}, siège ${esc(I.adr)}, exerçant sous le nom commercial « ${esc(I.cab)} », représentée par Jean-Baptiste Barthe (« BSM »)<br>et <b>${esc(c.company||"[CLIENT]")}</b>${c.sector?" — secteur "+esc(c.sector):""}, représentée par <b>${esc(c.contactName||"[représentant]")}</b> (« le Client »)</div>
   <h2>Article 1 — Objet</h2><p>Le présent contrat-cadre organise l'accompagnement du Client selon la Méthode R5®. Les CGPS (Annexe 1), la Charte de sécurité (Annexe 2), le NDA (Annexe 3) et le Périmètre des accès en ligne (Annexe 4) en font partie intégrante.</p>
@@ -16649,14 +16765,16 @@ th{background:#F6F1E8;color:#0B1B3A;font-weight:800;font-size:8.5px;letter-spaci
   <h2>Article 3 — Prestations et restitutions</h2><p>Accompagnement complet selon les cinq temps R5® (audit, cartographie P×I, plan d'action chiffré, suivi de mise en œuvre, revue). Restitutions <b>${esc(o.rythme)}les</b> : rapport PDF (archive) + rapport interactif en ligne (consultation). Comité de suivi <b>${esc(o.comite)}</b> : revue des risques, décisions, arbitrages. Les décisions rendues par le Client via sa fiche de décision en ligne sont tracées à son dossier et <b>font foi entre les parties</b>.</p>
   <h2>Article 4 — Conditions financières</h2>
   <table><tr><th>Élément</th><th>Montant</th></tr>
-  <tr><td>Montant total de l'accompagnement (${o.dureeMois} mois)</td><td><b>${fmt(k.m,o.devise)} HT</b></td></tr>
+  ${remRows}
+  <tr><td>Montant net de l'accompagnement (${o.dureeMois} mois)</td><td><b>${fmt(k.m,o.devise)} HT</b></td></tr>
   <tr><td>Acompte à la signature (30 %) — avant lancement</td><td><b>${fmt(k.ac,o.devise)}</b></td></tr>
   <tr><td>Solde en ${k.n} mensualité${k.n>1?"s":""}</td><td><b>≈ ${fmt(k.mens,o.devise)} / mois</b></td></tr>
-  <tr><td>Paiement des factures</td><td>${o.paiementJours} jours — pénalités de retard : 1 % par mois, tout mois commencé étant dû</td></tr></table>
+  <tr><td>Paiement des factures</td><td>${o.paiementJours} jours — pénalités de retard : 1 % par mois, tout mois commencé étant dû</td></tr>
+  ${giftRows}</table>
   <p>Devise : ${esc(o.devise)} — montants figés à leur taux d'origine, révision des échéances restantes au-delà de ±5 % de variation (art. 4.3 CGPS). La Mission est lancée à l'encaissement de l'acompte (art. 3.2 CGPS).</p>
   <h2>Article 5 — Durée</h2><p>Durée initiale : <b>${o.dureeMois} mois</b> à compter de l'encaissement de l'acompte, renouvelable tacitement par périodes de 12 mois sauf dénonciation avec préavis de ${o.preavisJours} jours. À l'échéance : suspension des accès en ligne, conservation des PDF par le Client, survie des clauses de confidentialité et de propriété intellectuelle.</p>
   <p style="margin-top:10px">Fait à Antananarivo, le ${esc(D)}, en deux exemplaires originaux.</p>${sig}
-  ${dft("Contrat-cadre R5® v1.0")}</div>
+  ${dft("Contrat-cadre R5® v1.0")}</div>`}
 <div class="doc">${hd("BSM-CGPS-2026-001","1.0")}
   <h1>Conditions Générales de Prestation de Services</h1><div class="sub">Annexe 1 du contrat-cadre — applicables à toute mission BSM</div>
   <h2>1 · Définitions & champ</h2><p>« BSM » : <b>${esc(I.legal)}</b>, ${esc(I.forme)}, NIF ${esc(I.nif)}, STAT ${esc(I.stat)}, siège ${esc(I.adr)}, exerçant sous le nom commercial « ${esc(I.cab)} ». Les présentes régissent toute mission ; l'acceptation d'un devis ou le versement de l'acompte emporte adhésion pleine et entière.</p>
