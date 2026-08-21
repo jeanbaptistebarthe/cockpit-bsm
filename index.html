@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.80.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.81.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -1366,7 +1366,7 @@ async function sbClient(){
 async function cloudGetSession(){ const c=await sbClient(); const { data }=await c.auth.getSession(); return data.session; }
 async function cloudLoadProfile(){
   const c = await sbClient(); const s = await cloudGetSession(); if(!s) return null;
-  const { data } = await c.from("profiles").select("full_name,role,organization_id,organizations(name)").eq("id", s.user.id).single();
+  const { data } = await c.from("profiles").select("full_name,role,organization_id,allowed_screens,organizations(name)").eq("id", s.user.id).single();
   if(data) cloudOrgId = data.organization_id;
   return data;
 }
@@ -1423,7 +1423,7 @@ async function renderCloudUsers(){
   const el=document.getElementById("cloud-users"); if(!el) return;
   el.innerHTML=`<div class="hint">Chargement des comptes cloud…</div>`;
   let c; try{ c=await sbClient(); }catch(e){ el.innerHTML=`<div class="hint" style="color:var(--orange)">Cloud indisponible.</div>`; return; }
-  const { data, error } = await c.from("profiles").select("id,full_name,role,is_active,allowed_clients").order("full_name",{nullsFirst:false});
+  const { data, error } = await c.from("profiles").select("id,full_name,role,is_active,allowed_clients,allowed_screens").order("full_name",{nullsFirst:false});
   if(error){ el.innerHTML=`<div class="hint" style="color:var(--red)">Erreur : ${esc(error.message)}</div>`; return; }
   window._cloudProfiles=data||[]; // pour l'éditeur d'affectation
   const roles=["admin","direction","analyste","commercial","rh","collaborateur"];
@@ -1431,7 +1431,8 @@ async function renderCloudUsers(){
     if(p.role==="admin"||p.role==="direction") return '<span class="badge b-grey" title="La direction voit l’ensemble du portefeuille">tous les clients</span>';
     const n=(p.allowed_clients||[]).length;
     return `<span class="badge ${n?"b-actif":"b-red"}" title="${n?"Ce profil ne reçoit que les données de ses clients affectés":"Aucun client affecté : ce profil ne reçoit AUCUNE donnée client (sécurité par défaut)"}">${n?n+" client(s)":"aucun client"}</span>
-      <button class="cta ghost sm" onclick="openClientAssign('${p.id}')" title="Choisir les clients dont ce profil reçoit les données (cloisonnement serveur)">✎</button>`;
+      <button class="cta ghost sm" onclick="openClientAssign('${p.id}')" title="Choisir les clients dont ce profil reçoit les données (cloisonnement serveur)">✎</button>
+      <button class="cta ghost sm" onclick="openPermAssign('${p.id}')" title="Cocher les écrans et droits spéciaux de ce profil (montants, suivi administratif…) — appliqués à sa prochaine connexion">🎛️ Droits</button>`;
   };
   el.innerHTML=`
     <table><thead><tr><th>Nom</th><th>Rôle (modifiable)</th><th>Clients affectés</th><th>État</th></tr></thead><tbody>${
@@ -1472,6 +1473,41 @@ async function cloudInviteUser(){
     if(typeof logEvent==="function") logEvent("update","Invitation utilisateur envoyée : "+email+" (rôle "+role+")", true);
     renderCloudUsers();
   }catch(e){ if(msg){ msg.style.color="var(--red)"; msg.textContent="Cloud indisponible : "+(e.message||e); } }
+}
+/* 🎛️ Droits d'accès par profil cloud (décision JB 21/08) : la direction COCHE les écrans et les
+   droits spéciaux dans le Cockpit ; le collaborateur les reçoit à sa prochaine connexion.
+   Stocké dans profiles.allowed_screens (migration 0008) ; vide = modèle du rôle. */
+function openPermAssign(profileId){
+  const p=(window._cloudProfiles||[]).find(x=>x.id===profileId); if(!p){ toast("Profil introuvable — recharge le panneau."); return; }
+  if(p.role==="admin"||p.role==="direction"){ toast("La direction et l'administrateur ont toujours tous les droits."); return; }
+  const tpl=(ROLE_TEMPLATES[p.role]||ROLE_TEMPLATES.collaborateur);
+  const cur=Array.isArray(p.allowed_screens)&&p.allowed_screens.length?p.allowed_screens:(tpl.allowed==="*"?permAll():tpl.allowed.slice());
+  const has=k=>cur.indexOf(k)>=0;
+  const grps={}; PERMSCREENS.forEach(s=>{ (grps[s.grp]=grps[s.grp]||[]).push(s); });
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🎛️ Droits d'accès — ${esc(p.full_name||p.id.slice(0,8))}</h2>
+    <div class="msub">Coche ce que ce profil (${esc(roleLabel(p.role))}) a le droit de voir. Appliqué à sa <b>prochaine connexion</b>. Les écrans marqués 💶 exposent des chiffres d'argent — à n'ouvrir qu'en confiance. Décocher tout = retour au modèle du rôle.</div>
+    <div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:8px 0">
+      <div style="font-size:11px;color:var(--muted);letter-spacing:.05em;margin:4px 0 6px">DROITS SPÉCIAUX</div>
+      ${PERM_SPECIALS.map(s=>`<label style="display:flex;gap:8px;align-items:flex-start;padding:4px 0;cursor:pointer;font-size:13px">
+        <input type="checkbox" class="pa-scr" value="${s.key}" ${has(s.key)?"checked":""}>
+        <span><b>${esc(s.label)}</b><div class="hint" style="margin:1px 0 0">${esc(s.hint)}</div></span></label>`).join("")}
+      ${Object.keys(grps).map(g=>`<div style="font-size:11px;color:var(--muted);letter-spacing:.05em;margin:10px 0 4px">${esc(g)}</div>
+        ${grps[g].map(s=>`<label style="display:flex;gap:8px;align-items:center;padding:3px 0;cursor:pointer;font-size:13px">
+          <input type="checkbox" class="pa-scr" value="${s.key}" ${has(s.key)?"checked":""}>
+          <span>${esc(s.label)}${s.fin?' <span title="Expose des chiffres d’argent">💶</span>':""}</span></label>`).join("")}`).join("")}
+    </div>
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="cloudSetPerms('${profileId}')">Enregistrer les droits</button></div>`);
+}
+async function cloudSetPerms(profileId){
+  const keys=[...document.querySelectorAll(".pa-scr:checked")].map(x=>x.value);
+  try{
+    const c=await sbClient();
+    const { error }=await c.from("profiles").update({ allowed_screens:keys }).eq("id", profileId);
+    if(error){ toast("Erreur : "+error.message+(String(error.message).indexOf("allowed_screens")>=0?" — exécute d'abord la migration 0008.":"")); return; }
+    closeModal(); toast("🎛️ Droits enregistrés — appliqués à la prochaine connexion de ce profil.");
+    if(typeof logEvent==="function") logEvent("update","Droits d'accès modifiés pour le profil "+profileId.slice(0,8)+" ("+keys.length+" droit(s))", true);
+    renderCloudUsers();
+  }catch(e){ toast("Cloud indisponible."); }
 }
 /* Affectation de clients à un profil (cloisonnement par client — RLS serveur, migration 0007). */
 function openClientAssign(profileId){
@@ -1559,6 +1595,10 @@ function applyCloudUser(session, profile){
   const u={ id:session.user.id, name:(profile&&profile.full_name)||session.user.email, login:session.user.email,
     role:(profile&&profile.role)||"collaborateur", organization_id:orgId };
   ensureUserPerms(u);
+  // Droits COCHÉS PAR LA DIRECTION (profiles.allowed_screens, migration 0008) : ils PRIMENT sur le
+  // modèle du rôle. Les clés $ sont des droits spéciaux ($finance = montants, $monadmin = suivi admin).
+  const scr=(profile&&Array.isArray(profile.allowed_screens))?profile.allowed_screens:null;
+  if(scr&&scr.length&&u.role!=="admin"&&u.role!=="direction"){ u.allowed=scr.slice(); u.clientFinance=scr.indexOf("$finance")>=0; } // la direction garde toujours son modèle complet
   currentUser={ id:u.id, name:u.name, login:u.login, role:u.role, allowed:(u.allowed||[]).slice(),
     clientFinance:!!u.clientFinance, source:"cloud", organization_id:u.organization_id };
   cloudOrgId=u.organization_id; cloudPrimary=true;
@@ -1977,7 +2017,7 @@ function rowsRisks(){ return [["Réf","Client","Famille","Catégorie","Descripti
   DB.risks.map(r=>{const s=(r.probabilite||0)*(r.impact||0);return [r.ref||"",clientName(r.clientId),r.famille||"",r.categorie||"",r.description||"",r.probabilite||"",r.impact||"",s||"",r5Niveau(s),r.status||"",r.responsable||""];})); }
 function rowsRecos(){ return [["Réf","Client","Recommandation","Priorité","Horizon","Responsable","Avancement %","Statut"]].concat(
   DB.recommendations.map(r=>[r.ref||"",clientName(r.clientId),r.texte||"",r.priorite||"",r.horizon||"",r.responsable||"",r.avancement||0,r.status||""])); }
-function rowsMissions(){ return [["Réf","Client","Type","Phase","Montant HT","Devise","Statut"]].concat(
+function rowsMissions(){ if(!canFinance()) return [["Réf","Client","Type","Phase","Statut"]].concat(DB.missions.map(m=>[m.ref||"",clientName(m.clientId),m.type||"",m.phase||"",m.status||""])); return [["Réf","Client","Type","Phase","Montant HT","Devise","Statut"]].concat(
   DB.missions.map(m=>[m.ref||"",clientName(m.clientId),m.type||"",m.phase||"",m.montantHT||0,m.currency||"",m.status||""])); }
 async function pushR5ToSheet(){
   const el=document.getElementById("gtest"); if(el) el.textContent="⏳ Envoi vers le Sheet R5…";
@@ -2044,7 +2084,7 @@ async function importFromCalendar(){
     const pad=n=>String(n).padStart(2,"0"); let n=0;
     evs.forEach(ev=>{ if(!ev.id || known.has(ev.id)) return; const d=new Date(ev.start); if(isNaN(d)) return;
       const date=d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); const time=ev.allDay?"":pad(d.getHours())+":"+pad(d.getMinutes());
-      DB.events.push({ id:uid(), gcalId:ev.id, title:ev.title||"(sans titre)", type:"rdv", clientId:"", date, time, location:ev.location||"", notes:ev.description||"", status:"", source:"google" });
+      DB.events.push({ id:uid(), gcalId:ev.id, title:ev.title||"(sans titre)", type:"rdv", clientId:"", date, time, location:ev.location||"", notes:ev.description||"", status:"", source:"google", owner:(currentUser&&currentUser.login)||"" });
       known.add(ev.id); n++; });
     if(n) save();
     renderAgenda(); toast(n?(n+" événement(s) importé(s) depuis Google Agenda."):"Agenda à jour — aucun nouvel événement.");
@@ -3532,26 +3572,29 @@ function clientProgressCard(id){
   if(p.isProspect){
     return `<div class="card"><h2>Suivi & progression</h2><div class="empty">Prospect — le suivi démarre à la première mission ou au passage en client actif.</div></div>`;
   }
+  const monAdmin=canMonAdmin(); // suivi ADMINISTRATIF réservé (direction ou droit $monadmin)
+  const blk=monAdmin?p.blockers:p.blockers.filter(b=>b.axis!=="Administratif");
+  const glob=monAdmin?p.overall:(p.terrPct!=null?p.terrPct:p.overall);
   return `<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <h2 style="margin:0">Suivi & progression</h2>
-      <span class="badge" style="background:${pgColor(p.overall)};color:#fff">Avancement global ${p.overall}%</span>
+      <span class="badge" style="background:${pgColor(glob)};color:#fff">${monAdmin?"Avancement global":"Pilotage terrain"} ${glob}%</span>
     </div>
-    <div class="grid2 wide" style="margin-top:12px">
-      <div>
+    <div class="${monAdmin?"grid2 wide":""}" style="margin-top:12px">
+      ${monAdmin?`<div>
         <div style="display:flex;justify-content:space-between;font-size:12.5px;font-weight:600;color:var(--navy);margin-bottom:5px"><span>📁 Administratif</span><span>${p.adminPct!=null?p.adminPct+"%":"—"}</span></div>
         ${p.adminPct!=null?pgBar(p.adminPct):`<div class="hint">Aucune pièce due.</div>`}
         <div style="margin-top:8px">${pgChecklist(p.admin, id)}</div>
-      </div>
+      </div>`:""}
       <div>
         <div style="display:flex;justify-content:space-between;font-size:12.5px;font-weight:600;color:var(--navy);margin-bottom:5px"><span>🎯 Pilotage terrain</span><span>${p.terrPct!=null?p.terrPct+"%":"—"}</span></div>
         ${p.terrPct!=null?pgBar(p.terrPct):`<div class="hint">—</div>`}
         <div style="margin-top:8px">${pgChecklist(p.terrain, id)}</div>
       </div>
     </div>
-    ${p.blockers.length?`<div style="margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--wash,rgba(0,0,0,.02))">
-      <div style="font-size:11px;color:var(--muted);letter-spacing:.04em;margin-bottom:6px">À METTRE À JOUR (${p.blockers.length})</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">${p.blockers.map(b=>`<span class="badge ${b.axis==="Administratif"?"b-orange":"b-blue"}">${esc(b.label)}</span>`).join("")}</div>
+    ${blk.length?`<div style="margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--wash,rgba(0,0,0,.02))">
+      <div style="font-size:11px;color:var(--muted);letter-spacing:.04em;margin-bottom:6px">À METTRE À JOUR (${blk.length})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${blk.map(b=>`<span class="badge ${b.axis==="Administratif"?"b-orange":"b-blue"}">${esc(b.label)}</span>`).join("")}</div>
     </div>`:`<div class="hint" style="margin-top:10px;color:var(--green)">✓ Tout est à jour pour ce client.</div>`}
   </div>`;
 }
@@ -3598,15 +3641,18 @@ function toggleMonProspects(){ monShowProspects=!monShowProspects; renderMonitor
 function respName(login){ if(!login) return "—"; const u=(DB.users||[]).find(x=>x.login===login); return u?(u.name||u.login):login; }
 function renderMonitoring(){
   const el=document.getElementById("scr-monitoring");
-  // Par défaut, un collaborateur voit ses clients ; direction/admin voient tout le portefeuille.
-  if(monResp==="__init"){ monResp = (currentUser && !isDirection()) ? (currentUser.login||"") : ""; }
+  // Cloisonnement 21/08 : un collaborateur cloud ne REÇOIT déjà que ses clients affectés (RLS) —
+  // le filtre par responsable ne sert donc qu'à la direction (l'ancien défaut affichait 0 client).
+  if(monResp==="__init"){ monResp=""; }
+  const monAdmin=canMonAdmin(); // suivi ADMINISTRATIF : direction, ou droit $monadmin accordé
   const rows=DB.clients.filter(c=> !monResp || c.responsable===monResp).map(c=>({c,p:clientProgress(c.id)}));
   const tracked=rows.filter(r=>!r.p.isProspect);
   const visible=(monShowProspects?rows:tracked).slice().sort((a,b)=>a.p.overall-b.p.overall);
   const avg=arr=>arr.length?Math.round(arr.reduce((s,v)=>s+v,0)/arr.length):0;
   const adminAvg=avg(tracked.map(r=>r.p.adminPct).filter(v=>v!=null));
   const terrAvg=avg(tracked.map(r=>r.p.terrPct).filter(v=>v!=null));
-  const totalBlockers=tracked.reduce((s,r)=>s+r.p.blockers.length,0);
+  const shownBlk=p=> monAdmin? p.blockers : p.blockers.filter(b=>b.axis!=="Administratif"); // hors droit admin : seul le TERRAIN s'affiche
+  const totalBlockersShown=tracked.reduce((s,r)=>s+shownBlk(r.p).length,0);
   const totalCrit=tracked.reduce((s,r)=>s+r.p.crit,0);
 
   // Mouvements du logiciel — réservé aux administrateurs (comme le journal d'activité)
@@ -3625,36 +3671,37 @@ function renderMonitoring(){
   }
 
   el.innerHTML=`
-    <div class="pagetitle"><div><h1>Monitoring & suivi</h1><div class="sub">Où en est-on, client par client — paperasse administrative & pilotage terrain, pour éviter oublis et retards.</div></div></div>
+    <div class="pagetitle"><div><h1>Monitoring & suivi</h1><div class="sub">${monAdmin?"Où en est-on, client par client — paperasse administrative & pilotage terrain, pour éviter oublis et retards.":"Où en est-on, client par client — pilotage terrain de tes clients (le suivi administratif est géré par la direction)."}</div></div></div>
     <div class="kpis">
       <div class="kpi"><div class="v">${tracked.length}</div><div class="l">Clients suivis</div></div>
-      <div class="kpi"><div class="v" style="color:${pgColor(adminAvg)}">${adminAvg}%</div><div class="l">Administratif à jour (moy.)</div></div>
+      ${monAdmin?`<div class="kpi"><div class="v" style="color:${pgColor(adminAvg)}">${adminAvg}%</div><div class="l">Administratif à jour (moy.)</div></div>`:""}
       <div class="kpi"><div class="v" style="color:${pgColor(terrAvg)}">${terrAvg}%</div><div class="l">Pilotage terrain (moy.)</div></div>
-      <div class="kpi"><div class="v ${totalBlockers>0?'danger':''}">${totalBlockers}</div><div class="l">Pièces / actions manquantes</div></div>
+      <div class="kpi"><div class="v ${totalBlockersShown>0?'danger':''}">${totalBlockersShown}</div><div class="l">${monAdmin?"Pièces / actions manquantes":"Actions terrain à mener"}</div></div>
     </div>
     ${logCard}
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
         <h2 style="margin:0">Avancement par client</h2>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <select onchange="monResp=this.value;renderMonitoring()" style="font-size:12px;padding:5px 8px;border:1px solid var(--line);border-radius:7px">
+          ${isDirection()?`<select onchange="monResp=this.value;renderMonitoring()" style="font-size:12px;padding:5px 8px;border:1px solid var(--line);border-radius:7px">
             <option value="" ${monResp===""?"selected":""}>Tous les responsables</option>
             ${(DB.users||[]).filter(u=>u.active!==false).map(u=>`<option value="${esc(u.login)}" ${monResp===u.login?"selected":""}>${esc(u.name||u.login)}</option>`).join("")}
-          </select>
+          </select>`:""}
           <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" ${monShowProspects?"checked":""} onchange="toggleMonProspects()"> Afficher les prospects</label>
         </div>
       </div>
       ${totalCrit>0?`<div class="hint" style="color:var(--red);margin-top:6px">⚠️ ${totalCrit} risque(s) critique(s) ouvert(s) sur le portefeuille — à traiter en priorité.</div>`:""}
-      ${visible.length?`<table style="margin-top:10px"><thead><tr><th>Client</th><th>Responsable</th><th style="width:150px">Administratif</th><th style="width:150px">Terrain</th><th style="width:130px">Global</th><th>À mettre à jour</th><th></th></tr></thead><tbody>`+
-        visible.map(({c,p})=>`<tr>
+      ${visible.length?`<table style="margin-top:10px"><thead><tr><th>Client</th><th>Responsable</th>${monAdmin?'<th style="width:150px">Administratif</th>':""}<th style="width:150px">Terrain</th><th style="width:130px">Global</th><th>À mettre à jour</th><th></th></tr></thead><tbody>`+
+        visible.map(({c,p})=>{ const blk=shownBlk(p); const glob=monAdmin?p.overall:(p.terrPct!=null?p.terrPct:p.overall);
+          return `<tr>
           <td><b>${clientLink(c.id)}</b>${p.isProspect?` <span class="badge b-prospect">Prospect</span>`:""}</td>
           <td style="font-size:11.5px;color:var(--muted)">${esc(respName(c.responsable))}</td>
-          <td>${p.adminPct!=null?`<div style="display:flex;align-items:center;gap:6px">${pgBar(p.adminPct)}<span style="font-size:11.5px;color:var(--muted)">${p.adminPct}%</span></div>`:`<span style="color:var(--muted)">—</span>`}</td>
+          ${monAdmin?`<td>${p.adminPct!=null?`<div style="display:flex;align-items:center;gap:6px">${pgBar(p.adminPct)}<span style="font-size:11.5px;color:var(--muted)">${p.adminPct}%</span></div>`:`<span style="color:var(--muted)">—</span>`}</td>`:""}
           <td>${p.terrPct!=null?`<div style="display:flex;align-items:center;gap:6px">${pgBar(p.terrPct)}<span style="font-size:11.5px;color:var(--muted)">${p.terrPct}%</span></div>`:`<span style="color:var(--muted)">—</span>`}</td>
-          <td><span class="badge" style="background:${pgColor(p.overall)};color:#fff">${p.overall}%</span></td>
-          <td style="font-size:11.5px;color:var(--muted)">${p.blockers.length?p.blockers.slice(0,3).map(b=>esc(b.label)).join(" · ")+(p.blockers.length>3?` +${p.blockers.length-3}`:""):'<span style="color:var(--green)">✓ à jour</span>'}</td>
+          <td><span class="badge" style="background:${pgColor(glob)};color:#fff">${glob}%</span></td>
+          <td style="font-size:11.5px;color:var(--muted)">${blk.length?blk.slice(0,3).map(b=>esc(b.label)).join(" · ")+(blk.length>3?` +${blk.length-3}`:""):'<span style="color:var(--green)">✓ à jour</span>'}</td>
           <td style="text-align:right"><button class="cta ghost sm" onclick="openClientFiche('${c.id}')">Fiche 360°</button></td>
-        </tr>`).join("")+`</tbody></table>`
+        </tr>`;}).join("")+`</tbody></table>`
         :`<div class="empty">Aucun client suivi pour l'instant. Le suivi démarre dès la première mission ou au passage d'un client en « actif ».</div>`}
     </div>`;
 }
@@ -4052,12 +4099,13 @@ const KB_CATEGORIES={ methode:"Méthode R5", outils:"Matrice & outils", pricing:
 function kbCatLabel(k){ return KB_CATEGORIES[k]||"Autre"; }
 function kbv(id){ const e=document.getElementById(id); return e?e.value:""; }
 function knowledgeCard(){
+  if(!isDirection()) return ""; // 🔒 base de connaissances (pricing, CGV, méthode) = direction uniquement (règle JB 21/08 ; la RLS bloque déjà les données)
   const gen=can("documentation"); const docs=kbList(); const act=kbActiveForAI();
   const usedK=Math.round(act.reduce((s,d)=>s+((d.content||"").length),0)/1000);
   return `<div class="card" style="margin-top:14px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
       <div><h2 style="margin:0">📚 Base de connaissances IA (${docs.length})</h2>
-        <div class="hint" style="margin:4px 0 0">Documents officiels internes lus par <b>tous les assistants</b> (ZEUS, ATLAS, ORION…). ${docs.length?act.length+" actif(s) · ~"+usedK+"k caractères":"Vide pour l'instant."}</div></div>
+        <div class="hint" style="margin:4px 0 0">Documents officiels internes lus par <b>l'assistant IA du cabinet</b>. ${docs.length?act.length+" actif(s) · ~"+usedK+"k caractères":"Vide pour l'instant."}</div></div>
       ${gen?`<div style="display:flex;gap:8px;flex-wrap:wrap">
         <label class="cta ghost sm" style="cursor:pointer">⇪ Fichier (PDF/Word)<input type="file" accept=".pdf,.doc,.docx" style="display:none" onchange="uploadKnowledgeFile(this)"></label>
         <label class="cta ghost sm" style="cursor:pointer">⇊ Base (JSON)<input type="file" accept=".json,application/json" style="display:none" onchange="importKnowledgeJSON(this)"></label>
@@ -4106,7 +4154,7 @@ async function openKnowledgeForm(id){
   const cats=Object.keys(KB_CATEGORIES).map(k=>`<option value="${k}" ${d&&d.category===k?"selected":""}>${KB_CATEGORIES[k]}</option>`).join("");
   openModal(`<span class="close" onclick="closeModal()">✕</span>
     <h2>${d?(gen?"Modifier":"Document"):"Ajouter"} un document de référence</h2>
-    <div class="msub">Le texte ci-dessous est lu par les assistants IA (ZEUS, ATLAS, ORION…).</div>
+    <div class="msub">Le texte ci-dessous est lu par l'assistant IA du cabinet.</div>
     <div class="frow"><label>Titre<input id="kb-title" value="${d?esc(d.title):""}" ${gen?"":"disabled"}></label></div>
     <div class="frow" style="display:flex;gap:8px">
       <label style="flex:1">Catégorie<select id="kb-cat" ${gen?"":"disabled"}>${cats}</select></label>
@@ -4622,10 +4670,13 @@ function renderGlossaire(){
 }
 function renderFiches(){
   const dus=DB.clients.filter(c=>c.fichesDues);
+  // Règle JB 21/08 : hors direction = LECTURE SEULE (les fiches sont un référentiel BSM),
+  // et la transmission à un client passe TOUJOURS par la direction.
+  const dir=isDirection();
   document.getElementById("scr-fiches").innerHTML=`
-    <div class="pagetitle"><div><h1>Fiches réflexes</h1><div class="sub">Procédures d'urgence par type de crise — modifiables, imprimables & transmissibles aux clients</div></div>
-      <div style="display:flex;gap:8px"><button class="cta ghost" onclick="openFichesTransmit()">📤 Transmettre à un client</button><button class="cta" onclick="openFicheForm()">+ Nouvelle fiche</button></div></div>
-    <div class="card" style="margin-bottom:12px">
+    <div class="pagetitle"><div><h1>Fiches réflexes</h1><div class="sub">${dir?"Procédures d'urgence par type de crise — modifiables, imprimables & transmissibles aux clients":"Procédures d'urgence par type de crise — consultation (référentiel BSM ; transmission aux clients par la direction)"}</div></div>
+      ${dir?`<div style="display:flex;gap:8px"><button class="cta ghost" onclick="openFichesTransmit()">📤 Transmettre à un client</button><button class="cta" onclick="openFicheForm()">+ Nouvelle fiche</button></div>`:""}</div>
+    ${dir?`<div class="card" style="margin-bottom:12px">
       <h2>Transmission contractuelle</h2>
       ${dus.length? `<table style="margin-top:8px"><thead><tr><th>Client</th><th>Dernier envoi</th><th>Fiches envoyées</th><th></th></tr></thead><tbody>`+
         dus.map(c=>{const never=!c.fichesSentDate;return `<tr><td><b>${clientLink(c.id)}</b></td>
@@ -4633,7 +4684,7 @@ function renderFiches(){
           <td style="font-size:11.5px;color:var(--muted)">${(c.fichesSent&&c.fichesSent.length)?esc(c.fichesSent[c.fichesSent.length-1].titles.join(", ")):"—"}</td>
           <td style="text-align:right"><button class="cta ${never?'':'ghost'} sm" onclick="openFichesTransmit('${c.id}')">${never?'Transmettre':'Renvoyer'}</button></td></tr>`;}).join("")+`</tbody></table>`
         : `<div class="hint" style="margin-top:6px">Aucun client dont le contrat prévoit l'envoi des fiches réflexes. Cochez « Le contrat prévoit l'envoi… » dans la fiche d'un client.</div>`}
-    </div>
+    </div>`:""}
     <div class="grid3">
       ${DB.playbooks.length? DB.playbooks.map(f=>`
         <div class="fiche-card">
@@ -4642,10 +4693,10 @@ function renderFiches(){
           <ol>${(f.steps||[]).slice(0,3).map(s=>`<li>${esc(s)}</li>`).join("")}</ol>
           <div style="display:flex;gap:6px">
             <button class="cta ghost sm" style="flex:1" onclick="openFicheView('${f.id}')">Voir la fiche</button>
-            <button class="iconbtn" title="Modifier" onclick="openFicheForm('${f.id}')">✎</button>
-            <button class="iconbtn del" title="Supprimer" onclick="deleteFiche('${f.id}')">🗑</button>
+            ${dir?`<button class="iconbtn" title="Modifier" onclick="openFicheForm('${f.id}')">✎</button>
+            <button class="iconbtn del" title="Supprimer" onclick="deleteFiche('${f.id}')">🗑</button>`:""}
           </div>
-        </div>`).join("") : `<div class="empty">Aucune fiche. Cliquez « + Nouvelle fiche ».</div>`}
+        </div>`).join("") : `<div class="empty">${dir?"Aucune fiche. Cliquez « + Nouvelle fiche ».":"Aucune fiche pour l'instant."}</div>`}
     </div>`;
 }
 function openFicheView(id){
@@ -4901,7 +4952,7 @@ function renderAgenda(){
   const past=list.filter(e=>e.date<todayISO()).reverse();
   document.getElementById("scr-agenda").innerHTML=`
     <div class="pagetitle"><div><h1>Agenda</h1><div class="sub">Audits, prospections, rendez-vous — datation & suivi${serverEnabled?` · <span title="Les nouveaux RDV partent automatiquement vers Google Agenda (notif téléphone)">🔄 synchro Google active</span>`:""}</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="cta ghost" onclick="openDemoPremium()" title="Données 100 % fictives (SOCIÉTÉ DÉMO) — à projeter en rendez-vous : le rapport interactif que reçoivent vos clients chaque mois / trimestre">🎬 Démo rapport client</button><button class="cta ghost" onclick="importFromCalendar()" title="Récupérer dans le Cockpit les événements créés sur ton téléphone / Google Agenda">⇊ Importer Google Agenda</button><button class="cta" onclick="openEventForm()">+ Nouvel événement</button></div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${isDirection()?`<button class="cta ghost" onclick="openDemoPremium()" title="Données 100 % fictives (SOCIÉTÉ DÉMO) — à projeter en rendez-vous : le rapport interactif que reçoivent vos clients chaque mois / trimestre">🎬 Démo rapport client</button>`:""}<button class="cta ghost" onclick="importFromCalendar()" title="Récupérer dans le Cockpit les événements créés sur ton téléphone / Google Agenda">⇊ Importer Google Agenda</button><button class="cta" onclick="openEventForm()">+ Nouvel événement</button></div></div>
     ${focusBanner()}
     <div class="filters">
       ${clientPickerHtml()}
@@ -4979,8 +5030,9 @@ function saveEvent(id){
   const title=val("f-title").trim();
   if(!title){ toast("L'intitulé est obligatoire."); return; }
   const obj={ title, type:val("f-type"), clientId:val("f-client"), date:val("f-date"),
-    time:val("f-time"), location:val("f-loc"), status:val("f-estatus"), notes:val("f-enotes") };
-  if(id){ Object.assign(DB.events.find(x=>x.id===id),obj); }
+    time:val("f-time"), location:val("f-loc"), status:val("f-estatus"), notes:val("f-enotes"),
+    owner:(currentUser&&currentUser.login)||"" }; // cloisonnement agenda : un événement SANS client n'est visible que par son créateur (et la direction) — RLS 0008
+  if(id){ const ex=DB.events.find(x=>x.id===id); obj.owner=ex.owner||obj.owner; Object.assign(ex,obj); }
   else { obj.id=uid(); DB.events.push(obj);
     notify("rdv","Rendez-vous planifié", (EVENT_TYPES[obj.type]||"Événement")+" — "+obj.title+" · "+frDate(obj.date)+(obj.time?" à "+obj.time:"")+(obj.clientId?" · "+clientName(obj.clientId):""), {clientId:obj.clientId}); }
   save(); closeModal(); refreshAll(); toast("Événement enregistré.");
@@ -6640,19 +6692,21 @@ function renderMissions(){
     <div class="card">
       ${list.length? `<table><thead><tr><th>Réf</th><th>Client</th><th>Type</th><th>Phase R5</th><th>Montant HT</th><th>Solde dû</th><th>Livrables</th><th>Statut</th><th></th></tr></thead><tbody>`+
       list.map(m=>{const bm=missionBilling(m);const rc=missionRecurring(m.id);const enc=missionEncaisse(m.id);const aEnc=DB.transactions.filter(t=>t.missionId===m.id&&t.sens==="entrant");const nAtt=aEnc.filter(t=>t.status==="prevu").length;const attMt=aEnc.filter(t=>t.status==="prevu").reduce((s,t)=>s+(t.amount||0),0);const solde=(m.montantHT||0)-enc;const nEch=aEnc.length;const docs=[m.nda?"NDA":"",m.contrat?"Contrat":"",m.rapport?"Rapport":""].filter(Boolean).join(" · ")||"—";
-        const montantCell = bm==="abonnement"
+        // Montants réservés (règle JB 21/08) : sans le droit finance, un collaborateur pilote la mission (phases, livrables) sans jamais voir les chiffres.
+        const montantCell = !canFinance() ? '<span class="badge b-grey" title="Montants réservés — droit « finance client » non accordé">•••</span>'
+          : bm==="abonnement"
           ? `<span class="badge b-blue">🔁 Abonnement ${rc?freqLabel(rc.frequency).toLowerCase():""}</span>${rc?`<div style="font-size:11px;color:var(--navy);font-weight:600;margin-top:2px">${fmt(rc.amount,rc.currency)} / ${freqUnit(rc.frequency)}</div>`:""}<div style="font-size:10.5px;color:var(--muted);margin-top:2px">encaissé ${fmt(enc,m.currency)}${nAtt?` · ${nAtt} à encaisser`:""}</div>`
           : bm==="forfait"
           ? `<span class="badge b-grey">Forfait externe</span>`
           : `${m.montantHT?fmt(m.montantHT,m.currency):"—"}${nEch?`<div style="font-size:10.5px;color:var(--muted);margin-top:2px">${nEch} échéance${nEch>1?"s":""} · encaissé ${fmt(enc,m.currency)}</div>`:""}`;
-        const soldeCell = bm==="abonnement" ? (attMt?`<span style="color:var(--orange);font-weight:600">${fmt(attMt,m.currency)}</span>`:"—") : bm==="forfait" ? "—" : (m.montantHT?`<span style="${solde>0?'color:var(--orange);font-weight:600':'color:var(--green);font-weight:600'}">${fmt(solde,m.currency)}</span>`:"—");
+        const soldeCell = !canFinance() ? '<span class="badge b-grey">•••</span>' : bm==="abonnement" ? (attMt?`<span style="color:var(--orange);font-weight:600">${fmt(attMt,m.currency)}</span>`:"—") : bm==="forfait" ? "—" : (m.montantHT?`<span style="${solde>0?'color:var(--orange);font-weight:600':'color:var(--green);font-weight:600'}">${fmt(solde,m.currency)}</span>`:"—");
         return `<tr><td><b>${esc(m.ref||"—")}</b></td><td>${clientLink(m.clientId)}</td><td>${esc(m.type||"—")}</td>
         <td>${r5MiniHtml(m.phase)}<div style="font-size:10.5px;color:var(--muted);margin-top:3px">${R5_LABELS[m.phase]||esc(m.phase||"")}</div></td>
         <td>${montantCell}</td>
         <td>${soldeCell}</td>
         <td style="font-size:11.5px">${docs}</td>
         <td><span class="badge ${m.status==='termine'?'b-green':m.status==='suspendue'?'b-grey':'b-blue'}">${m.status==='termine'?'Terminée':m.status==='suspendue'?'Suspendue':'En cours'}</span></td>
-        <td><div class="rowact"><button class="iconbtn" onclick="openMissionForm('${m.id}')">✎</button><button class="iconbtn del" onclick="deleteMission('${m.id}')">🗑</button></div></td></tr>`;}).join("")+`</tbody></table>`
+        <td><div class="rowact">${canFinance()?`<button class="iconbtn" onclick="openMissionForm('${m.id}')">✎</button><button class="iconbtn del" onclick="deleteMission('${m.id}')">🗑</button>`:""}</div></td></tr>`;}).join("")+`</tbody></table>`
       : `<div class="empty">Aucune mission. Cliquez « + Nouvelle mission » ou importez depuis le Sheet R5.</div>`}
     </div>`;
 }
@@ -17931,8 +17985,15 @@ const ROLE_TEMPLATES={
   analyste:    { label:"Analyste R5",     allowed:["clients","monitoring","missions","risks","carto","recos","audit","documentation","fiches","glossaire"], clientFinance:false },
   commercial:  { label:"Commercial",      allowed:["clients","agenda","monitoring","commercial","documentation","fiches","glossaire"], clientFinance:true },
   rh:          { label:"RH",              allowed:["rh","agenda","monitoring","documentation","fiches","glossaire"], clientFinance:false },
-  collaborateur:{ label:"Collaborateur",  allowed:["clients","agenda","monitoring","missions","risks","carto","recos","audit","documentation","fiches","glossaire"], clientFinance:false }
+  collaborateur:{ label:"Collaborateur",  allowed:["clients","agenda","monitoring","missions","risks","carto","recos","audit","fiches","glossaire"], clientFinance:false } // documentation RETIRÉE (21/08) : modèles devis/contrats & impression = fuite commerciale
 };
+/* Droits SPÉCIAUX (préfixe $ — cochés par la direction dans l'éditeur de droits, jamais dans la barre de navigation) :
+   $finance  = voir les montants (missions, fiche client) ; $monadmin = voir le suivi ADMINISTRATIF du Monitoring. */
+const PERM_SPECIALS=[
+  {key:"$finance",  label:"Voir les montants (missions, CA client)", hint:"Sans lui : « ••• » partout où il y a des chiffres d'argent."},
+  {key:"$monadmin", label:"Suivi administratif (Monitoring)",        hint:"Sans lui : le collaborateur ne voit que le pilotage TERRAIN — à débloquer quand il a fait ses preuves."}
+];
+function canMonAdmin(){ return isDirection() || !!(currentUser && Array.isArray(currentUser.allowed) && currentUser.allowed.indexOf("$monadmin")>=0); }
 function ensureUserPerms(u){
   if(!u) return u;
   if(u.role==="admin"){ u.allowed=permAll(); u.clientFinance=true; return u; }
