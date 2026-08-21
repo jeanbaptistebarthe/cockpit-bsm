@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.82.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.83.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -732,7 +732,7 @@ function defaultDB(){
     missions:[], risks:[], recommendations:[],
     employees:[], recruitments:[], leaves:[], activities:[], documents:[], playbooks:[], aiMemory:[], aiChat:[],
     users:[], activityLog:[], notifications:[], moneyRequests:[], investments:[], decisions:[],
-    a1vehicles:[], a1logs:[], a1gensets:[], a1genlogs:[], a1offers:[], a1gpslogs:[], a1invoices:[], a1specs:[], a1docs:[], a1maint:[], a1peaks:[],
+    a1vehicles:[], a1logs:[], a1gensets:[], a1genlogs:[], a1offers:[], a1gpslogs:[], a1invoices:[], a1specs:[], a1docs:[], a1maint:[], a1peaks:[], directives:[],
     advice:{ dismissed:[], edits:{}, custom:[], readIds:[] }
   };
 }
@@ -772,6 +772,7 @@ function load(){
   DB.solutionsLib=DB.solutionsLib||[]; // bibliothèque de solutions chiffrées (texte + investissement + gain, par secteur) — s'enrichit à chaque reco chiffrée
   DB.a1gpslogs=DB.a1gpslogs||[]; DB.a1invoices=DB.a1invoices||[]; DB.a1specs=DB.a1specs||[]; DB.a1docs=DB.a1docs||[];
   DB.a1maint=DB.a1maint||[]; DB.a1peaks=DB.a1peaks||[]; // chantiers A1 B (carnet d'entretien) et A (mesure de pointe) — 21/08
+  DB.directives=DB.directives||[]; // directives direction → collaborateur (21/08)
   // Catalogue de fiches techniques : re-seed versionné + idempotent. On rafraîchit les fiches D'ORIGINE (catalogue BSM) sans toucher aux fiches ajoutées/importées par l'utilisateur, et on dédoublonne par marque+modèle.
   if((DB.meta.a1SpecsVersion||0) < 3){
     const isSeed=s=>s.builtin || /Référence standard|Valeur indicative/.test(s.source||"");
@@ -1118,7 +1119,7 @@ const SB_URL = "https://fxaeeplylyeitukctlph.supabase.co";
 const SB_KEY = "sb_publishable_SrXvreUFVJgLLBi6PLvA-g_ARBg2SST";
 // Clé VAPID PUBLIQUE (Web Push) — publique par nature ; la clé privée vit dans les secrets Supabase.
 const PUSH_VAPID_PUBLIC = "BM6Kpk3mQIq8bJihU4TbVho2TXy9BNz-0tlgmHtlHGg8rqbt6W1kKkJz0z_ct8aqOCEvdZFMA6bAA7xZoTkbOKw";
-const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","a1docs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge","r5reports","solutionsLib","a1execreports","a1maint","a1peaks"]; // a1maint + a1peaks ajoutés 21/08 (carnet d'entretien & mesures de pointe) ; a1execreports ajouté 18/08 : le registre des rapports exécutifs A1 suit sur tous les appareils (le HTML archivé reste sur le PC serveur)
+const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","a1docs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge","r5reports","solutionsLib","a1execreports","a1maint","a1peaks","directives"]; // directives (consignes direction→membre, RLS ciblée toUid) + a1maint + a1peaks ajoutés 21/08 (carnet d'entretien & mesures de pointe) ; a1execreports ajouté 18/08 : le registre des rapports exécutifs A1 suit sur tous les appareils (le HTML archivé reste sur le PC serveur)
 /* ===== CLOISONNEMENT PAR RÔLE (chantier 21/08) — miroir de la table collection_policies =====
    La VRAIE barrière est la RLS serveur (migration 0007) : le cloud ne LIVRE et n'ACCEPTE que ce que
    le rôle autorise. Ce miroir côté app évite simplement de pousser des collections interdites
@@ -1270,7 +1271,7 @@ async function cloudAutoPull(){
   _cloudPulling=true; _applyingRemote=true;
   try{ const r=await cloudPullDelta(); _cloudLastPull=Date.now();
     let touched=(r&&r.applied)||0;
-    if(Date.now()-_cloudLastReconcile>600000){ _cloudLastReconcile=Date.now(); const rr=await cloudReconcileIds(); touched+=(rr&&rr.removed)||0; }
+    if(Date.now()-_cloudLastReconcile>600000){ _cloudLastReconcile=Date.now(); const rr=await cloudReconcileIds(); touched+=((rr&&rr.removed)||0)+((rr&&rr.added)||0); }
     // Le cloud peut ramener les anciens agents (ZEUS/HERMÈS…) : on re-consolide AUSSITÔT sur l'unique « Bras droit ».
     if(typeof enforceSingleExpert==="function" && enforceSingleExpert()) save();
     if(touched && typeof refreshAll==="function") refreshAll(); }
@@ -1320,8 +1321,25 @@ async function cloudReconcileIds(){
       arr.splice(i,1); known.delete(rid); if(_cloudSnap[col]) _cloudSnap[col].delete(rid); removed++;
     }
   });
-  if(removed) save(); // _applyingRemote est levé par l'appelant
-  return { removed };
+  // Enregistrements NOUVELLEMENT VISIBLES : présents dans le cloud mais absents en local — le cas
+  // typique est un client AFFECTÉ APRÈS COUP (son updated_at est antérieur au curseur, le delta ne
+  // le verra jamais). On les rapatrie ici, par identifiants. (Bug vécu : « le nom de son client ne
+  // s'affiche pas » chez le collaborateur test.)
+  let added=0;
+  for(const col of CLOUD_COLLECTIONS){
+    const inCloud=cloudIds[col]; if(!inCloud) continue;
+    const localIds=new Set((Array.isArray(DB[col])?DB[col]:[]).map(recordId));
+    const missing=[...inCloud].filter(rid=>!localIds.has(rid));
+    for(let i=0;i<missing.length;i+=200){
+      const chunk=missing.slice(i,i+200);
+      const { data:recs, error:fe } = await c.from("records").select("collection,record_id,data,updated_at")
+        .eq("collection",col).in("record_id",chunk);
+      if(fe) throw fe;
+      (recs||[]).forEach(r=>{ if(_applyRemoteRecord(r.collection,r.record_id,r.data)) added++; });
+    }
+  }
+  if(removed||added) save(); // _applyingRemote est levé par l'appelant
+  return { removed, added };
 }
 /* ===== TEMPS RÉEL (chantier 21/08) : chaque changement poussé par un autre poste arrive en direct =====
    Canal Supabase Realtime sur la table records (RLS respectée — on ne reçoit que son organisation).
@@ -1525,14 +1543,39 @@ function openClientAssign(profileId){
 }
 async function cloudSetClients(profileId){
   const ids=[...document.querySelectorAll(".ca-cli:checked")].map(x=>x.value);
+  const prev=((window._cloudProfiles||[]).find(x=>x.id===profileId)||{}).allowed_clients||[];
+  const added=ids.filter(id=>prev.indexOf(id)<0);
   try{
     const c=await sbClient();
     const { error }=await c.from("profiles").update({ allowed_clients:ids }).eq("id", profileId);
     if(error){ toast("Erreur : "+error.message+(String(error.message).indexOf("allowed_clients")>=0?" — exécute d'abord la migration 0007.":"")); return; }
     closeModal(); toast("🔒 Affectation enregistrée — effective à la prochaine synchro de ce profil.");
     if(typeof logEvent==="function") logEvent("update","Affectation clients modifiée pour le profil "+profileId.slice(0,8)+" ("+ids.length+" client(s))", true);
+    // « Ré-estampiller » les données des clients NOUVELLEMENT affectés : leur updated_at repasse à
+    // maintenant → le delta et le temps réel les livrent AUSSITÔT au collaborateur (sans ça, un
+    // client affecté après coup n'arrivait qu'à sa reconnexion — bug vécu au test du 21/08).
+    if(added.length){ try{ const r=await cloudTouchClientRecords(added); toast("📡 "+r.touched+" enregistrement(s) de "+added.length+" client(s) mis à disposition immédiatement."); }catch(e){} }
     renderCloudUsers();
   }catch(e){ toast("Cloud indisponible."); }
+}
+/* Repousse au cloud (updated_at = maintenant) TOUTES les données des clients donnés — pour qu'un
+   profil fraîchement affecté les reçoive par le delta/temps réel sans attendre une reconnexion. */
+async function cloudTouchClientRecords(clientIds){
+  const c=await sbClient(); const nowIso=new Date().toISOString(); let touched=0;
+  for(const col of CLOUD_COLLECTIONS){
+    const arr=(Array.isArray(DB[col])?DB[col]:[]).filter(it=>{
+      const cid=it.clientId||(col==="clients"?it.id:"");
+      return cid && clientIds.indexOf(cid)>=0;
+    });
+    for(let i=0;i<arr.length;i+=200){
+      const chunk=arr.slice(i,i+200).map(item=>({ organization_id:cloudOrgId, collection:col, record_id:recordId(item),
+        data:item, classification:(item.classification||"interne"), updated_at:nowIso }));
+      const { error }=await c.from("records").upsert(chunk,{ onConflict:"organization_id,collection,record_id" });
+      if(error) throw error;
+      touched+=chunk.length;
+    }
+  }
+  return { touched };
 }
 async function cloudSetRole(id, role){
   try{ const c=await sbClient(); const { error }=await c.from("profiles").update({role}).eq("id", id);
@@ -3643,6 +3686,65 @@ let monShowProspects=false;
 let monResp="__init"; // "__init" = à définir selon le rôle ; "" = tous ; sinon login du responsable
 function toggleMonProspects(){ monShowProspects=!monShowProspects; renderMonitoring(); }
 function respName(login){ if(!login) return "—"; const u=(DB.users||[]).find(x=>x.login===login); return u?(u.name||u.login):login; }
+/* 📌 DIRECTIVES (demande JB 21/08) : la direction donne des consignes, rendez-vous et alertes à un
+   membre — livrées UNIQUEMENT à lui (RLS toUid, migration 0008), affichées en tête de son « Mon
+   suivi » (priorité haute = rouge), pointables « ✔ fait » (la direction suit l'exécution). */
+function openDirectiveForm(){
+  if(!isDirection()){ toast("Réservé à la direction."); return; }
+  openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📌 Donner une directive</h2>
+    <div class="msub">La consigne apparaît immédiatement chez son destinataire (et uniquement chez lui), en tête de son écran Monitoring. Priorité haute = alerte rouge.</div>
+    <div id="dir-form"><div class="hint">Chargement des membres…</div></div>`);
+  (async()=>{
+    let profs=[];
+    try{ const c=await sbClient(); const { data }=await c.from("profiles").select("id,full_name,role,is_active").order("full_name",{nullsFirst:false});
+      profs=(data||[]).filter(p=>p.is_active!==false && p.role!=="admin" && p.role!=="direction"); }catch(e){}
+    const el=document.getElementById("dir-form"); if(!el) return;
+    if(!profs.length){ el.innerHTML=`<div class="hint" style="color:var(--orange)">Aucun membre cloud (hors direction) à qui adresser une directive — invite d'abord un utilisateur.</div>`; return; }
+    el.innerHTML=`
+      <div class="field row2"><label>Destinataire & client concerné (facultatif)</label>
+        <select id="dir-to">${profs.map(p=>`<option value="${p.id}" data-name="${esc(p.full_name||"")}">${esc(p.full_name||p.id.slice(0,8))} (${esc(roleLabel(p.role))})</option>`).join("")}</select>
+        <select id="dir-client"><option value="">— Aucun client précis —</option>${DB.clients.map(c=>`<option value="${c.id}">${esc(c.company||"")}</option>`).join("")}</select></div>
+      <div class="field"><label>Consigne</label><textarea id="dir-txt" rows="3" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px" placeholder="Ex. Relancer le retour d'audit avant vendredi · RDV site jeudi 9h · Vérifier le protocole incendie"></textarea></div>
+      <div class="field row2"><label>Échéance (facultatif) & priorité</label>
+        <input type="date" id="dir-due">
+        <select id="dir-prio"><option value="normale">Normale</option><option value="haute">🔴 Haute (alerte)</option></select></div>
+      <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveDirective()">📌 Envoyer la directive</button></div>`;
+  })();
+}
+function saveDirective(){
+  const txt=(val("dir-txt")||"").trim(); if(!txt){ toast("Écris la consigne."); return; }
+  const sel=document.getElementById("dir-to"); const toUid=sel?sel.value:""; if(!toUid){ toast("Choisis un destinataire."); return; }
+  const toName=(sel.options[sel.selectedIndex]&&sel.options[sel.selectedIndex].dataset.name)||"";
+  DB.directives.push({ id:uid(), toUid, toName, clientId:val("dir-client")||"", texte:txt,
+    dueDate:val("dir-due")||"", priority:val("dir-prio")||"normale", status:"a_faire",
+    createdAt:todayISO(), by:(currentUser&&currentUser.login)||"" });
+  save(); closeModal(); toast("📌 Directive envoyée à "+(toName||"son destinataire")+" — visible en tête de son Monitoring.");
+  if(typeof logEvent==="function") logEvent("update","Directive donnée à "+(toName||toUid.slice(0,8))+" : "+txt.slice(0,60), true);
+  if(currentScreen==="monitoring") renderMonitoring();
+}
+function directiveDone(id){
+  const d=(DB.directives||[]).find(x=>x.id===id); if(!d) return;
+  d.status="fait"; d.doneAt=todayISO(); save(); toast("✔ Directive pointée « faite » — la direction le voit.");
+  if(currentScreen==="monitoring") renderMonitoring();
+}
+function deleteDirective(id){
+  if(!isDirection()) return;
+  DB.directives=(DB.directives||[]).filter(x=>x.id!==id); save(); renderMonitoring();
+}
+/* Carte direction : suivi des directives données (en cours / faites). */
+function directivesBoardCard(){
+  if(!isDirection()) return "";
+  const all=(DB.directives||[]).slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
+  const open=all.filter(d=>d.status!=="fait");
+  return `<div class="card" style="margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0">📌 Directives données ${open.length?`<span class="badge b-orange">${open.length} en cours</span>`:""}</h2>
+      <button class="cta sm" onclick="openDirectiveForm()">📌 Donner une directive</button></div>
+    ${all.length?`<div class="mini-list" style="margin-top:8px;max-height:200px;overflow:auto">${all.slice(0,12).map(d=>`
+      <div class="li"><span>${d.priority==="haute"?"🔴 ":""}<b>${esc(d.toName||"—")}</b> — ${esc(d.texte)}${d.clientId?` <span class="badge b-grey">${esc(clientName(d.clientId))}</span>`:""}${d.dueDate?` <span style="color:var(--muted);font-size:11px">pour le ${frDate(d.dueDate)}</span>`:""}</span>
+      <span style="display:flex;gap:6px;align-items:center">${d.status==="fait"?`<span class="badge b-green" title="Pointée faite le ${frDate(d.doneAt||"")}">✔ faite</span>`:`<span class="badge b-orange">en cours</span>`}<button class="iconbtn del" onclick="deleteDirective('${d.id}')">🗑</button></span></div>`).join("")}</div>`
+    :`<div class="hint" style="margin-top:6px">Aucune directive. « 📌 Donner une directive » envoie une consigne, un rendez-vous ou une alerte à un membre — visible uniquement par lui.</div>`}</div>`;
+}
 /* 🎯 MON SUIVI (demande JB 21/08) : le collaborateur voit le bilan de SES actions — audits menés,
    risques saisis, recommandations suivies, mises en place, décisions obtenues, prochains RDV.
    100 % factuel, calculé sur son périmètre (ses clients affectés) + ses saisies signées (champ by). */
@@ -3661,9 +3763,19 @@ function myTrackingCard(){
   const moisRecos=recos.filter(r=>(r.createdAt||"").slice(0,7)===mk).length;
   const rdv=(DB.events||[]).filter(e=>(e.date||"")>=t).sort((a,b)=>String(a.date+a.time).localeCompare(b.date+b.time)).slice(0,3);
   const acts=(DB.activityLog||[]).filter(l=>l.user===me).slice(-4).reverse();
+  // 📌 Directives reçues de la direction (la RLS ne livre que les siennes)
+  const myUid=(currentUser&&currentUser.id)||"";
+  const dirs=(DB.directives||[]).filter(d=>d.toUid===myUid&&d.status!=="fait")
+    .sort((a,b)=>(a.priority==="haute"?0:1)-(b.priority==="haute"?0:1)||String(a.dueDate||"9999").localeCompare(String(b.dueDate||"9999")));
+  const dirHtml=dirs.length?`<div style="margin:0 0 10px">${dirs.map(d=>`
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;border:1px solid ${d.priority==="haute"?"#E5B9B5":"var(--line)"};border-left:4px solid ${d.priority==="haute"?"#C0392B":"var(--gold)"};border-radius:8px;padding:8px 12px;margin:4px 0;background:${d.priority==="haute"?"#FDF3F2":"#FCFBF7"}">
+      <span style="font-size:13px">${d.priority==="haute"?"🔴 ":"📌 "}<b>Directive de la direction :</b> ${esc(d.texte)}${d.clientId?` <span class="badge b-grey">${esc(clientName(d.clientId))}</span>`:""}${d.dueDate?` <span style="color:${d.dueDate<t?"var(--red)":"var(--muted)"};font-size:11.5px">pour le ${frDate(d.dueDate)}</span>`:""}</span>
+      <button class="cta ghost sm" onclick="directiveDone('${d.id}')" title="Marquer comme faite — la direction le voit">✔ Fait</button>
+    </div>`).join("")}</div>`:"";
   const stat=(v,l,col)=>`<div class="kpi"><div class="v"${col?` style="color:${col}"`:""}>${v}</div><div class="l">${l}</div></div>`;
   return `<div class="card" style="border-left:3px solid var(--gold);margin-bottom:12px">
-    <h2 style="margin:0 0 8px">🎯 Mon suivi</h2>
+    <h2 style="margin:0 0 8px">🎯 Mon suivi ${dirs.length?`<span class="badge ${dirs.some(d=>d.priority==="haute")?"b-red":"b-orange"}">${dirs.length} directive(s)</span>`:""}</h2>
+    ${dirHtml}
     <div class="kpis" style="margin:0">
       ${stat(audits.length,"Audit(s) sur mes clients")}
       ${stat(risks.length+(moisRisks?` <span style="font-size:11px;color:var(--muted)">+${moisRisks} ce mois</span>`:""),"Risques saisis")}
@@ -3712,6 +3824,7 @@ function renderMonitoring(){
   el.innerHTML=`
     <div class="pagetitle"><div><h1>Monitoring & suivi</h1><div class="sub">${monAdmin?"Où en est-on, client par client — paperasse administrative & pilotage terrain, pour éviter oublis et retards.":"Où en est-on, client par client — pilotage terrain de tes clients (le suivi administratif est géré par la direction)."}</div></div></div>
     ${myTrackingCard()}
+    ${directivesBoardCard()}
     <div class="kpis">
       <div class="kpi"><div class="v">${tracked.length}</div><div class="l">Clients suivis</div></div>
       ${monAdmin?`<div class="kpi"><div class="v" style="color:${pgColor(adminAvg)}">${adminAvg}%</div><div class="l">Administratif à jour (moy.)</div></div>`:""}
@@ -7846,7 +7959,7 @@ function renderRecos(){
   } else list.sort((a,b)=>(a.ref||"").localeCompare(b.ref||""));
   document.getElementById("scr-recos").innerHTML=`
     <div class="pagetitle"><div><h1>Recommandations & suivi</h1><div class="sub">Plan d'action R5 (Respond → Strengthen)</div></div>
-      <div style="display:flex;gap:8px">${serverEnabled?`<button class="cta ghost" onclick="syncDecisionsFromSheet()" title="Lit l'onglet « DECISIONS RECUES » du Sheet R5 (rempli par la page de décision en ligne) et applique les décisions — automatique au démarrage et toutes les 15 min, ce bouton force une relecture immédiate">🔄 Importer du Sheet</button>`:""}<button class="cta ghost" onclick="openIncidentsModal()" title="Signalements « bouton panique » des clients : créer le risque, générer la résilience (IA), marquer traité">🚨 Incidents reçus${(DB.incidents||[]).filter(x=>x.status!=="traite").length?` <span class="badge b-red">${(DB.incidents||[]).filter(x=>x.status!=="traite").length}</span>`:""}</button><button class="cta ghost" onclick="openDocsModal()" title="Bibliothèque des fiches réflexes : éditer, publier, gérer les accès par client, QR portail carte métal">📕 Fiches</button><button class="cta ghost" onclick="openR5DecisionsPaste()" title="Coller le bloc de décisions reçu du client (fiche de décision) — applique Validé / Différé / Refusé en un clic">📥 Décisions reçues</button><button class="cta" onclick="openRecoForm()">+ Nouvelle recommandation</button></div></div>
+      <div style="display:flex;gap:8px">${isDirection()?`${serverEnabled?`<button class="cta ghost" onclick="syncDecisionsFromSheet()" title="Lit l'onglet « DECISIONS RECUES » du Sheet R5 (rempli par la page de décision en ligne) et applique les décisions — automatique au démarrage et toutes les 15 min, ce bouton force une relecture immédiate">🔄 Importer du Sheet</button>`:""}<button class="cta ghost" onclick="openIncidentsModal()" title="Signalements « bouton panique » des clients : créer le risque, générer la résilience (IA), marquer traité">🚨 Incidents reçus${(DB.incidents||[]).filter(x=>x.status!=="traite").length?` <span class="badge b-red">${(DB.incidents||[]).filter(x=>x.status!=="traite").length}</span>`:""}</button><button class="cta ghost" onclick="openDocsModal()" title="Bibliothèque des fiches réflexes : éditer, publier, gérer les accès par client, QR portail carte métal">📕 Fiches</button><button class="cta ghost" onclick="openR5DecisionsPaste()" title="Coller le bloc de décisions reçu du client (fiche de décision) — applique Validé / Différé / Refusé en un clic">📥 Décisions reçues</button>`:""}<button class="cta" onclick="openRecoForm()">+ Nouvelle recommandation</button></div></div>
     ${focusBanner()}
     <div class="hint" style="margin-bottom:10px">ℹ️ Les recommandations sont des <b>conseils et schémas de réponse proposés par BSM</b> (recherche, réponse, suivi, amélioration). <b>Le client décide</b> de les valider et de les mettre en place — l'avancement mesure ce suivi, il ne fait pas disparaître le risque associé.</div>
     <div class="filters">${clientPickerHtml()}<span style="width:14px"></span>${[["tous","Toutes"],["a_faire","À faire"],["en_cours","En cours"],["fait","Faites"],["decision","🗳 Décision attendue"]].map(f=>`<button class="chip ${recoFilter===f[0]?'active':''}" onclick="recoFilter='${f[0]}';renderRecos()">${f[1]}</button>`).join("")}
@@ -17040,6 +17153,7 @@ async function pushAccessTab(){
 }
 /* Publie TOUTES les fiches dans l'onglet « FICHES REFLEXES » (le récepteur les sert de là). */
 async function publishFiches(silent){
+  if(!isDirection()){ if(!silent) toast("🔒 La publication des fiches est réservée à la direction."); return; }
   if(!serverEnabled){ if(!silent) toast("Publication : ouvre le Cockpit local (pont Google)."); return; }
   ensureFiches();
   const rows=[["Ref","Titre","Version","Mis à jour","HTML"]].concat(DB.fiches.map(f=>[f.ref,f.titre,f.version||"1.0",f.updatedAt||"",ficheRenderHtml(f)]));
@@ -17052,7 +17166,8 @@ async function publishFiches(silent){
 /* ---- Écran du module (📕 bouton dans Recommandations) ---- */
 function openDocsModal(){
   ensureFiches();
-  const c=focusClient?DB.clients.find(x=>x.id===focusClient):null;
+  const dir=isDirection(); // hors direction : CONSULTATION seule (édition, publication et accès clients = direction — règle JB 21/08)
+  const c=(dir&&focusClient)?DB.clients.find(x=>x.id===focusClient):null;
   const acc=c?(c.fichesAccess==="ALL"?DB.fiches.map(f=>f.ref):(Array.isArray(c.fichesAccess)?c.fichesAccess:[])):[];
   const accessPanel=c?`
     <div class="card" style="margin:10px 0;background:#FCFBF7">
@@ -17068,18 +17183,18 @@ function openDocsModal(){
         ${c.portalKey?`<span class="badge b-green" style="align-self:center" title="Tous ses nouveaux liens embarquent un jeton secret vérifié par le récepteur — les liens forgés sont rejetés">🔑 liens sécurisés</span>`:`<button class="cta ghost sm" onclick="secureClientLinks('${c.id}')" title="Exige un jeton secret sur tous ses accès — attention : les anciens liens déjà envoyés cesseront de fonctionner">🔑 Sécuriser les liens</button>`}
       </div>
       <div class="hint" style="margin-top:6px">Le portail du client n'affiche QUE ce qui est coché ici — effet immédiat. Le signalement d'incident se gère dans 🚨 Incidents reçus.</div>
-    </div>`:`<div class="hint" style="margin:8px 0">💡 Choisis un client en <b>Focus</b> pour gérer ses accès et générer son QR portail.</div>`;
+    </div>`:(dir?`<div class="hint" style="margin:8px 0">💡 Choisis un client en <b>Focus</b> pour gérer ses accès et générer son QR portail.</div>`:"");
   const rows=DB.fiches.map(f=>`<div class="li"><span>${esc(f.icone||"")} <b>${esc(f.ref)}</b> — ${esc(f.titre)} <span style="color:var(--muted);font-size:10.5px">v${esc(f.version||"1.0")} · ${esc(frDate(f.updatedAt||"")||"—")}</span></span>
-    <span style="display:flex;gap:6px"><button class="cta ghost sm" onclick="previewFiche('${f.ref}')">👁</button><button class="cta ghost sm" onclick="openFicheEditor('${f.ref}')">✎</button></span></div>`).join("");
+    <span style="display:flex;gap:6px"><button class="cta ghost sm" onclick="previewFiche('${f.ref}')">👁</button>${dir?`<button class="cta ghost sm" onclick="openFicheEditor('${f.ref}')">✎</button>`:""}</span></div>`).join("");
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>📕 Fiches réflexes — Documentation BSM</h2>
-    <div class="msub">Bibliothèque vivante : tu modifies ici → publication → tous les clients autorisés voient la nouvelle version. Jamais remises en fichier — servies en ligne, accès révocable.</div>
+    <div class="msub">${dir?"Bibliothèque vivante : tu modifies ici → publication → tous les clients autorisés voient la nouvelle version. Jamais remises en fichier — servies en ligne, accès révocable.":"Consultation du référentiel BSM. L'édition, la publication et les accès clients sont gérés par la direction."}</div>
     ${accessPanel}
     <div class="mini-list" style="max-height:34vh;overflow:auto">${rows}</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+    ${dir?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
       <button class="cta" onclick="publishFiches()">📤 Publier les fiches (mise en ligne)</button>
       <button class="cta ghost" onclick="openFicheEditor('')">➕ Nouvelle fiche</button>
     </div>
-    <div class="hint" style="margin-top:6px">${DB.meta.fichesPublishedAt?"Dernière publication : "+esc(fmtDateTime(DB.meta.fichesPublishedAt)):"⚠ Jamais publiées — clique « Publier » pour la première mise en ligne."}</div>`);
+    <div class="hint" style="margin-top:6px">${DB.meta.fichesPublishedAt?"Dernière publication : "+esc(fmtDateTime(DB.meta.fichesPublishedAt)):"⚠ Jamais publiées — clique « Publier » pour la première mise en ligne."}</div>`:""}`);
 }
 function toggleFicheAccess(clientId,ref){
   const c=DB.clients.find(x=>x.id===clientId); if(!c) return;
@@ -17107,6 +17222,7 @@ function previewFiche(ref){
   w.document.open(); w.document.write(html); w.document.close();
 }
 function openFicheEditor(ref){
+  if(!isDirection()){ toast("🔒 L'édition des fiches réflexes est réservée à la direction."); return; }
   ensureFiches();
   const f=ref?DB.fiches.find(x=>x.ref===ref):{ref:"FR-"+String(DB.fiches.length+1).padStart(2,"0"),titre:"",icone:"🚨",band:"",html:"",version:"1.0",updatedAt:todayISO()};
   if(!f) return;
