@@ -652,7 +652,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.89.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.90.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -5636,7 +5636,10 @@ function renderCA(){
   const nbRetards=overdueRelanceList().length;
   document.getElementById("scr-ca").innerHTML=`
     <div class="pagetitle"><div><h1>Chiffre d'affaires</h1><div class="sub">Provisoire (à encaisser) vs effectif (encaissé) — ${y}${entityFilter?" · "+entityShort(entityFilter):" · consolidé"}</div></div>
-      ${nbRetards?`<button class="cta ${nbRetards>2?'':'ghost'}" onclick="openRelanceBatch()" title="Relancer d'un coup tous les encaissements en retard — un e-mail de rappel par client, tracé, avec copie sur ta boîte">📨 Relancer les retards (${nbRetards})</button>`:""}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${(isDirection()&&DB.meta.arcLastImport&&(DB.meta.arcLastImport.added.length||DB.meta.arcLastImport.updated.length))?`<button class="cta ghost" onclick="arcUndoImport()" title="Erreur de fichier, de mois ou doublon : remet le CA exactement dans son état d'avant l'import">↩ Annuler l'import Archivage du ${frDate(String(DB.meta.arcLastImport.at).slice(0,10))}</button>`:""}
+      ${nbRetards?`<button class="cta ${nbRetards>2?'':'ghost'}" onclick="openRelanceBatch()" title="Relancer d'un coup tous les encaissements en retard — un e-mail de rappel par client, tracé, avec copie sur ta boîte">📨 Relancer les retards (${nbRetards})</button>`:""}
+      </div></div>
     ${focusBanner()}
     <div class="filters">${entityPickerHtml()}<span style="width:10px"></span>${clientPickerHtml()}</div>
     <div class="kpis">
@@ -5651,10 +5654,12 @@ function renderCA(){
     </div>
     <div class="card">
       <h2>CA par client</h2>
-      ${rows.length? `<table><thead><tr><th>Client</th><th style="text-align:right">Effectif</th><th style="text-align:right">Provisoire</th><th style="text-align:right">Total</th></tr></thead><tbody>`+
+      ${rows.length? `<table><thead><tr><th>Client</th><th style="text-align:right">Effectif</th><th style="text-align:right">Provisoire</th><th style="text-align:right">Total</th><th></th></tr></thead><tbody>`+
       rows.map(r=>`<tr><td><b>${r.id&&r.id!=="__none"?clientLink(r.id):esc(r.name)}</b></td><td style="text-align:right;color:var(--green)">${r.eff?fmtD(r.eff):"—"}</td>
-        <td style="text-align:right">${r.prov?fmtD(r.prov):"—"}</td><td style="text-align:right;font-weight:700">${fmtD(r.eff+r.prov)}</td></tr>`).join("")+
+        <td style="text-align:right">${r.prov?fmtD(r.prov):"—"}</td><td style="text-align:right;font-weight:700">${fmtD(r.eff+r.prov)}</td>
+        <td style="text-align:right;white-space:nowrap"><button class="cta ghost sm" onclick="openCADetail('${r.id}')" title="Voir le détail ligne par ligne — corriger ou supprimer un mouvement">🔍 Détail</button></td></tr>`).join("")+
       `</tbody></table>` : `<div class="empty">Aucune entrée enregistrée.</div>`}
+      <div class="hint" style="margin-top:8px">💡 Une erreur dans le CA ? Ouvre « 🔍 Détail » : chaque mouvement se corrige (✎) ou part en corbeille (🗑, restaurable 30 jours). Un import Archivage entier s'annule d'un clic en haut de l'écran.</div>
     </div>`;
 }
 function dualBarsHtml(eff, prov){
@@ -5691,6 +5696,9 @@ function importCAArchivage(input){
     const txs=Array.isArray(data)?data:(data.transactions||[]);
     if(!txs.length){ toast("Aucune transaction dans ce fichier."); return; }
     let ajout=0, maj=0, ignores=0, verrous=0; const inconnus={};
+    // Traçabilité de l'import : de quoi TOUT annuler d'un clic si le fichier était le mauvais
+    // (les lignes ajoutées partent à la corbeille, les lignes modifiées retrouvent leur état d'avant).
+    const undo={ at:new Date().toISOString(), file:(file.name||"fichier"), added:[], updated:[] };
     txs.forEach(t=>{
       if(!t || !t.id || !t.date){ ignores++; return; }
       const amount=Number(String(t.amount==null?0:t.amount).replace(",", ".")); // « 347.00 » texte → nombre
@@ -5719,9 +5727,11 @@ function importCAArchivage(input){
       const ex=(DB.transactions||[]).find(x=>x.id===obj.id);
       if(ex){
         if(ex.status==="realise" && typeof monthLocked==="function" && monthLocked(ex.date)){ verrous++; return; }
+        undo.updated.push(JSON.parse(JSON.stringify(ex)));   // état AVANT écrasement
         Object.assign(ex,obj); maj++;
-      } else { (DB.transactions=DB.transactions||[]).push(obj); ajout++; }
+      } else { (DB.transactions=DB.transactions||[]).push(obj); undo.added.push(obj.id); ajout++; }
     });
+    if(ajout||maj){ DB.meta.arcLastImport=undo; }
     save();
     if(typeof refreshAll==="function") refreshAll();
     const noms=Object.keys(inconnus);
@@ -5734,6 +5744,62 @@ function importCAArchivage(input){
   };
   reader.readAsText(file);
   input.value="";
+}
+/* ↩ ANNULER LE DERNIER IMPORT : le filet de sécurité (mauvais fichier, mauvais mois, doublon
+   de facturation). Les lignes AJOUTÉES partent à la corbeille (restaurables 30 j) ; les lignes
+   ÉCRASÉES retrouvent exactement leur état d'avant l'import. */
+function arcUndoImport(){
+  if(!isDirection()){ toast("Réservé à la direction."); return; }
+  const u=DB.meta.arcLastImport;
+  if(!u||(!u.added.length&&!u.updated.length)){ toast("Aucun import Archivage à annuler."); return; }
+  confirmModal("Annuler le dernier import Archivage ?",
+    "Fichier « "+esc(u.file)+" » importé le "+fmtDateTime(u.at)+".<br><br>"+
+    "• <b>"+u.added.length+"</b> ligne(s) ajoutée(s) → <b>corbeille</b> (restaurables 30 jours)<br>"+
+    "• <b>"+u.updated.length+"</b> ligne(s) modifiée(s) → <b>remises dans leur état d'avant</b><br><br>"+
+    "Les lignes saisies à la main dans le Cockpit ne sont pas touchées.",
+    ()=>{
+      let sup=0, res=0, bloq=0;
+      u.added.forEach(id=>{
+        const t=(DB.transactions||[]).find(x=>x.id===id); if(!t) return;
+        if(t.status==="realise" && typeof monthLocked==="function" && monthLocked(t.date)){ bloq++; return; } // mois clôturé : on n'y touche pas
+        trashTx(t); DB.transactions=DB.transactions.filter(x=>x.id!==id); sup++;
+      });
+      u.updated.forEach(prev=>{
+        const i=(DB.transactions||[]).findIndex(x=>x.id===prev.id);
+        if(i>=0){ DB.transactions[i]=prev; res++; }
+      });
+      DB.meta.arcLastImport=null; save(); refreshAll();
+      if(typeof logEvent==="function") logEvent("delete","Import CA Archivage ANNULÉ : "+sup+" ligne(s) en corbeille, "+res+" restaurée(s)", true);
+      toast("↩ Import annulé : "+sup+" ligne(s) en corbeille, "+res+" remise(s) à l'état d'avant"+(bloq?" · "+bloq+" en mois clôturé conservée(s)":"")+".");
+    });
+}
+/* 🔍 Détail du CA d'un client : voir, corriger (✎) ou supprimer (🗑) chaque mouvement SANS quitter
+   l'écran CA. Réutilise le circuit normal : corbeille 30 j, mois clôturé protégé, demande de
+   validation si le compte n'est pas direction. */
+function openCADetail(clientId){
+  const isNone=(!clientId||clientId==="__none");
+  const list=DB.transactions.filter(t=>t.sens==="entrant"&&inEntity(t)&&((isNone&&!t.clientId)||(!isNone&&t.clientId===clientId)))
+    .sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+  const rows=list.map(t=>{
+    const lock=t.status==="realise"&&typeof monthLocked==="function"&&monthLocked(t.date);
+    return `<tr>
+      <td style="white-space:nowrap">${frDate(t.date)}</td>
+      <td><b>${esc(t.label||"—")}</b>${t.invoiceNo?`<div style="font-size:10.5px;color:var(--muted)">${esc(t.invoiceNo)}</div>`:""}
+        ${t.srcApp==="archivage"?'<span class="badge b-grey" title="Ligne venue de BSM Archivage — la corriger ici ne change rien dans l’app Archivage">🗄 archivage</span>':""}</td>
+      <td style="font-size:11.5px">${esc(t.category||"—")}</td>
+      <td style="text-align:right;white-space:nowrap">${fmt(t.amount,t.currency)}</td>
+      <td>${t.status==="realise"?'<span class="badge b-green">encaissé</span>':'<span class="badge b-orange">à encaisser</span>'}</td>
+      <td style="text-align:right;white-space:nowrap">${lock?'<span class="badge b-grey" title="Mois clôturé — rouvre-le dans Budget → Clôture mensuelle">🔒</span>'
+        :`<button class="iconbtn" title="Corriger" onclick="closeModal();openTxForm('${t.id}')">✎</button>
+          <button class="iconbtn del" title="Supprimer (corbeille 30 jours)" onclick="closeModal();deleteTx('${t.id}')">🗑</button>`}</td></tr>`;
+  }).join("");
+  const tot=list.reduce((s,t)=>s+txDefault(t),0);
+  openModal(`<span class="close" onclick="closeModal()">✕</span>
+    <h2>🔍 Détail du CA — ${esc(isNone?"Sans client":clientName(clientId))}</h2>
+    <div class="msub">${list.length} mouvement(s) · ${fmtD(tot)} au total. Corrige (✎) ou supprime (🗑) une ligne erronée : elle part en corbeille, restaurable 30 jours.</div>
+    ${list.length?`<div style="overflow-x:auto"><table style="font-size:12.5px"><thead><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th style="text-align:right">Montant</th><th>Statut</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      :`<div class="empty">Aucun mouvement pour ce client.</div>`}
+    <div class="hint" style="margin-top:8px">🗄 Une ligne « archivage » corrigée ici ne remonte PAS dans l'app Archivage : corrige aussi à la source, sinon le prochain import la réécrira.</div>`);
 }
 /* Les organisations inconnues du Cockpit : on propose de créer les fiches PUIS de rattacher
    les lignes déjà importées (aucune donnée perdue si tu refuses — le nom reste sur la ligne). */
