@@ -509,6 +509,7 @@
         <button class="tb-dir" onclick="closeTopMenu();openSettings()">💱&nbsp; Devise & taux&nbsp;—&nbsp;<span id="currency-indicator">Ar / €</span></button>
         <div class="sep tb-dir"></div>
         <button class="tb-dir" onclick="closeTopMenu();openImport()">⇊&nbsp; Importer R5</button>
+        <button class="tb-dir" onclick="closeTopMenu();arcPickFile()" title="Lit le JSON exporté par BSM Archivage (une transaction par offre) — idempotent : réimporter le même mois ne duplique rien">🗄&nbsp; Importer CA Archivage</button>
         <button class="tb-dir" onclick="closeTopMenu();exportData()">⬇&nbsp; Sauvegarde (fichier)</button>
         <button class="tb-dir" onclick="closeTopMenu();document.getElementById('import-file').click()">⬆&nbsp; Restaurer (fichier)</button>
         <div class="sep tb-dir"></div>
@@ -518,6 +519,7 @@
       </div>
     </div>
     <input type="file" id="import-file" accept="application/json" style="display:none" onchange="importData(event)">
+    <input type="file" id="arc-ca-file" accept="application/json" style="display:none" onchange="importCAArchivage(this)">
   </div>
 </div>
 <button class="present-exit" onclick="exitPresentMode()" title="Quitter le mode rendez-vous">✕</button>
@@ -650,7 +652,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.88.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.89.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -666,7 +668,10 @@ const PAYMENT_METHODS = ["CB","Chèque","Mvola","Orange Money","Espèces","Virem
 /* Secteurs = SECTEURS D'INTERVENTION BSM (règle d'exclusivité : une seule entreprise par secteur —
    une société multi-secteurs peut être prise sur une AUTRE branche que celle déjà occupée). */
 const SECTORS = ["Industrie / Manufacture","Distribution / Commerce","Logistique / Transport","Location d'engins / Matériel BTP","BTP / Construction","Agriculture / Élevage","Agroalimentaire","Pêche / Aquaculture","Banque / Finance / Assurance","Énergie","Mines / Extraction","Télécom / IT","Aéroportuaire","Tourisme / Hôtellerie","Santé / Pharmacie","Éducation / Formation","Sécurité privée","Immobilier","Import-Export / Négoce","Public / Institutionnel","ONG","Autre"];
-const CAT_IN  = ["Honoraires mission","Abonnement annuel","Diagnostic / Audit","Formation","Veille / Abonnement","Autre"];
+const CAT_IN  = ["Honoraires mission","Abonnement annuel","Diagnostic / Audit","Formation","Veille / Abonnement","Archivage — abonnement","Archivage — numérisation","Archivage — actes & copies","Autre"];
+/* Axe analytique « branche archivage » (BSM Archivage = SERVICE de BSM A&C, même SARL, même NIF —
+   surtout PAS une entité juridique : les entités restent bsmac / bsmgroup). */
+const CAT_IN_ARCHIVAGE = ["Archivage — abonnement","Archivage — numérisation","Archivage — actes & copies"];
 const CAT_OUT = ["Salaires","Primes & indemnités","Loyer","Charges & taxes","Achat matériel","Mobilier","Fournitures","Essence / Carburant","Déplacement","Logement","Repas / Restauration","Frais annexes","Marketing","Sous-traitance","Intelligence artificielle","Investissement","Dons","Autre"];
 // Regroupement des dépenses internes (affichage budget + différenciation compte de résultat)
 const EXPENSE_GROUPS=[
@@ -3049,7 +3054,7 @@ function saveContractWizard(){
     const type=val("cw-type")||CW_CONTRACT_TYPES[0];
     DB.missions.push({id:uid(),clientId:cid,type,ref:nextRef('MIS',DB.missions),phase:"reveal",status:"encours",startDate:val("cw-start")||todayISO()});
     const amt=parseFloat(val("cw-amount"));
-    if(amt>0) DB.transactions.push({id:uid(),sens:"entrant",status:"prevu",label:type+" — "+company,amount:amt,currency:val("cw-cur")||DB.meta.defaultCurrency,date:val("cw-start")||todayISO(),dueDate:val("cw-due")||addDaysISO(todayISO(),30),clientId:cid,entity:entityFilter||"bsmac",cat:"Prestations"});
+    if(amt>0) DB.transactions.push({id:uid(),sens:"entrant",status:"prevu",label:type+" — "+company,amount:amt,currency:val("cw-cur")||DB.meta.defaultCurrency,date:val("cw-start")||todayISO(),dueDate:val("cw-due")||addDaysISO(todayISO(),30),clientId:cid,entity:entityFilter||"bsmac",category:"Honoraires mission",nature:"client"});
     if(typeof logEvent==="function") logEvent("action","Nouveau contrat : "+company+" · "+type,true);
     save(); closeModal(); focusClient=cid; openClientFiche(cid);
     toast("🚀 "+company+" : fiche + mission "+(amt>0?"+ 1ʳᵉ échéance ":"")+"créées et reliées.");
@@ -4753,6 +4758,31 @@ function openPackForm(key){ const p=catObj().packs.find(x=>x.key===key); if(!p) 
 function savePack(key){ const p=catObj().packs.find(x=>x.key===key); if(!p) return; if(!DB.catalog) DB.catalog=defaultCatalog();
   const pp=DB.catalog.packs.find(x=>x.key===key); pp.label=val("f-pk-label").trim()||pp.label; pp.months=parseInt(val("f-pk-months"))||pp.months; pp.desc=val("f-pk-desc");
   save(); renderDocumentation(); toast("Offre mise à jour."); }
+/* Offres BSM Archivage au catalogue COMMERCIAL (vitrine des devis du Cockpit).
+   ⚠️ Les prix affichés ici sont une RECOPIE : la grille tarifaire maîtresse — celle qui facture —
+   vit dans BSM Archivage. Jamais deux grilles vivantes en parallèle : en cas d'écart, l'app fait foi. */
+const ARC_OFFERS=[
+  ["Coffre numérique — Essentiel","25 Go, versements trimestriels, alertes de durée légale, rapport de preuve annuel. 150 $/mois."],
+  ["Coffre numérique — Business","100 Go, versements mensuels, rapports trimestriels, 1 campagne de destruction/an. 350 $/mois."],
+  ["Coffre numérique — Premium","250 Go, versements hebdomadaires, destructions et gels illimités, revue de conformité, SLA. 600 $/mois."],
+  ["Audit documentaire","Inventaire, cartographie des durées légales, plan de classement, devis. 500 / 1 200 / 2 500 $ — 50 % déductibles si abonnement sous 90 jours."],
+  ["Numérisation probante","Indexation, empreinte SHA-256, scellement, bordereau signé. 0,15 $/page (0,12 $ au-delà de 10 000)."],
+  ["Copie certifiée","Page de garde, filigrane, n° de délivrance, chaîne de possession. 5 $/document hors quota."],
+  ["Destruction certifiée","Validation écrite du client, destruction cryptographique, PV signé, registre perpétuel. 100 $/campagne."],
+  ["Conseil en gouvernance documentaire","Politique d'archivage, référentiel de conservation, formation. 800–2 000 $/jour."]
+];
+function addArchivageOffers(){
+  if(!isDirection()){ toast("Réservé à la direction."); return; }
+  const cat=catObj(); DB.catalog=cat;
+  if(!cat.cats.some(c=>c.key==="arc")) cat.cats.push({key:"arc", label:"Archivage & Données", icon:"🗄"});
+  let n=0;
+  ARC_OFFERS.forEach(([label,desc])=>{
+    if(cat.items.some(it=>it.cat==="arc" && it.label===label)) return; // idempotent : jamais de doublon
+    cat.items.push({id:uid(), cat:"arc", label, desc}); n++;
+  });
+  save(); renderDocumentation();
+  toast("🗄 "+n+" offre(s) archivage ajoutée(s) au catalogue — prix indicatifs, la grille qui facture reste dans BSM Archivage.");
+}
 function resetCatalog(){ confirmModal("Réinitialiser le catalogue ?","Restaure les prestations et offres d'origine (reprises du simulateur).",()=>{ DB.catalog=defaultCatalog(); save(); renderDocumentation(); toast("Catalogue réinitialisé."); }); }
 function docPresentationCard(){ const gen=can("documentation"); const cat=catObj();
   return `<div class="card" style="margin-bottom:14px">
@@ -4760,7 +4790,7 @@ function docPresentationCard(){ const gen=can("documentation"); const cat=catObj
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="cta" onclick="openDeckGenerate()">▶ Ouvrir / Présenter</button>${gen?`<button class="cta ghost" onclick="openDeckText()">✎ Textes du dossier</button>`:""}</div></div>
     <div class="hint" style="margin-top:6px">Slides à ta charte présentant les <b>possibilités de travail</b> (audit, résilience, crise, formation, pilotage) et l'<b>adaptabilité</b> (timing & prestations au choix). Navigation clavier ← →, export PDF. Contenu piloté par le catalogue ci-dessous.</div>
     ${gen?`<div style="margin-top:12px"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12.5px;color:var(--navy)">Catalogue de prestations (${cat.items.length})</b>
-      <div style="display:flex;gap:6px"><button class="cta ghost sm" onclick="openCatalogItem()">+ Prestation</button><button class="cta ghost sm" onclick="resetCatalog()">↺ Défaut</button></div></div>
+      <div style="display:flex;gap:6px"><button class="cta ghost sm" onclick="openCatalogItem()">+ Prestation</button>${catObj().cats.some(c=>c.key==="arc")?"":`<button class="cta ghost sm" onclick="addArchivageOffers()" title="Ajoute l'axe « Archivage & Données » et ses 8 offres au catalogue commercial (la grille tarifaire maîtresse reste dans BSM Archivage)">🗄 Offres archivage</button>`}<button class="cta ghost sm" onclick="resetCatalog()">↺ Défaut</button></div></div>
       ${cat.cats.map(cc=>{ const items=cat.items.filter(it=>it.cat===cc.key); if(!items.length) return ""; return `<div style="margin-top:10px"><div style="font-size:11.5px;font-weight:600;color:var(--navy)">${cc.icon} ${esc(cc.label)}</div>
         <div class="mini-list">${items.map(it=>`<div class="li"><span>${esc(it.label)}</span><span style="display:flex;gap:4px"><button class="iconbtn" onclick="openCatalogItem('${it.id}')">✎</button><button class="iconbtn del" onclick="deleteCatalogItem('${it.id}')">🗑</button></span></div>`).join("")}</div></div>`; }).join("")}
       <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center"><b style="font-size:12.5px;color:var(--navy)">Offres repères</b></div>
@@ -5636,6 +5666,95 @@ function dualBarsHtml(eff, prov){
     </div><div class="bar-lbl">${s.label}</div></div>`).join("")+`</div>`;
 }
 
+/* ===================== RÉCEPTION DU CA DE BSM ARCHIVAGE (22/08/2026) =====================
+   BSM Archivage est l'USINE (compteurs, factures ARC/AVR, opérations) ; le Cockpit est le SIÈGE
+   (CRM, devis, CA consolidé, compte de résultat). L'app Archivage exporte une transaction PAR OFFRE
+   (le n° de facture reste commun pour le rapprochement du règlement) — on lit ici son JSON.
+   RÈGLES DE SÉCURITÉ COMPTABLE appliquées à l'import (on ne fait JAMAIS confiance au fichier) :
+   · entité forcée à une entité JURIDIQUE connue (bsmac/bsmgroup) — « archivage » n'en est pas une ;
+   · catégorie normalisée sur le champ `category` (celui que lit pnlColumn — `cat` est ignoré ailleurs) ;
+   · montants coercés en nombres (un « 347.00 » texte fausserait toutes les sommes) ;
+   · taux figé (fx) accepté seulement s'il a la forme attendue {dc,cMga,dMga}, sinon recalculé ;
+   · un mois CLÔTURÉ n'est jamais modifié ;
+   · idempotent : même id = mise à jour, jamais de doublon. */
+const ARC_ENTITIES=["bsmac","bsmgroup"];
+function arcPickFile(){
+  if(typeof isDirection==="function" && !isDirection()){ toast("🔒 L'import du CA Archivage est réservé à la direction."); return; }
+  const el=document.getElementById("arc-ca-file"); if(el) el.click();
+}
+function importCAArchivage(input){
+  if(typeof isDirection==="function" && !isDirection()){ toast("🔒 Réservé à la direction."); input.value=""; return; }
+  const file=input.files&&input.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    let data; try{ data=JSON.parse(e.target.result); }catch(err){ toast("Fichier illisible : "+err.message); return; }
+    const txs=Array.isArray(data)?data:(data.transactions||[]);
+    if(!txs.length){ toast("Aucune transaction dans ce fichier."); return; }
+    let ajout=0, maj=0, ignores=0, verrous=0; const inconnus={};
+    txs.forEach(t=>{
+      if(!t || !t.id || !t.date){ ignores++; return; }
+      const amount=Number(String(t.amount==null?0:t.amount).replace(",", ".")); // « 347.00 » texte → nombre
+      if(!isFinite(amount)){ ignores++; return; }
+      const status=(t.status==="realise")?"realise":"prevu";
+      // Un mois clôturé ne bouge plus (même règle que la saisie manuelle et le circuit de validation)
+      if(status==="realise" && typeof monthLocked==="function" && monthLocked(t.date)){ verrous++; return; }
+      // Client : identifiant Cockpit d'abord, puis nom exact, sinon on garde la trace pour rattacher ensuite
+      let cid=t.clientId||t.cockpitId||"";
+      if(cid && !(DB.clients||[]).some(c=>c.id===cid)) cid="";
+      const srcNom=String(t.srcClientNom||t.clientNom||"").trim();
+      if(!cid && srcNom){
+        const found=(DB.clients||[]).find(c=>String(c.company||"").trim().toLowerCase()===srcNom.toLowerCase());
+        if(found) cid=found.id; else inconnus[srcNom]=(inconnus[srcNom]||0)+1;
+      }
+      const cur=t.currency||DB.meta.defaultCurrency;
+      const fxOk=t.fx&&t.fx.dc&&+t.fx.cMga>0&&+t.fx.dMga>0;
+      const obj={ id:String(t.id), date:t.date, sens:(t.sens==="sortant")?"sortant":"entrant",
+        label:String(t.label||"Archivage"), amount, currency:cur,
+        category:String(t.category||t.cat||"Archivage — abonnement"),
+        clientId:cid, srcClientNom:srcNom||undefined, missionId:"",
+        status, dueDate:t.dueDate||t.date, method:t.method||"", nature:t.nature||"client",
+        entity:(ARC_ENTITIES.indexOf(t.entity)>=0?t.entity:"bsmac"),   // jamais d'entité fantôme
+        fx:fxOk?t.fx:(typeof txFxSnap==="function"?txFxSnap(cur):undefined),
+        srcApp:"archivage", invoiceNo:t.invoiceNo||t.facture||"" };
+      const ex=(DB.transactions||[]).find(x=>x.id===obj.id);
+      if(ex){
+        if(ex.status==="realise" && typeof monthLocked==="function" && monthLocked(ex.date)){ verrous++; return; }
+        Object.assign(ex,obj); maj++;
+      } else { (DB.transactions=DB.transactions||[]).push(obj); ajout++; }
+    });
+    save();
+    if(typeof refreshAll==="function") refreshAll();
+    const noms=Object.keys(inconnus);
+    toast("🗄 CA Archivage : "+ajout+" ajout(s), "+maj+" mise(s) à jour"
+      +(verrous?" · "+verrous+" ligne(s) en mois clôturé ignorée(s)":"")
+      +(ignores?" · "+ignores+" ligne(s) invalide(s)":"")
+      +(noms.length?" — ⚠ "+noms.length+" client(s) à rattacher":"")+".");
+    if(typeof logEvent==="function") logEvent("update","Import CA Archivage : "+ajout+" ajout(s), "+maj+" mise(s) à jour", true);
+    if(noms.length) arcAskCreateClients(noms);
+  };
+  reader.readAsText(file);
+  input.value="";
+}
+/* Les organisations inconnues du Cockpit : on propose de créer les fiches PUIS de rattacher
+   les lignes déjà importées (aucune donnée perdue si tu refuses — le nom reste sur la ligne). */
+function arcAskCreateClients(noms){
+  confirmModal("Créer "+noms.length+" fiche(s) client ?",
+    "Ces organisations viennent de BSM Archivage et n'existent pas encore au Cockpit :\n\n• "+noms.join("\n• ")+
+    "\n\nCréer leurs fiches et y rattacher les lignes de CA ? (Sinon les montants restent importés, mais sous « — Sans client — » jusqu'au rattachement.)",
+    ()=>{
+      let n=0;
+      noms.forEach(nom=>{
+        let c=(DB.clients||[]).find(x=>String(x.company||"").trim().toLowerCase()===nom.toLowerCase());
+        if(!c){ c={ id:uid(), company:nom, status:"actif", sector:"", createdAt:todayISO(),
+          classification:"confidentiel", contactName:"", contactEmail:"", contactPhone:"",
+          notes:"Fiche créée depuis BSM Archivage (import du CA)." };
+          (DB.clients=DB.clients||[]).push(c); n++; }
+        (DB.transactions||[]).forEach(t=>{ if(!t.clientId && String(t.srcClientNom||"").toLowerCase()===nom.toLowerCase()) t.clientId=c.id; });
+      });
+      save(); if(typeof refreshAll==="function") refreshAll();
+      toast("👥 "+n+" fiche(s) créée(s) — lignes de CA rattachées.");
+    });
+}
 /* ----------------------------- Compte de résultat ----------------------------- */
 let pnlYear=0; // 0 = année courante
 function pnlColumn(pred){
@@ -17581,7 +17700,7 @@ async function onbSend(){
         DB.missions.push(m); mid=m.id; o.missionId=mid;
       } else { const mm=DB.missions.find(x=>x.id===mid); if(mm){ mm.montantHT=kk.m; mm.currency=o.devise; } }
       if(!c.onbFinanceRef){ // anti-doublon : un seul échéancier généré par dossier client (un renvoi ne recrée rien)
-        const base={ sens:"entrant", status:"prevu", currency:o.devise, clientId:c.id, missionId:mid, entity:"bsmac", cat:"Prestations" };
+        const base={ sens:"entrant", status:"prevu", currency:o.devise, clientId:c.id, missionId:mid, entity:"bsmac", category:"Honoraires mission", nature:"client" }; // « category » (pas « cat ») : c'est le champ lu par le compte de résultat
         const label=(o.type==="a1"?"Audit Flash A1":"Accompagnement R5")+" — "+(c.company||"");
         const txs=[];
         txs.push(Object.assign({},base,{ id:uid(), label:label+" · "+(o.type==="a1"?(o.paiement==="5050"?"50 % à la commande":"règlement à la commande"):"acompte 30 %"), amount:kk.ac, date:todayISO(), dueDate:todayISO() }));
