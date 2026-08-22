@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.87.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.87.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -17249,7 +17249,8 @@ async function publishFiches(silent){
   if(!isDirection()){ if(!silent) toast("🔒 La publication des fiches est réservée à la direction."); return; }
   if(!serverEnabled){ if(!silent) toast("Publication : ouvre le Cockpit local (pont Google)."); return; }
   ensureFiches();
-  const rows=[["Ref","Titre","Version","Mis à jour","HTML"]].concat(DB.fiches.map(f=>[f.ref,f.titre,f.version||"1.0",f.updatedAt||"",ficheRenderHtml(f)]));
+  // Version publiée avec préfixe « v » : Sheets convertirait « 1.1 » nu en DATE (1ᵉʳ janvier — bug vécu, portail affichait « Thu Jan 01 2026… Moscou »).
+  const rows=[["Ref","Titre","Version","Mis à jour","HTML"]].concat(DB.fiches.map(f=>[f.ref,f.titre,"v"+String(f.version||"1.0").replace(/^v/i,""),f.updatedAt||"",ficheRenderHtml(f)]));
   try{
     await googleCall("sheetOps",{ops:[{a:"write",name:"FICHES REFLEXES",rows:rows},{a:"color",name:"FICHES REFLEXES",hex:"#B5923A"}]});
     DB.meta.fichesPublishedAt=new Date().toISOString(); save();
