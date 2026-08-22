@@ -652,7 +652,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.90.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.91.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -5321,7 +5321,53 @@ function closurePanelHtml(){
         <button class="cta sm" onclick="openClosureModal(val('cl-month'))">Clôturer…</button></div>`:`<span class="badge b-green">Tous les mois passés sont clôturés ✓</span>`}
     </div>
     ${closed.length?`<div class="mini-list" style="margin-top:8px">${closed.map(mk=>`<div class="li"><span>🔒 ${frMonth(mk+"-01")} — clôturé le ${frDate((cm[mk].closedAt||"").slice(0,10))}${cm[mk].by?" par "+esc(cm[mk].by):""}</span><a class="clink" href="#" onclick="reopenMonth('${mk}');return false">🔓 Rouvrir</a></div>`).join("")}</div>`:""}
+    ${arrearsCardHtml()}
   </div>`;
+}
+/* 💰 RESTES À ENCAISSER DES MOIS CLÔTURÉS (créances reportées).
+   Clôturer un mois n'efface pas ce qu'on vous doit : ces échéances restent VIVANTES et pointables —
+   le jour où le client paie, l'encaissement compte à la date du paiement (le mois clos ne bouge pas).
+   C'est ici qu'on garde l'œil sur l'argent qui traîne, mois par mois d'origine. */
+function arrearsList(){
+  return DB.transactions.filter(t=>t.sens==="entrant"&&t.status==="prevu"&&inEntity(t)
+    && monthLocked(t.dueDate||t.date));   // échéance née dans un mois désormais clôturé
+}
+function arrearsCardHtml(){
+  const list=arrearsList(); if(!list.length) return "";
+  const byMonth={};
+  list.forEach(t=>{ const mk=String(t.dueDate||t.date).slice(0,7); (byMonth[mk]=byMonth[mk]||{n:0,v:0}); byMonth[mk].n++; byMonth[mk].v+=txDefault(t); });
+  const tot=list.reduce((s,t)=>s+txDefault(t),0);
+  const vieux=list.reduce((m,t)=>{ const d=String(t.dueDate||t.date); return (!m||d<m)?d:m; },"");
+  const age=vieux?Math.round((new Date(todayISO())-new Date(vieux))/86400000):0;
+  return `<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+      <b style="font-size:12.5px;color:var(--navy)">💰 Restes à encaisser des mois clôturés — ${fmtD(tot)}</b>
+      <button class="cta ghost sm" onclick="openArrears()">Voir le détail (${list.length})</button></div>
+    <div class="hint" style="margin-top:4px">${Object.keys(byMonth).sort().map(mk=>frMonth(mk+"-01")+" : "+fmtD(byMonth[mk].v)+" ("+byMonth[mk].n+")").join(" · ")}${age>90?` — <span style="color:var(--red)">la plus ancienne attend depuis ${age} jours</span>`:""}
+      <br>Un mois clôturé reste dû : ces échéances sont toujours pointables, et leur encaissement comptera au <b>jour du paiement</b>.</div>
+  </div>`;
+}
+function openArrears(){
+  const list=arrearsList().sort((a,b)=>String(a.dueDate||a.date).localeCompare(String(b.dueDate||b.date)));
+  const rows=list.map(t=>{
+    const due=t.dueDate||t.date; const j=Math.round((new Date(todayISO())-new Date(due))/86400000);
+    const c=DB.clients.find(x=>x.id===t.clientId);
+    return `<tr>
+      <td style="white-space:nowrap">${frDate(due)}<div style="font-size:10.5px;color:var(--muted)">${frMonth(due)} 🔒</div></td>
+      <td><b>${esc(t.label||"—")}</b>${t.invoiceNo?`<div style="font-size:10.5px;color:var(--muted)">${esc(t.invoiceNo)}</div>`:""}</td>
+      <td>${t.clientId?esc(clientName(t.clientId)):'<span style="color:var(--muted)">—</span>'}${(c&&!(c.contactEmail||c.billingEmail))?' <span class="badge b-red" title="Aucun e-mail sur la fiche : la relance ne peut pas partir">e-mail manquant</span>':""}</td>
+      <td style="text-align:right;white-space:nowrap"><b>${fmt(t.amount,t.currency)}</b></td>
+      <td style="text-align:right;white-space:nowrap;color:${j>90?"var(--red)":j>30?"var(--orange)":"var(--muted)"}">${j} j${t.lastRelanceAt?`<div style="font-size:10.5px">relancé le ${frDate(t.lastRelanceAt)}</div>`:""}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="cta ghost sm" onclick="closeModal();markRealise('${t.id}')" title="Le client a payé : l'encaissement comptera au jour du paiement">✔ Encaissé</button>
+        <button class="iconbtn" title="Corriger" onclick="closeModal();openTxForm('${t.id}')">✎</button></td></tr>`;
+  }).join("");
+  const tot=list.reduce((s,t)=>s+txDefault(t),0);
+  openModal(`<span class="close" onclick="closeModal()">✕</span>
+    <h2>💰 Restes à encaisser des mois clôturés</h2>
+    <div class="msub">${list.length} échéance(s) · ${fmtD(tot)} encore dus, nés dans des mois déjà verrouillés. Clôturer un mois ne solde jamais une créance : elle reste vivante ici jusqu'au paiement.</div>
+    ${list.length?`<div style="overflow-x:auto"><table style="font-size:12.5px"><thead><tr><th>Échéance</th><th>Libellé</th><th>Client</th><th style="text-align:right">Montant</th><th style="text-align:right">Retard</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`:`<div class="empty">Rien à encaisser sur les mois clôturés ✓</div>`}
+    <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="closeModal();openRelanceBatch()">📨 Relancer les retards</button></div>`);
 }
 function openClosureModal(mk){
   if(!mk){ toast("Choisis un mois."); return; }
@@ -5346,7 +5392,12 @@ function openClosureModal(mk){
       <div class="li"><span>${ok(fxDays!=null&&fxDays<=35)} Taux du mois vérifiés</span><b>${fxDays==null?"jamais":"il y a "+fxDays+" jour(s)"}</b></div>
     </div>
     ${(fxDays==null||fxDays>35)?`<div class="hint" style="color:var(--orange)">💱 Relève le cours officiel et enregistre-le dans ⚙ Paramètres avant de clôturer — le mois suivant démarrera sur le bon taux.</div>`:""}
-    ${(pendIn.length||pendOut.length)?`<div class="hint" style="color:var(--orange)">Les mouvements restés « prévu » resteront pointables après clôture (leur date passera au jour du pointage). L'idéal reste de les traiter maintenant : pointer, re-dater ou supprimer.</div>`:""}
+    ${(pendIn.length||pendOut.length)?(()=>{
+      const rIn=pendIn.reduce((s,t)=>s+txDefault(t),0), rOut=pendOut.reduce((s,t)=>s+txDefault(t),0);
+      return `<div class="hint" style="background:#FCFBF7;border-left:3px solid var(--gold);padding:9px 12px;border-radius:6px;color:var(--ink)">
+        ⏳ <b>Reports sur les mois suivants</b> — ${pendIn.length?`${pendIn.length} encaissement(s) attendu(s) (<b>${fmtD(rIn)}</b>)`:""}${(pendIn.length&&pendOut.length)?" · ":""}${pendOut.length?`${pendOut.length} paiement(s) à faire (${fmtD(rOut)})`:""}.
+        <br><b>Tu peux clôturer sans les perdre :</b> ces échéances restent vivantes et pointables après la clôture. Le jour où le client règle, l'encaissement compte <b>à la date du paiement</b> — le mois clos n'est ni rouvert ni réécrit. Tu les retrouveras dans « 💰 Restes à encaisser des mois clôturés ».
+        <br><span style="color:var(--muted)">À traiter maintenant seulement si une ligne est erronée (mauvaise date, doublon) — dans ce cas : pointer, re-dater ou supprimer avant de verrouiller.</span></div>`; })():""}
     ${(bDays==null||bDays>7)?`<div class="hint" style="color:var(--orange)">Clique d'abord 💾 <b>Tout sauvegarder</b> (barre du haut) : on ne verrouille pas un mois sans copie de secours.</div>`:""}
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="closeMonth('${mk}')">🔒 Clôturer</button></div>`);
 }
@@ -5444,6 +5495,12 @@ function markRealise(id){
     <div class="msub">${esc(t.label)} — ${fmt(t.amount,t.currency)}</div>
     <div class="field"><label>Mode de paiement</label><select id="f-method">${PAYMENT_METHODS.map(m=>`<option ${t.method===m?'selected':''}>${m}</option>`).join("")}</select></div>
     <div class="field"><label>Date effective</label><input type="date" id="f-realdate" value="${todayISO()}"></div>
+    ${(()=>{ const due=t.dueDate||t.date; if(!due||due>=todayISO()) return "";
+      const jours=Math.round((new Date(todayISO())-new Date(due))/86400000);
+      const clos=monthLocked(due);
+      return `<div class="hint" style="background:#FCFBF7;border-left:3px solid var(--gold);padding:8px 11px;border-radius:6px">
+        ⏳ <b>Règlement en retard de ${jours} jour(s)</b> — échéance du ${frDate(due)}${clos?` (<b>${frMonth(due)}, mois clôturé</b>)`:""}.
+        ${clos?"C'est normal et prévu : l'encaissement compte au <b>jour du paiement</b>, il n'ouvre pas le mois clos et ne réécrit pas ses comptes. L'échéance d'origine reste tracée sur le mouvement.":"L'encaissement sera compté à la date effective ci-dessus."}</div>`; })()}
     ${!isDirection()?`<div class="field"><label>Motif de la demande * (transmis à la direction)</label><textarea id="f-realmotiv" rows="2" placeholder="Confirmation d'encaissement / paiement…" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px"></textarea></div>`:""}
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="confirmRealise('${id}')">${isDirection()?"Confirmer":"Envoyer la demande"}</button></div>`);
 }
