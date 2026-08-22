@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.87.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.87.2";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -17236,6 +17236,9 @@ function portalUrl(clientId){ const c=DB.clients.find(x=>x.id===clientId); if(!c
    Ligne absente = signalement OUI, aucune fiche, pas de ligne de crise (comportement par défaut). */
 async function pushAccessTab(){
   const rows=[["Client","Signalement d'incident","Fiches réflexes","Ligne de crise","Clé","Mis à jour"]];
+  // Ligne de CONFIG : le numéro de la ligne de crise est piloté d'ICI (⚙ jamais de redéploiement
+  // du récepteur pour changer un numéro). Défaut = téléphone du cabinet (⚙ Paramètres / identité).
+  rows.push(["__CRISE_TEL__", String(DB.meta.criseTel||docIdentity().tel||"").trim(), "", "", "", frDate(todayISO())]);
   DB.clients.forEach(c=>{
     const hasSetting=c.incidentAccessOff||c.crisisLine||(c.fichesAccess&&c.fichesAccess.length)||c.portalKey;
     if(!hasSetting) return;
@@ -17304,6 +17307,15 @@ function setFichesAll(clientId,on){
   openDocsModal();
 }
 function toggleCrisis(clientId){
+  // 1ʳᵉ activation : on fixe le numéro de crise (modifiable, pré-rempli avec le téléphone du cabinet)
+  if(!DB.meta.criseTel){
+    const c0=DB.clients.find(x=>x.id===clientId);
+    if(c0 && !c0.crisisLine){
+      const tel=prompt("☎ Numéro de la LIGNE DE CRISE BSM affiché aux clients (joignable en situation grave) :", docIdentity().tel||"");
+      if(tel===null) return;
+      DB.meta.criseTel=String(tel||"").trim(); save();
+    }
+  }
   const c=DB.clients.find(x=>x.id===clientId); if(!c) return;
   c.crisisLine=!c.crisisLine; save();
   pushAccessTab().then(()=>toast(c.crisisLine?"☎ Ligne de crise activée pour "+(c.company||""):"☎ Ligne de crise coupée.")).catch(e=>toast("⚠️ Sheet non mis à jour : "+(e.message||e)));
