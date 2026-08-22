@@ -650,7 +650,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.87.2";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.88.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -17865,6 +17865,28 @@ function emailReport(id){ const r=(DB.reports||[]).find(x=>x.id===id); if(!r) re
   const body=r.content.length>1500? r.content.slice(0,1500)+"\n\n[…] Rapport complet : utilise « Copier » ou le PDF." : r.content;
   window.location.href="mailto:"+encodeURIComponent(to)+"?subject="+encodeURIComponent("[BSM] "+r.title)+"&body="+encodeURIComponent(body); }
 function deleteReport(id){ confirmModal("Supprimer ce rapport ?","Il sera retiré de l'archive.", function(){ DB.reports=(DB.reports||[]).filter(function(r){return r.id!==id;}); save(); closeModal(); renderReports(); toast("Rapport supprimé."); }); }
+/* Classement d'une demande de validation SANS envoi (direction) : rapport déjà traité par ailleurs,
+   doublon, demande prématurée… « Classer » garde le brouillon ; 🗑 le supprime partout (synchro). */
+function r5DismissValidation(id){
+  if(!isDirection()) return;
+  const r=(DB.r5reports||[]).find(x=>x.id===id); if(!r) return;
+  r.askValidation=false; save();
+  if(typeof logEvent==="function") logEvent("update","Demande de validation classée sans envoi — "+clientName(r.clientId)+" (préparé par "+(r.askBy||"?")+")", true);
+  toast("↩ Demande classée — le brouillon reste disponible (Matrice → 📑) chez toi comme chez son auteur.");
+  if(currentScreen==="reports") renderReports(); else refreshAll();
+}
+function r5DeleteDraft(id){
+  if(!isDirection()) return;
+  const r=(DB.r5reports||[]).find(x=>x.id===id); if(!r) return;
+  confirmModal("Supprimer ce brouillon de rapport ?",
+    esc(clientName(r.clientId))+" — préparé par "+esc(r.askBy||"?")+". À utiliser quand le rapport a déjà été envoyé par ailleurs ou qu'il s'agit d'un doublon : le brouillon disparaît aussi chez son auteur (synchronisé). Les rapports déjà ENVOYÉS restent archivés, eux.",
+    ()=>{
+      DB.r5reports=(DB.r5reports||[]).filter(x=>x.id!==id); save();
+      if(typeof logEvent==="function") logEvent("delete","Brouillon de rapport supprimé — "+clientName(r.clientId)+" (préparé par "+(r.askBy||"?")+")", true);
+      toast("🗑 Brouillon supprimé.");
+      if(currentScreen==="reports") renderReports(); else refreshAll();
+    });
+}
 function renderReports(){
   const host=document.getElementById("scr-reports"); if(!host) return;
   // Rapports IA réservés à la DIRECTION : les collaborateurs apprennent le métier, ils ne « génèrent » pas un rapport tout fait.
@@ -17893,8 +17915,12 @@ function renderReports(){
       <h2 style="margin-top:0">🔐 En attente de ta validation (${pendingVal.length})</h2>
       <div class="mini-list">${pendingVal.map(r=>`
         <div class="li"><span><b>${esc(clientName(r.clientId))}</b> — rapport d'audit R5® préparé par <b>${esc(r.askBy||"un collaborateur")}</b> le ${frDate(r.askAt||r.date)}</span>
-        <button class="cta sm" onclick="focusClient='${r.clientId}';openR5Report('${r.clientId}')">📑 Relire & valider</button></div>`).join("")}</div>
-      <div class="hint" style="margin-top:6px">Relis l'analyse du collaborateur, corrige si besoin, puis « ✉️ Envoyer au client » = ta validation. Aucun document ne sort sans elle.</div>
+        <span style="display:flex;gap:6px;align-items:center">
+          <button class="cta sm" onclick="focusClient='${r.clientId}';openR5Report('${r.clientId}')">📑 Relire & valider</button>
+          <button class="cta ghost sm" onclick="r5DismissValidation('${r.id}')" title="Classer la demande SANS envoyer (ex. déjà traité par ailleurs) — le brouillon reste disponible, chez toi comme chez son auteur">↩ Classer</button>
+          <button class="iconbtn del" onclick="r5DeleteDraft('${r.id}')" title="Supprimer définitivement ce brouillon (ex. rapport déjà envoyé) — il disparaît aussi chez son auteur">🗑</button>
+        </span></div>`).join("")}</div>
+      <div class="hint" style="margin-top:6px">Relis l'analyse du collaborateur, corrige si besoin, puis « ✉️ Envoyer au client » = ta validation. « ↩ Classer » retire la demande sans envoyer ; 🗑 supprime le brouillon (déjà envoyé par ailleurs, doublon…).</div>
     </div>`:"";
   host.innerHTML=`
     <div class="pagetitle"><div><h1>Rapports</h1><div class="sub">Le point central — rapports générés, classés, datés, archivés, exportables (PDF · copie · mail)</div></div></div>
