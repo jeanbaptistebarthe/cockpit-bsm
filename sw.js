@@ -3,7 +3,7 @@
    après un re-upload ; le cache ne sert QUE de secours hors-ligne. Assets statiques en
    stale-while-revalidate. La constante CACHE est ré-estampillée à chaque build (voir build.js),
    ce qui invalide automatiquement l'ancien cache. Actif uniquement en https (GitHub Pages, Vercel…). */
-const CACHE = "bsm-cockpit-20260826-mt9socki";
+const CACHE = "bsm-cockpit-20260826-mt9tg927";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg",
                 "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
@@ -54,8 +54,11 @@ self.addEventListener("fetch", e => {
   if (isDoc) {
     // NETWORK-FIRST : on tente le réseau (dernière version), on met à jour le cache,
     // et on ne retombe sur le cache QUE si le réseau échoue (hors-ligne).
+    // cache:"reload" = on ignore le cache HTTP du navigateur (GitHub Pages envoie max-age=600 :
+    // sans ça, le « réseau » pouvait renvoyer une page vieille de 10 minutes).
+    let netReq; try { netReq = new Request(e.request.url, { cache: "reload", credentials: "same-origin" }); } catch (_) { netReq = e.request; }
     e.respondWith(
-      fetch(e.request).then(resp => {
+      fetch(netReq).then(resp => {
         const copy = resp.clone();
         caches.open(CACHE).then(c => c.put("./index.html", copy));
         return resp;

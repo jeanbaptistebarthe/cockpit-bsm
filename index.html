@@ -506,6 +506,7 @@
         <button class="tb-dir" onclick="closeTopMenu();envSwitch()">⇄&nbsp; Ouvrir l'autre version</button>
         <button class="tb-dir" onclick="closeTopMenu();openSyncCenter()">🔄&nbsp; Synchroniser local ⇄ en ligne</button>
         <button onclick="closeTopMenu();toggleTheme()"><span id="theme-btn">🌙</span>&nbsp; Thème clair / sombre</button>
+        <button onclick="closeTopMenu();bsmUpdateNow()" title="Recharge la toute dernière version publiée (vide le cache de l'appareil) — utile sur téléphone">🔄&nbsp; Mettre à jour l'application</button>
         <button class="tb-dir" onclick="closeTopMenu();openSettings()">💱&nbsp; Devise & taux&nbsp;—&nbsp;<span id="currency-indicator">Ar / €</span></button>
         <div class="sep tb-dir"></div>
         <button class="tb-dir" onclick="closeTopMenu();openImport()">⇊&nbsp; Importer R5</button>
@@ -652,7 +653,7 @@
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "5.91.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "5.92.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const APP_VERSION_DATE = "21 août 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* 🔐 APPAIRAGE SERVEUR (v5.70) : tout appel /api/* porte le jeton de CET appareil (X-BSM-Auth).
@@ -19192,6 +19193,70 @@ else {
   }
 }
 </script>
-<script>if('serviceWorker' in navigator && location.protocol.startsWith('http')){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
+<script>
+/* ============ MISE À JOUR AUTOMATIQUE — vital sur téléphone ============
+   Une PWA ouverte depuis l'écran d'accueil est REPRISE, pas rechargée : sans ce moteur,
+   le téléphone reste des jours sur une ancienne version (constaté le 26/08).
+   Sonde légère : l'empreinte du build vit dans sw.js (~1,5 Ko, ré-estampillée à chaque
+   publication) — on la compare, et on recharge dès qu'elle bouge. */
+(function(){
+  var SW_OK = ('serviceWorker' in navigator) && location.protocol.indexOf('http') === 0;
+  var hadController = SW_OK && !!navigator.serviceWorker.controller;  // évite un rechargement parasite à la 1re installation
+  var reloading = false, lastCheck = 0;
+  function get(k){ try{ return localStorage.getItem(k) || ""; }catch(e){ return ""; } }
+  function set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+  function say(m){ try{ if(typeof toast === "function") toast(m); }catch(e){} }
+  function reloadOnce(){ if(reloading) return; reloading = true; setTimeout(function(){ location.reload(); }, 900); }
+
+  if(SW_OK){
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function(reg){
+        try{ reg.update(); }catch(e){}
+        reg.addEventListener('updatefound', function(){
+          var nw = reg.installing; if(!nw) return;
+          nw.addEventListener('statechange', function(){
+            if(nw.state === 'installed' && navigator.serviceWorker.controller) say("⬆️ Nouvelle version — mise à jour…");
+          });
+        });
+      }).catch(function(){});
+      navigator.serviceWorker.addEventListener('controllerchange', function(){ if(hadController) reloadOnce(); });
+    });
+  }
+
+  /* Vérification (auto au retour d'écran, ou manuelle depuis le menu ⋯). */
+  window.bsmCheckUpdate = function(manual){
+    var now = Date.now();
+    if(!manual && now - lastCheck < 60000) return;
+    lastCheck = now;
+    if(navigator.onLine === false){ if(manual) say("📴 Hors ligne — impossible de vérifier."); return; }
+    fetch('sw.js?ts=' + now, { cache: 'no-store' }).then(function(r){ return r.text(); }).then(function(t){
+      var m = t.match(/const CACHE\s*=\s*"([^"]+)"/); if(!m) return;
+      var online = m[1], local = get('bsm_build_stamp');
+      if(!local){ set('bsm_build_stamp', online); if(manual) say("✅ À jour (v" + APP_VERSION + ")."); return; }
+      if(online !== local){
+        set('bsm_build_stamp', online);                       // posé AVANT le rechargement : jamais de boucle
+        say("⬆️ Nouvelle version disponible — mise à jour…");
+        if(SW_OK) navigator.serviceWorker.getRegistration().then(function(reg){ if(reg) reg.update(); }).catch(function(){});
+        reloadOnce();
+      } else if(manual){ say("✅ Tu es déjà sur la dernière version (v" + APP_VERSION + ")."); }
+    }).catch(function(){ if(manual) say("Vérification impossible — réessaie dans un instant."); });
+  };
+
+  /* Forçage manuel : vide les caches et recharge — le « Ctrl+F5 » qui n'existe pas sur téléphone. */
+  window.bsmUpdateNow = function(){
+    if(navigator.onLine === false){ say("📴 Hors ligne — connecte-toi puis réessaie."); return; }
+    say("🔄 Mise à jour en cours…");
+    var jobs = [];
+    try{ if(window.caches && caches.keys) jobs.push(caches.keys().then(function(ks){ return Promise.all(ks.map(function(k){ return caches.delete(k); })); })); }catch(e){}
+    try{ if(SW_OK) jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){ return Promise.all(rs.map(function(r){ return r.update().catch(function(){}); })); })); }catch(e){}
+    Promise.all(jobs).catch(function(){}).then(function(){ set('bsm_build_stamp', ''); reloadOnce(); });
+  };
+
+  window.addEventListener('load', function(){ setTimeout(function(){ bsmCheckUpdate(false); }, 4000); });
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) bsmCheckUpdate(false); });  // ← le cas du téléphone : app reprise
+  window.addEventListener('online', function(){ bsmCheckUpdate(false); });
+  setInterval(function(){ bsmCheckUpdate(false); }, 15 * 60 * 1000);
+})();
+</script>
 </body>
 </html>
