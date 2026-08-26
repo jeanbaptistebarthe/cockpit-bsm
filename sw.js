@@ -3,7 +3,7 @@
    après un re-upload ; le cache ne sert QUE de secours hors-ligne. Assets statiques en
    stale-while-revalidate. La constante CACHE est ré-estampillée à chaque build (voir build.js),
    ce qui invalide automatiquement l'ancien cache. Actif uniquement en https (GitHub Pages, Vercel…). */
-const CACHE = "bsm-cockpit-20260826-mt9to951";
+const CACHE = "bsm-cockpit-20260826-mt9tsji0";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg",
                 "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
@@ -47,6 +47,12 @@ self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return; // le reste passe au réseau
+  // 🛑 DONNÉES SERVEUR : /api/* ne passe JAMAIS par le cache — ni servi, ni stocké.
+  // (Défaut confirmé par audit 26/08, reproduit sur banc : un /api/data servi périmé par le
+  // stale-while-revalidate réinstallait l'instantané du chargement précédent dans localStorage,
+  // que serverPush repoussait ensuite au serveur = écrasement de saisies. Et les /api/file
+  // re-remplissaient le quota navigateur que kbOffloadBig venait justement de libérer.)
+  if (url.pathname.startsWith("/api/")) return;
 
   const isDoc = e.request.mode === "navigate" || url.pathname === "/" ||
                 url.pathname.endsWith("/") || url.pathname.endsWith("index.html");
