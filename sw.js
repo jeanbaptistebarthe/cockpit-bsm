@@ -3,7 +3,7 @@
    après un re-upload ; le cache ne sert QUE de secours hors-ligne. Assets statiques en
    stale-while-revalidate. La constante CACHE est ré-estampillée à chaque build (voir build.js),
    ce qui invalide automatiquement l'ancien cache. Actif uniquement en https (GitHub Pages, Vercel…). */
-const CACHE = "bsm-cockpit-20260822-mt45ma6e";
+const CACHE = "bsm-cockpit-20260826-mt9socki";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg",
                 "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
@@ -65,8 +65,12 @@ self.addEventListener("fetch", e => {
   }
 
   // Assets statiques : STALE-WHILE-REVALIDATE (rapide + se met à jour en arrière-plan).
+  // ignoreSearch UNIQUEMENT pour les icônes/manifeste : le manifeste les demande en « ?v=2 »
+  // (cache-busting de l'icône d'accueil) et doit quand même les trouver hors-ligne.
+  // Surtout PAS globalement : une réponse d'API avec paramètres serait servie périmée.
+  const isIconish = /\.(png|svg|webmanifest)$/i.test(url.pathname);
   e.respondWith(
-    caches.match(e.request).then(cached => {
+    caches.match(e.request, isIconish ? { ignoreSearch: true } : undefined).then(cached => {
       const net = fetch(e.request).then(resp => {
         const copy = resp.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy));

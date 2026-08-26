@@ -1,6 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="BSM Cockpit">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="BSM Advisory &amp; Consulting">
   <rect width="512" height="512" rx="96" fill="#102A43"/>
-  <text x="256" y="248" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="150" fill="#FFFFFF" letter-spacing="4">BSM</text>
-  <text x="256" y="340" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="52" fill="#C7A25A" letter-spacing="8">COCKPIT</text>
-  <rect x="150" y="378" width="212" height="10" rx="5" fill="#C7A25A"/>
+  <text x="238" y="308" text-anchor="middle" font-family="Cormorant Garamond, Garamond, Georgia, 'Times New Roman', serif" font-weight="600" font-size="168" fill="#F6F1E8" letter-spacing="2">BSM</text>
+  <rect x="392" y="202" width="19" height="110" rx="3" fill="#C7A25A"/>
 </svg>
