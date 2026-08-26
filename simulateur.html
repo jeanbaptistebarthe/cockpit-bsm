@@ -2005,5 +2005,21 @@ window.addEventListener('DOMContentLoaded',function(){
   injectAiPanel();
 });
 </script>
+<div id="bsm-back-cockpit" style="display:none;position:fixed;left:16px;bottom:16px;z-index:9999">
+  <a href="index.html" style="display:inline-flex;align-items:center;gap:8px;background:#102A43;color:#F6F1E8;font-family:Raleway,Arial,sans-serif;font-size:13px;font-weight:600;padding:11px 20px;border-radius:99px;text-decoration:none;box-shadow:0 4px 16px rgba(16,42,67,.35);border:1px solid #C7A25A">← Retour au Cockpit</a>
+</div>
+<script>
+/* Bouton de retour PERMANENT quand le simulateur est ouvert en PLEIN ÉCRAN (hors iframe).
+   Vital dans l'app installée : pas de barre d'adresse ni de bouton « précédent » — sans lui,
+   le plein écran est un cul-de-sac (vécu le 26/08). En iframe (onglet Commercial), il reste caché. */
+(function(){
+  try{
+    if(window.self === window.top){
+      var el = document.getElementById('bsm-back-cockpit');
+      if(el) el.style.display = 'block';
+    }
+  }catch(e){ /* accès à window.top refusé = on est en iframe cross-origin : rester caché */ }
+})();
+</script>
 </body>
 </html>
