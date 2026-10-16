@@ -834,7 +834,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.99.86";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.99.88";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
@@ -1630,7 +1630,7 @@ async function cloudPullDelta(){
     if(error) throw error;
     (data||[]).forEach(r=>{ if(_applyRemoteRecord(r.collection,r.record_id,r.data)) applied++;
       if(r.updated_at && (!_cloudSince || r.updated_at>_cloudSince)) _cloudSince=r.updated_at; });
-    if(!data || data.length<1000 || page>=9) break;
+    if(!data || !data.length || page>=499) break;   /* patch 185 */
     page++;
   }
   if(applied) save(); // _applyingRemote est levé par l'appelant : pas d'écho de push
@@ -1643,11 +1643,11 @@ async function cloudReconcileIds(){
   const c=await sbClient();
   const cloudIds={}; let from=0;
   for(;;){
-    const { data, error } = await c.from("records").select("collection,record_id").range(from, from+1999);
+    const { data, error } = await c.from("records").select("collection,record_id").order("collection",{ascending:true}).order("record_id",{ascending:true}).range(from, from+999);   /* patch 185 */
     if(error) throw error;
     (data||[]).forEach(r=>{ (cloudIds[r.collection]=cloudIds[r.collection]||new Set()).add(r.record_id); });
-    if(!data || data.length<2000) break;
-    from+=2000;
+    if(!data || !data.length) break;   /* patch 185 : une page plus courte ne veut plus dire « fin » (plafond de l'API) */
+    from+=data.length; if(from>=500000) break;
   }
   let removed=0;
   CLOUD_COLLECTIONS.forEach(col=>{
@@ -2109,7 +2109,7 @@ function a1AppliquerCloud(grouped, cloudEmpty){
   });
   return a1GardeFou("Synchronisation : application de l'état du cloud sur ce poste.", avant, apres, function(){
     CLOUD_COLLECTIONS.forEach(function(col){ if(grouped[col]) DB[col] = grouped[col]; else if(!cloudEmpty) DB[col] = []; });
-    if(typeof snapshotFromLocal === "function") snapshotFromLocal();
+    if(typeof snapshotFromLocal === "function" && !cloudEmpty) snapshotFromLocal();   /* patch 185 */
     save();
     if(typeof refreshAll === "function") refreshAll();
   });
@@ -2333,8 +2333,7 @@ function a1ResteApresClient(id){
 
 async function cloudPullAll(){
   const c = await sbClient();
-  const { data, error } = await c.from("records").select("collection,record_id,data,updated_at").limit(10000);
-  if(error) throw error;
+  const data=[]; for(let from=0;;){ const { data:page, error } = await c.from("records").select("collection,record_id,data,updated_at").order("collection",{ascending:true}).order("record_id",{ascending:true}).range(from, from+999); if(error) throw error; if(!page||!page.length) break; page.forEach(r=>data.push(r)); from+=page.length; if(from>=500000) break; }   /* patch 185 : par pages — l'API ne rend jamais plus de 1 000 lignes par appel, .limit(10000) n'y changeait rien */
   const grouped={}; (data||[]).forEach(r=>{ (grouped[r.collection]=grouped[r.collection]||[]).push(r.data);
     if(r.updated_at && (!_cloudSince || r.updated_at>_cloudSince)) _cloudSince=r.updated_at; });
   if(!_cloudSince) _cloudSince=new Date().toISOString();
@@ -2342,7 +2341,7 @@ async function cloudPullAll(){
   // Miroir : une collection absente du cloud est vidée en local — SAUF si le cloud est totalement vide
   // (évite d'effacer les modèles/exemples par défaut lors d'une toute première connexion sur base neuve).
   a1AppliquerCloud(grouped, cloudEmpty);   // garde-fou : compte ce qui disparaitrait avant d'appliquer
-  snapshotFromLocal();  // le snapshot de ce poste reflète l'état cloud chargé
+  if(!cloudEmpty) snapshotFromLocal(); else { _cloudHash={}; _cloudSnap={}; cloudDirtySet(true); }   /* patch 185 : cloud vide → rien n'est « connu du cloud », le poste y enverra tout au tour suivant (sinon la réconciliation le prendrait pour supprimé ailleurs) */
   save(); return { count:(data||[]).length };
 }
 /* --- Authentification unifiée : Supabase devient la porte d'entrée (repli local toujours dispo) --- */
