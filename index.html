@@ -834,7 +834,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.99.88";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.99.90";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
@@ -14866,7 +14866,7 @@ function miseEnRoutePrete(cid) {
 function miseEnRouteContratObjet(cid) {
   var c = (DB.clients || []).find(function (x) { return x.id === cid; }) || {}, p = a1ParcCompte(cid), o = a1OffreAbonnement(cid), pt = a1ParcTypes(cid), tf = a1TarifParc(0, 0, 0, { comptes: (o && o.types) || pt.comptes, gps: (o && o.gpsN != null) ? +o.gpsN : pt.gps });   // patch 106 : par type
   var d = new Date(), dem = new Date(d.getFullYear(), d.getMonth() + 1, 1);
-  return { clientId: cid, veh: p.veh, gen: p.gen, types: (o && o.types) || pt.comptes, gpsN: (o && o.gpsN != null) ? +o.gpsN : pt.gps, parType: (o && o.parType) || tf.parType || null, remisePct: (o && o.remisePct) || tf.remisePct || 0, prix: (o && +o.monthlyFee) ? a1PrixEnAr(o.monthlyFee, o.currency, o.taux) : tf.prix, parVeh: (o && +o.parVeh) || tf.parVeh, parGen: (o && +o.parGen) || tf.parGen, cur: "MGA",   // patch 93 : l'ariary, par véhicule, GPS compris
+  return { clientId: cid, veh: p.veh, gen: p.gen, types: (o && o.types) || pt.comptes, gpsN: (o && o.gpsN != null) ? +o.gpsN : pt.gps, parType: (o && o.parType) || tf.parType || null, remisePct: (o && o.remisePct) || tf.remisePct || 0, remiseAr: (o && o.remiseAr != null) ? +o.remiseAr : ((o && o.parType) ? undefined : (tf.remise || 0)), prix: (o && +o.monthlyFee) ? a1PrixEnAr(o.monthlyFee, o.currency, o.taux) : tf.prix, parVeh: (o && +o.parVeh) || tf.parVeh, parGen: (o && +o.parGen) || tf.parGen, cur: "MGA",   // patch 93 : l'ariary, par véhicule, GPS compris
     mer: (o && o.miseEnPlaceOfferte) ? 0 : ((o && +o.setupFee) ? a1PrixEnAr(o.setupFee, o.currency, o.taux) : BAREME_PARC.miseEnRoute), merMotif: (o && o.miseEnPlaceMotif) || "", merJours: (o && +o.merJours) || 0, merTauxEur: (o && +o.merTauxEur) || a1MerTauxEur(), merHeuresJour: (o && +o.merHeuresJour) || a1MerHeuresJour(), merTauxAr: (o && +o.merTauxAr) || 0,
     merBrut: (o && +o.setupFeeBrut) ? a1PrixEnAr(o.setupFeeBrut, o.currency, o.taux) : BAREME_PARC.miseEnRoute, merRemise: (o && +o.miseEnPlaceRemisePct) || 0,   // patch 96 : la remise négociée s'écrit au contrat
     debut: dem.getFullYear() + "-" + String(dem.getMonth() + 1).padStart(2, "0") + "-01", duree: BAREME_PARC.dureeMois, preavis: BAREME_PARC.preavisMois, jour: BAREME_PARC.jourReleves, regl: BAREME_PARC.reglementJours,
@@ -16369,21 +16369,45 @@ function a1EnginsBoutonHtml(cid) { var n = rechercheEnginsManquants(cid).length;
    Paramètres (DB.meta.a1Bareme) sans toucher au code. Les anciens devis (tranches) restent lisibles. */
 var BAREME_TYPES = [
   { cle: "moto", lib: "Moto", court: "moto", pluriel: "motos", prix: 20000, gps: false, cout: 400000 },
-  { cle: "vhl", lib: "Véhicule léger (voiture, utilitaire, pick-up)", court: "véhicule léger", pluriel: "véhicules légers", prix: 50000, gps: true, cout: 1000000 },
-  { cle: "camion", lib: "Camion, bus", court: "camion ou bus", pluriel: "camions ou bus", prix: 80000, gps: true, cout: 1600000 },
-  { cle: "engin", lib: "Engin de chantier", court: "engin", pluriel: "engins", prix: 100000, gps: false, cout: 2000000 },
-  { cle: "groupe", lib: "Groupe électrogène", court: "groupe électrogène", pluriel: "groupes électrogènes", prix: 60000, gps: false, cout: 1200000 }
+  { cle: "vhl", lib: "Véhicule léger (voiture, utilitaire, pick-up)", court: "véhicule léger", pluriel: "véhicules légers", prix: 55000, gps: true, cout: 1000000 },
+  { cle: "camion", lib: "Camion, bus", court: "camion ou bus", pluriel: "camions ou bus", prix: 90000, gps: true, cout: 1600000 },
+  { cle: "engin", lib: "Engin de chantier", court: "engin", pluriel: "engins", prix: 110000, gps: false, cout: 2000000 },
+  { cle: "groupe", lib: "Groupe électrogène jusqu’à 100 kVA", court: "groupe électrogène", pluriel: "groupes électrogènes", prix: 70000, gps: false, cout: 1200000 },   /* patch 186 */ { cle: "groupeGros", lib: "Groupe électrogène de plus de 100 kVA", court: "groupe de plus de 100 kVA", pluriel: "groupes de plus de 100 kVA", prix: 120000, gps: false, cout: 2400000 }
 ];
 var BAREME_REMISES = [{ min: 50, pct: 10 }, { min: 100, pct: 20 }];   // sur le suivi, selon le nombre total de machines suivies
-function a1BaremeReglages() { return (DB.meta && DB.meta.a1Bareme && typeof DB.meta.a1Bareme === "object") ? DB.meta.a1Bareme : {}; }
+function a1BaremeReglages() { var r = (DB.meta && DB.meta.a1Bareme && typeof DB.meta.a1Bareme === "object") ? DB.meta.a1Bareme : {}; if (r.types && !r.v186) { var anc = { moto: 20000, vhl: 50000, camion: 80000, engin: 100000, groupe: 60000 }, t = r.types; if (Object.keys(anc).every(function (k) { return +t[k] === anc[k]; }) && Object.keys(t).every(function (k) { return k in anc; })) r.types = { moto: 20000, vhl: 55000, camion: 90000, engin: 110000, groupe: 70000, groupeGros: 120000 }; r.v186 = true; } return r; }   /* patch 186 : les prix d'avant, laissés tels quels dans Paramètres, passent aux nouveaux ; un réglage fait à la main est respecté */
 function a1BaremeTypes() { var r = a1BaremeReglages(), t = r.types || {}; return BAREME_TYPES.map(function (x) { return Object.assign({}, x, { prix: (+t[x.cle] > 0) ? Math.round(+t[x.cle]) : x.prix }); }); }
 function a1BaremeType(cle) { return a1BaremeTypes().filter(function (t) { return t.cle === cle; })[0] || null; }
 function a1BaremeGps() { var r = a1BaremeReglages(); return (+r.gps > 0) ? Math.round(+r.gps) : BAREME_PARC.gps.parVehicule; }
 function a1BaremeRemises() { var r = a1BaremeReglages(); return Array.isArray(r.remises) && r.remises.length ? r.remises : BAREME_REMISES; }
 function a1BaremeRemisePct(n) { var pct = 0; a1BaremeRemises().forEach(function (x) { if (n >= +x.min && +x.pct > pct) pct = +x.pct; }); return pct; }
+/* patch 186 — les types tarifaires des machines à compteur horaire. */
+function a1CleGen(cle) { return cle === "groupe" || cle === "groupeGros" || cle === "engin"; }
+/* patch 186 — LA REMISE LISSÉE : le suivi d'un parc ne descend jamais sous celui du même parc privé de ses machines les moins
+   chères jusqu'au seuil de remise précédent. Ajouter une machine ne fait donc jamais baisser la facture (49 véhicules ne coûtent
+   plus davantage que 50). Candidats : le parc entier à sa remise, et pour chaque seuil atteint le parc ramené à seuil − 1
+   machines (les plus chères gardées) à la remise de cette taille. Le plus élevé l'emporte, arrondi à 100 Ar. */
+function a1SuiviLisse(lignes, n) {
+  var prix = []; (lignes || []).forEach(function (l) { for (var i = 0; i < l.n; i++) prix.push(+l.pu || 0); });
+  prix.sort(function (a, b) { return a - b; }); n = prix.length;
+  var cum = [0]; for (var i = 0; i < n; i++) cum.push(cum[i] + prix[i]);
+  var brut = cum[n], best = brut * (1 - a1BaremeRemisePct(n) / 100);
+  a1BaremeRemises().forEach(function (x) { var m = (+x.min) - 1; if (m >= 1 && m < n) { var c = (brut - cum[n - m]) * (1 - a1BaremeRemisePct(m) / 100); if (c > best) best = c; } });
+  return Math.round(best / 100) * 100;
+}
+/* patch 186 — la remise d'un devis écrit : celle qu'il porte. Depuis le patch 186, un montant (remiseAr) sous des prix au
+   barème ; avant, des prix unitaires nets et une part « comprise » ; sans devis, le barème du jour. */
+function a1OffreRemise(o, tf) {
+  if (o && o.remiseAr != null) return { ar: +o.remiseAr || 0, pct: +o.remisePct || 0, comprise: false };
+  if (o && o.parType && +o.remisePct > 0) return { ar: 0, pct: +o.remisePct, comprise: true };
+  return { ar: (tf && tf.remise) || 0, pct: (tf && tf.remisePct) || 0, comprise: false };
+}
+function a1OffreRemiseTxt(rm, n, suffixe) { return rm.comprise ? rm.pct + " % pour " + n + " machines suivies, comprise dans les prix unitaires" : "− " + a1Ar(rm.ar) + " HT " + (suffixe || "/ mois") + " (" + a1PctTxt(rm.pct) + " du suivi de " + n + " machines)"; }
+/* patch 186 — une part de remise en clair : « 10 % », « 5,8 % ». */
+function a1PctTxt(p) { var v = Math.round((+p || 0) * 10) / 10; return String(v).replace(".", ",") + " %"; }
 /* Le type tarifaire d'une machine : véhicules par leur type, machines à compteur horaire par leur catégorie. */
 function a1TypeTarif(kind, m) {
-  if (kind === "gen") return (typeof a1EstEngin === "function" && a1EstEngin(m)) ? "engin" : "groupe";
+  if (kind === "gen") { if (typeof a1EstEngin === "function" && a1EstEngin(m)) return "engin"; var kva = +(m && m.puissanceKva) || ((+(m && m.puissanceKw) > 0) ? +m.puissanceKw / 0.8 : 0); return kva > 100 ? "groupeGros" : "groupe"; }   /* patch 186 : au-delà de 100 kVA, la classe des gros groupes ; puissance inconnue = jusqu'à 100 kVA */
   var t = String((m && m.type) || "");
   if (/^moto/i.test(t)) return "moto"; if (/^camion|^bus/i.test(t)) return "camion"; if (/^engin/i.test(t)) return "engin"; return "vhl";
 }
@@ -16401,17 +16425,17 @@ function a1TarifParcDetail(spec) {
   a1BaremeTypes().forEach(function (t) { var k = Math.max(0, Math.round(+comptes[t.cle] || 0)); if (!k) return; n += k; suiviBrut += k * t.prix; lignes.push({ cle: t.cle, lib: t.lib, court: t.court, pluriel: t.pluriel, n: k, pu: t.prix, total: k * t.prix }); });
   var base = { n: n, lignes: lignes, devise: BAREME_PARC.devise, gpsN: gpsN, gpsPu: a1BaremeGps(), libelle: n + " machine" + (n > 1 ? "s" : "") + " suivie" + (n > 1 ? "s" : "") };
   if (n < BAREME_PARC.plancherMachines) return Object.assign(base, { prix: 0, suivi: 0, suiviBrut: suiviBrut, remisePct: 0, remise: 0, gpsTotal: 0, horsGrille: true, note: "Parc trop petit pour le barème (moins de " + BAREME_PARC.plancherMachines + " machines) : la mensualité se fixe à la main." });
-  var pct = a1BaremeRemisePct(n), remise = Math.round(suiviBrut * pct / 100 / 1000) * 1000, suivi = suiviBrut - remise, gpsTotal = gpsN * a1BaremeGps();
-  lignes.forEach(function (l) { l.puNet = pct ? Math.round(l.pu * (1 - pct / 100) / 1000) * 1000 : l.pu; l.totalNet = l.puNet * l.n; });
-  return Object.assign(base, { prix: suivi + gpsTotal, suivi: suivi, suiviBrut: suiviBrut, remisePct: pct, remise: remise, gpsTotal: gpsTotal, horsGrille: false, parType: lignes.reduce(function (o, l) { o[l.cle] = l.puNet; return o; }, {}) });
+  var suivi = a1SuiviLisse(lignes, n), remise = suiviBrut - suivi, pct = suiviBrut ? Math.round(remise / suiviBrut * 1000) / 10 : 0, pctPalier = a1BaremeRemisePct(n), gpsTotal = gpsN * a1BaremeGps();   /* patch 186 : la remise lissée, en montant ; pct = sa part réelle */
+  lignes.forEach(function (l) { l.puNet = l.pu; l.totalNet = l.pu * l.n; });   /* patch 186 : prix unitaires au barème, la remise sur sa ligne : la somme tombe juste */
+  return Object.assign(base, { prix: suivi + gpsTotal, suivi: suivi, suiviBrut: suiviBrut, remisePct: pct, remisePalier: pctPalier, remise: remise, gpsTotal: gpsTotal, horsGrille: false, parType: lignes.reduce(function (o, l) { o[l.cle] = l.puNet; return o; }, {}) });
 }
 /* L'ancienne signature, gardée : n machines, veh véhicules (lus comme véhicules légers équipés de GPS), gen groupes. Un `spec` par type prime. */
 function a1TarifParc(n, veh, gen, spec) {
   var d;
   if (spec && spec.comptes) d = a1TarifParcDetail(spec);
   else { if (veh === undefined && gen === undefined) { n = Math.max(0, Math.round(+n || 0)); veh = n; gen = 0; } else { veh = Math.max(0, Math.round(+veh || 0)); gen = Math.max(0, Math.round(+gen || 0)); } d = a1TarifParcDetail({ comptes: { vhl: veh, groupe: gen }, gps: veh }); }
-  var vhl = d.parType ? d.parType.vhl : 0, grp = d.parType ? d.parType.groupe : 0;
-  return Object.assign({}, d, { veh: veh === undefined ? (d.lignes.filter(function (l) { return l.cle !== "groupe" && l.cle !== "engin"; }).reduce(function (s, l) { return s + l.n; }, 0)) : veh, gen: gen === undefined ? (d.lignes.filter(function (l) { return l.cle === "groupe" || l.cle === "engin"; }).reduce(function (s, l) { return s + l.n; }, 0)) : gen,
+  var vhl = d.parType ? d.parType.vhl : 0, grp = d.parType ? (d.parType.groupe || d.parType.groupeGros) : 0;
+  return Object.assign({}, d, { veh: veh === undefined ? (d.lignes.filter(function (l) { return !a1CleGen(l.cle); }).reduce(function (s, l) { return s + l.n; }, 0)) : veh, gen: gen === undefined ? (d.lignes.filter(function (l) { return a1CleGen(l.cle); }).reduce(function (s, l) { return s + l.n; }, 0)) : gen,
     parVeh: (vhl || a1BaremeType("vhl").prix) + (d.gpsN ? d.gpsPu : 0), parGen: grp || a1BaremeType("groupe").prix, gpsParVeh: d.gpsPu, gpsPart: d.gpsTotal, suiviPart: d.suivi, cap: null, tranche: null });
 }
 /* « 12 véhicules légers × 50 000 Ar · 3 camions × 80 000 Ar · remise 10 % · GPS : 15 boîtiers × 50 000 Ar » */
@@ -16419,7 +16443,7 @@ function a1TypeMots(l) { return l.n + " " + (l.n > 1 ? (l.pluriel || l.court + "
 function a1TarifLibelle(tf) {
   if (!tf || tf.horsGrille) return "";
   var p = (tf.lignes || []).map(function (l) { return a1TypeMots(l) + " × " + a1Ar(l.pu); });
-  if (tf.remisePct) p.push("remise " + tf.remisePct + " % sur le suivi (" + tf.n + " machines)");
+  if (tf.remise) p.push(tf.remise ? "remise de taille de parc : − " + a1Ar(tf.remise) + " par mois (" + a1PctTxt(tf.remisePct) + " du suivi, " + tf.n + " machines)" : "");
   if (tf.gpsN) p.push("GPS en option : " + tf.gpsN + " boîtier" + (tf.gpsN > 1 ? "s" : "") + " × " + a1Ar(tf.gpsPu));
   return p.join(" · ");
 }
@@ -16429,7 +16453,7 @@ function a1OfferParcLibelle(o) {
   var spec = a1OfferSpec(o);
   if (!spec) return (o.machines || 0) + " machine(s)" + (o.tranche ? " — tranche " + o.tranche : "");
   var tf = a1TarifParcDetail(spec), p = tf.lignes.map(function (l) { return a1TypeMots(l) + " × " + a1Ar((o.parType && o.parType[l.cle]) || l.puNet || l.pu) + " / mois"; });
-  if (tf.remisePct) p.push("remise " + tf.remisePct + " % comprise");
+  var rm = a1OffreRemise(o, tf); if (rm.comprise) p.push("remise " + rm.pct + " % comprise"); else if (rm.ar) p.push("remise de taille de parc − " + a1Ar(rm.ar) + " / mois (" + a1PctTxt(rm.pct) + ")");
   if (tf.gpsN) p.push("géolocalisation : " + tf.gpsN + " boîtier" + (tf.gpsN > 1 ? "s" : "") + " × " + a1Ar(tf.gpsPu) + " / mois");
   return p.join(" · ") || (o.machines || 0) + " machine(s)";
 }
@@ -16440,7 +16464,7 @@ function a1OfferGpsRow(o) {
 }
 function a1AboTerms() {
   var t = a1BaremeTypes(), r = a1BaremeRemises();
-  return "Devis valable 30 jours à compter de son émission. Tarifs hors taxes, en ariary, par machine suivie et par mois, selon son type : " + t.map(function (x) { return x.court + " " + a1Ar(x.prix); }).join(", ") + " ; remise sur le suivi selon la taille du parc : " + r.map(function (x) { return x.pct + " % dès " + x.min + " machines"; }).join(", ") + ". Géolocalisation en option, " + a1Ar(a1BaremeGps()) + " par machine équipée et par mois (boîtier fourni, posé et entretenu par le prestataire désigné par BSM). Mise en route réglée à la signature du contrat ; mensualités facturées à terme échu, règlement à " + BAREME_PARC.reglementJours + " jours. Engagement de " + BAREME_PARC.dureeMois + " mois, renouvelable ; préavis de " + BAREME_PARC.preavisMois + " mois. Une machine ajoutée ou cédée entre ou sort de la facturation le mois suivant sa déclaration, au prix de son type. Périmètre et tarif revus à chaque date anniversaire. Suspension de plein droit si les relevés ne sont pas transmis deux mois de suite.";
+  return "Devis valable 30 jours à compter de son émission. Tarifs hors taxes, en ariary, par machine suivie et par mois, selon son type : " + t.map(function (x) { return x.court + " " + a1Ar(x.prix); }).join(", ") + " ; remise sur le suivi selon la taille du parc : " + r.map(function (x) { return x.pct + " % dès " + x.min + " machines"; }).join(", ") + ", lissée pour qu’une machine ajoutée ne fasse jamais baisser le prix. Géolocalisation en option, " + a1Ar(a1BaremeGps()) + " par machine équipée et par mois (boîtier fourni, posé et entretenu par le prestataire désigné par BSM). Mise en route réglée à la signature du contrat ; mensualités facturées à terme échu, règlement à " + BAREME_PARC.reglementJours + " jours. Engagement de " + BAREME_PARC.dureeMois + " mois, renouvelable ; préavis de " + BAREME_PARC.preavisMois + " mois. Une machine ajoutée ou cédée entre ou sort de la facturation le mois suivant sa déclaration, au prix de son type. Périmètre et tarif revus à chaque date anniversaire. Suspension de plein droit si les relevés ne sont pas transmis deux mois de suite.";
 }
 function a1OfferTarifHint(clientId) {
   var p = a1ParcTypes(clientId), tf = a1TarifParcDetail({ comptes: p.comptes, gps: p.gps });
@@ -16474,14 +16498,14 @@ function a1OfferTarifUI(appliquer) {
 /* Ce que le devis enregistre : les comptes par type, le GPS, les prix unitaires nets, la remise — et les anciens champs pour ce qui les lit encore. */
 function a1OfferTypesChamps(spec) {
   var tf = a1TarifParc(0, 0, 0, spec), veh = 0, gen = 0;
-  tf.lignes.forEach(function (l) { if (l.cle === "groupe" || l.cle === "engin") gen += l.n; else veh += l.n; });
-  return { types: spec.comptes, gpsN: tf.gpsN, gpsPu: tf.gpsPu, parType: tf.parType || {}, remisePct: tf.remisePct, veh: veh, gen: gen, machines: tf.n, gpsInclus: tf.gpsN > 0, tranche: tf.horsGrille ? "" : tf.libelle, parVeh: tf.parVeh || 0, parGen: tf.parGen || 0 };
+  tf.lignes.forEach(function (l) { if (a1CleGen(l.cle)) gen += l.n; else veh += l.n; });
+  return { types: spec.comptes, gpsN: tf.gpsN, gpsPu: tf.gpsPu, parType: tf.parType || {}, remisePct: tf.remisePct, remiseAr: tf.remise || 0, veh: veh, gen: gen, machines: tf.n, gpsInclus: tf.gpsN > 0, tranche: tf.horsGrille ? "" : tf.libelle, parVeh: tf.parVeh || 0, parGen: tf.parGen || 0 };
 }
 /* Les lignes de prix du contrat (article 4) : une par type, la remise, la géolocalisation, le total. */
 function a1ContratLignesPrix(o, lig, mt, enAr) {
   var spec = a1OfferSpec(o) || { comptes: { vhl: +o.veh || 0, groupe: +o.gen || 0 }, gps: +o.gpsN || 0 }, tf = a1TarifParcDetail(spec), h = "";
   tf.lignes.forEach(function (l) { h += lig(l.lib + " — " + l.n + " machine" + (l.n > 1 ? "s" : "") + " suivie" + (l.n > 1 ? "s" : ""), l.n + " × " + a1Ar((o.parType && o.parType[l.cle]) || l.puNet || l.pu) + " HT / mois"); });
-  if (tf.remisePct) h += lig("Remise sur le suivi", tf.remisePct + " % pour " + tf.n + " machines suivies, comprise dans les prix unitaires");
+  var rm = a1OffreRemise(o, tf); if (rm.ar || rm.comprise) h += lig(rm.comprise ? "Remise sur le suivi" : "Remise de taille de parc", a1OffreRemiseTxt(rm, tf.n));
   h += tf.gpsN ? lig("Géolocalisation (option)", tf.gpsN + " machine" + (tf.gpsN > 1 ? "s" : "") + " équipée" + (tf.gpsN > 1 ? "s" : "") + " × " + a1Ar(tf.gpsPu) + " HT / mois") : lig("Géolocalisation", "en option, non retenue — " + a1Ar(a1BaremeGps()) + " par machine équipée et par mois");
   h += lig("Abonnement mensuel", mt(enAr(o.prix)));
   return h;
@@ -16492,7 +16516,7 @@ function a1BaremeParamBlocHtml() {
   return '<div class="field"><label>💰 Barème du Programme de parc — par machine et par mois (Ar HT)</label><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
     + t.map(function (x) { return '<tr><td style="padding:3px 0">' + esc(x.lib) + ' <span style="color:var(--muted);font-size:11px">— coûte ≈ ' + a1Ar(x.cout) + ' / mois en carburant et entretien</span></td><td style="padding:3px 0;text-align:right"><input type="number" min="0" step="1000" id="s-bar-' + x.cle + '" value="' + x.prix + '" ' + I + '></td></tr>'; }).join("")
     + '<tr><td style="padding:3px 0"><b>Géolocalisation</b>, par machine équipée (option)</td><td style="padding:3px 0;text-align:right"><input type="number" min="0" step="1000" id="s-bar-gps" value="' + a1BaremeGps() + '" ' + I + '></td></tr><tr><td style="padding:3px 0"><b>Mise en route au temps passé sur site</b> — tarif horaire (€ HT) <span style="color:var(--muted);font-size:11px">— converti en ariary au taux du Cockpit ; sans jours au devis, le forfait reste</span></td><td style="padding:3px 0;text-align:right"><input type="number" min="1" step="1" id="s-bar-mer-taux" value="' + a1MerTauxEur() + '" ' + I + '></td></tr><tr><td style="padding:3px 0">Heures par jour de présence</td><td style="padding:3px 0;text-align:right"><input type="number" min="1" step="0.5" id="s-bar-mer-heures" value="' + a1MerHeuresJour() + '" ' + I + '></td></tr><tr><td style="padding:3px 0"><b>Suivi d’entretien seul</b> — part du prix du suivi (%) <span style="color:var(--muted);font-size:11px">— par avenant, quand le client ne garde que l’entretien ; option GPS inchangée</span></td><td style="padding:3px 0;text-align:right"><input type="number" min="1" max="100" step="1" id="s-bar-volet" value="' + a1VoletEntretienPct() + '" ' + I + '></td></tr></table>'
-    + '<div class="hint" style="margin:6px 0 0">Remises sur le suivi selon la taille du parc : ' + r.map(function (x) { return x.pct + " % dès " + x.min + " machines"; }).join(", ") + '. Mise en route : forfait de ' + a1Ar(BAREME_PARC.miseEnRoute) + ' réglé à la signature, ou au temps de présence sur site quand le devis porte des jours. Sous ' + BAREME_PARC.plancherMachines + ' machines, pas d’abonnement. Les devis déjà écrits gardent leurs prix.</div></div>';
+    + '<div class="hint" style="margin:6px 0 0">Remises sur le suivi selon la taille du parc : ' + r.map(function (x) { return x.pct + " % dès " + x.min + " machines"; }).join(", ") + ', lissées : une machine ajoutée ne fait jamais baisser le prix. Mise en route : forfait de ' + a1Ar(BAREME_PARC.miseEnRoute) + ' réglé à la signature, ou au temps de présence sur site quand le devis porte des jours. Sous ' + BAREME_PARC.plancherMachines + ' machines, pas d’abonnement. Les devis déjà écrits gardent leurs prix.</div></div>';
 }
 function a1BaremeParamLire() {
   var types = {}; a1BaremeTypes().forEach(function (x) { var v = parseInt(val("s-bar-" + x.cle)); if (v > 0) types[x.cle] = v; });
@@ -18972,7 +18996,7 @@ function a1PropositionDoc(o) {
     // 4
     + A("4 — Le prix", (tf.horsGrille ? '<p>Parc sous le plancher du barème (' + BAREME_PARC.plancherMachines + ' machines) : mensualité fixée au devis.</p>' : '')
       + T(tf.lignes.map(function (l) { return lig(l.lib + " — " + l.n + " machine" + (l.n > 1 ? "s" : "") + " suivie" + (l.n > 1 ? "s" : ""), l.n + " × " + a1Ar((o.parType && o.parType[l.cle]) || l.puNet || l.pu) + " HT par mois" + (tf.remisePct && l.puNet !== l.pu ? ' <span style="color:#6B7280">(barème ' + a1Ar(l.pu) + ', remise de ' + tf.remisePct + ' %)</span>' : '')); }).join("")
-        + (tf.remisePct ? lig("Remise de taille de parc", tf.remisePct + " % pour " + n + " machines suivies, comprise dans les prix unitaires") : "")
+        + ((function () { var rm = a1OffreRemise(o, tf); return (rm.ar || rm.comprise) ? lig("Remise de taille de parc", a1OffreRemiseTxt(rm, n, "par mois")) : ""; })())
         + (gpsN > 0 ? lig("Géolocalisation (option retenue)", gpsN + " × " + a1Ar(gpsPu) + " HT par mois") : "")
         + lig("Abonnement mensuel", mt(mensuel))
         + lig("Mise en route", merTxt)
@@ -20596,7 +20620,7 @@ function a1OfferConditionsRows(o) {
   var spec = a1OfferSpec(o), tf = spec ? a1TarifParcDetail(spec) : null;
   if (tf && tf.lignes.length) tf.lignes.forEach(function (l) { var pu = (o.parType && o.parType[l.cle]) || l.puNet || l.pu; rows += a1OfferLigneHtml(cap(l.pluriel || l.court + "s") + (l.cle === "moto" ? " suivies" : " suivis"), l.n + " × " + a1Ar(pu) + " HT par mois"); });
   else if (o.machines) rows += a1OfferLigneHtml("Parc suivi", esc(a1OfferParcLibelle(o)));
-  if (tf && tf.remisePct) rows += a1OfferLigneHtml("Remise selon la taille du parc", tf.remisePct + " %, comprise dans les prix ci-dessus");
+  if (tf) { var rm = a1OffreRemise(o, tf); if (rm.ar || rm.comprise) rows += a1OfferLigneHtml("Remise selon la taille du parc", rm.comprise ? rm.pct + " %, comprise dans les prix ci-dessus" : "− " + a1Ar(rm.ar) + " HT par mois (" + a1PctTxt(rm.pct) + " du suivi)"); }
   if (spec) rows += spec.gps ? a1OfferLigneHtml("Géolocalisation (option retenue)", spec.gps + " boîtier" + (spec.gps > 1 ? "s" : "") + " × " + a1Ar(a1BaremeGps()) + " HT par mois — boîtier fourni, posé et entretenu, abonnement et plateforme") : a1OfferLigneHtml("Géolocalisation (option)", "non retenue — " + a1Ar(a1BaremeGps()) + " par machine équipée et par mois");
   rows += a1OfferLigneHtml("Abonnement mensuel", a1OfferPrixHt(o.monthlyFee, cur, o.taux), true);
   rows += a1OfferLigneHtml(esc(a1MerDevisLibelle(o)), o.miseEnPlaceOfferte ? '<span style="color:#128a45">offerte' + (o.miseEnPlaceMotif ? " — " + esc(o.miseEnPlaceMotif) : "") + '</span>' : (o.setupFee ? a1OfferPrixHt(o.setupFee, cur, o.taux) + (+o.miseEnPlaceRemisePct > 0 ? ' <span style="color:#128a45;font-weight:400">— barème ' + a1OfferPrixHt(o.setupFeeBrut || o.setupFee, cur, o.taux) + ', remise de ' + o.miseEnPlaceRemisePct + ' %' + (o.miseEnPlaceMotif ? ' (' + esc(o.miseEnPlaceMotif) + ')' : '') + '</span>' : '') : "—"), true);
