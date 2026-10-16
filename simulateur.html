@@ -1563,6 +1563,25 @@ function applyCockpitRates(eurMga, usdMga){
 }
 window.addEventListener('message',function(e){ var p=e&&e.data; if(p&&p.__bsm==='rates') applyCockpitRates(p.eurMga,p.usdMga); });
 
+/* CATALOGUE - libelles et descriptions synchronises depuis le Cockpit (source unique de verite).
+   Le Cockpit pousse {__bsm:'catalog', items:[{id,label,desc}]} au chargement de l'iframe.
+   Appariement par id stable (a2, r1, c1...). Les PRIX restent locaux au simulateur tant que
+   la grille n'est pas arretee. Hors Cockpit (plein ecran, hors ligne) : liste embarquee inchangee. */
+function applyCockpitCatalog(items){
+  if(!items||!items.length) return;
+  var byId={}; items.forEach(function(o){ if(o&&o.id) byId[o.id]=o; });
+  var n=0;
+  ['std','ess'].forEach(function(k){
+    (C[k]||[]).forEach(function(o){
+      var src=byId[o.id]; if(!src) return;
+      if(src.label && src.label!==o.label){ o.label=src.label; n++; }
+      if(src.desc  && src.desc !==o.desc ){ o.desc =src.desc;  n++; }
+    });
+  });
+  if(n){ calcStd(); calcEss(); calcPacks(); showToast('Catalogue synchronise depuis le Cockpit'); }
+}
+window.addEventListener('message',function(e){ var p=e&&e.data; if(p&&p.__bsm==='catalog') applyCockpitCatalog(p.items); });
+
 /* ── ENVELOPPE DOCUMENT UNIFORME — portée du docChrome du Cockpit (v5.22.1+).
    Même en-tête (coordonnées, NIF/STAT), mêmes blocs signature et même pied que TOUS les
    documents BSM (rapports exécutifs, contrats, factures, échéanciers de la bibliothèque

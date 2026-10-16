@@ -33,6 +33,10 @@ cockpit.json
 *.zip
 *.csv
 
+# DOSSIER DE CONFORMITE — decrit le dispositif de securite ET ses failles ouvertes.
+# Le publier reviendrait a remettre la carte des points faibles du cabinet.
+conformite/
+
 # Documents internes / perso — NE JAMAIS publier
 *.docx
 *.pdf
@@ -62,3 +66,11 @@ scratchpad/
 # Systèmes
 Thumbs.db
 .DS_Store
+
+# Copies de travail (anciennes versions, .gs, serveur) : jamais en ligne (audit du 21/09/2026)
+_sauvegardes/
+
+# Outils du poste (serveur de fiches, rassemblement des sauvegardes) : jamais en ligne (16/10/2026)
+fiches_serveur.js
+rassembler_sauvegardes.js
+Rassembler_sauvegardes.bat

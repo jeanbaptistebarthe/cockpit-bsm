@@ -2,18 +2,21 @@
    Stratégie : NETWORK-FIRST pour l'app (index.html) → toujours la dernière version en ligne
    après un re-upload ; le cache ne sert QUE de secours hors-ligne. Assets statiques en
    stale-while-revalidate. La constante CACHE est ré-estampillée à chaque build (voir build.js),
-   ce qui invalide automatiquement l'ancien cache. Actif uniquement en https (GitHub Pages, Vercel…). */
-const CACHE = "bsm-cockpit-20260826-mt9tsji0";
+   ce qui invalide automatiquement l'ancien cache. Actif en https et sur localhost (le serveur du cabinet). */
+const CACHE = "bsm-cockpit-20261016-mvap39xo";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg",
                 "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // Un fichier manquant ne doit pas empêcher la mise à jour : sinon l'ANCIEN service worker reste en place, avec ses anciens caches (APP-05, 25/09/2026).
+  e.waitUntil(caches.open(CACHE).then(c => Promise.allSettled(ASSETS.map(a => c.add(a)))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", e => {
   e.waitUntil(
     caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      // Aucune réponse de données ne survit dans le cache courant, quelle que soit son origine (APP-05).
+      .then(() => caches.open(CACHE)).then(c => c.keys().then(reqs => Promise.all(reqs.filter(r => /\/api\//.test(r.url)).map(r => c.delete(r)))))
       .then(() => self.clients.claim())
   );
 });
@@ -24,7 +27,7 @@ self.addEventListener("push", e => {
   try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data ? e.data.text() : "" }; }
   e.waitUntil(self.registration.showNotification(d.title || "BSM Cockpit", {
     body: String(d.body || "").slice(0, 240),
-    icon: "icon-192.png", badge: "icon-192.png",
+    icon: (typeof d.icon === "string" && /^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(d.icon) && d.icon.length <= 4000) ? d.icon : "icon-192.png", badge: "icon-192.png",   // patch 179 : le picto du Cockpit en icône
     tag: d.tag || "bsm-push", renotify: true,
     vibrate: [180, 90, 180],
     data: { url: d.url || "./index.html" }
@@ -53,6 +56,10 @@ self.addEventListener("fetch", e => {
   // que serverPush repoussait ensuite au serveur = écrasement de saisies. Et les /api/file
   // re-remplissaient le quota navigateur que kbOffloadBig venait justement de libérer.)
   if (url.pathname.startsWith("/api/")) return;
+  // Liste fermée (25/09/2026) : seuls les fichiers de l'application passent par le cache. Tout le reste va au réseau,
+  // sans rien laisser derrière lui — y compris les adresses sensibles que l'autodiagnostic sonde (APP-05).
+  const FICHIERS_APP = ["", "index.html", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "apple-touch-icon.png", "simulateur.html", "simulateur_perimetre.html"];
+  if (FICHIERS_APP.indexOf(url.pathname.split("/").pop()) < 0) return;
 
   const isDoc = e.request.mode === "navigate" || url.pathname === "/" ||
                 url.pathname.endsWith("/") || url.pathname.endsWith("index.html");
@@ -66,7 +73,7 @@ self.addEventListener("fetch", e => {
     e.respondWith(
       fetch(netReq).then(resp => {
         const copy = resp.clone();
-        caches.open(CACHE).then(c => c.put("./index.html", copy));
+        if (resp.ok) caches.open(CACHE).then(c => c.put("./index.html", copy));   // une erreur ne remplace jamais la page hors-ligne
         return resp;
       }).catch(() => caches.match(e.request).then(r => r || caches.match("./index.html")))
     );
@@ -82,7 +89,7 @@ self.addEventListener("fetch", e => {
     caches.match(e.request, isIconish ? { ignoreSearch: true } : undefined).then(cached => {
       const net = fetch(e.request).then(resp => {
         const copy = resp.clone();
-        caches.open(CACHE).then(c => c.put(e.request, copy));
+        if (resp.ok) caches.open(CACHE).then(c => c.put(e.request, copy));   // une réponse d'erreur ne se met pas en cache
         return resp;
       }).catch(() => cached);
       return cached || net;
