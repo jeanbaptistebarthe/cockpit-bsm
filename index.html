@@ -834,11 +834,11 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.99.90";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.99.92";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
-const APP_VERSION_DATE = "16 octobre 2026";
+const APP_VERSION_DATE = "17 octobre 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* ===================== STOCKAGE COMPRESSÉ (patch 62, 23/09/2026) =====================
    Le navigateur n'accorde qu'environ 5 Mo à l'application ; la base réelle en pesait 2,5 le 23/09/2026, et un
@@ -1108,6 +1108,9 @@ function load(){
   if(!Array.isArray(DB.a1relances)) DB.a1relances=[]; if(!Array.isArray(DB.a1exports)) DB.a1exports=[]; if(!Array.isArray(DB.a1fichesEnvois)) DB.a1fichesEnvois=[]; if(!Array.isArray(DB.courrier)) DB.courrier=[]; if(!Array.isArray(DB.a1contrats)) DB.a1contrats=[];       // relances de collecte tracées (Lot E)
   if(!Array.isArray(DB.a1imports)) DB.a1imports=[];         // journal des fichiers importés (banque de données)
   if(!DB.a1swapReport) DB.a1swapReport={};                  // étude de permutation épinglée au rapport, par client (question client ouverte)
+  // patch 187 (17/10/2026, JB) : l'électricien d'ALTHEA s'écrit OCIELEC ; la simulation S4 prend pour modèle le site où elle sera
+  // raccordée (Bâtiments S3), plus Bâtiments S1, S2. Une fois, sur chaque poste ; un choix refait ensuite à la main est respecté.
+  if(!DB.meta.m187){ try{ Object.keys(DB.a1swapReport||{}).forEach(function(k){ var p=DB.a1swapReport[k]; if(p&&/^\s*OVELEC\s*$/i.test(String(p.electricien||""))) p.electricien="OCIELEC"; }); (DB.a1simulations||[]).forEach(function(s){ var gs=DB.a1gensets||[], site=gs.find(function(x){ return x.id===s.siteGensetId; }), mod=gs.find(function(x){ return x.id===s.modeleGensetId; }); if(s&&/^S4/i.test(String(s.nom||""))&&s.mode==="modele"&&site&&mod&&mod.id!==site.id&&/S1/.test(String(mod.site||""))&&/S3/.test(String(site.site||""))) s.modeleGensetId=site.id; }); }catch(e){} DB.meta.m187=true; }
   // Assainissement tarif JIRAMA (2026-08-17) : une facture mal saisie (21,653 kWh au lieu de 21 653) avait produit
   // un « tarif » de 2,6 M Ar/kWh adopté silencieusement → chiffres absurdes dans les rapports. Un tarif > 20 000 Ar/kWh
   // est physiquement impossible : on l'écarte et on reprend le dernier tarif plausible de l'historique.
@@ -18064,9 +18067,9 @@ function a1SyntheseMachinesHtml(kind, arr, comp) {
     }
     return '<tr>' + td(esc(p.v.name), true) + td(F0(p.km) + ' km · ' + F0(p.liters) + ' L') + td(p.consoL100 ? p.consoL100.toFixed(1) + ' L/100' : '—') + td(p.driftTheo != null ? (p.driftTheo > 0 ? '+' : '') + F0(p.driftTheo) + ' % vs constructeur' : 'sans référence') + td(p.anomaly ? 'surconsommation' : (p.idleFlag ? 'ralenti' : 'dans le cadre')) + '</tr>';
   });
-  return '<div style="font-size:10px;font-weight:700;color:#102A43;text-transform:uppercase;letter-spacing:.06em;margin:10px 0 4px">' + (isGen ? 'Groupe par groupe' : 'Les véhicules qui pèsent le plus') + '</div>'
-    + '<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;page-break-inside:avoid"><thead><tr style="background:#F9FAFB">' + (isGen ? th('Groupe — alimente') + th('Marche · énergie') + th('Charge') + th('Consommation mesurée') + th('État') : th('Véhicule') + th('Distance · carburant') + th('Conso') + th('Écart') + th('État')) + '</tr></thead><tbody>' + rows.join('') + '</tbody></table>'
-    + (plus ? '<div style="font-size:10px;color:#6B7280;margin-top:3px">+ ' + plus + ' autre(s) machine(s), détail en section Analyse.</div>' : '');
+  var legende1 = '<div class="tab-legende" style="font-size:10px;font-weight:700;color:#102A43;text-transform:uppercase;letter-spacing:.06em;margin:4px 0 4px">' + (isGen ? 'Groupe par groupe' : 'Les véhicules qui pèsent le plus') + '</div>';   /* patch 187 : la légende sous son tableau, dans le même bloc */
+  return '<div class="tab-bloc" style="break-inside:avoid;page-break-inside:avoid"><table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;page-break-inside:avoid"><thead><tr style="background:#F9FAFB">' + (isGen ? th('Groupe — alimente') + th('Marche · énergie') + th('Charge') + th('Consommation mesurée') + th('État') : th('Véhicule') + th('Distance · carburant') + th('Conso') + th('Écart') + th('État')) + '</tr></thead><tbody>' + rows.join('') + '</tbody></table>' + legende1
+    + (plus ? '<div style="font-size:10px;color:#6B7280;margin-top:3px">+ ' + plus + ' autre(s) machine(s), détail en section Analyse.</div>' : '') + '</div>';
 }
 function a1SyntheseDecisionsHtml(recos) {
   var l = (recos || []).slice(0, 4); if (!l.length) return "";
@@ -18080,11 +18083,11 @@ function a1EvolutionParGroupeHtml(arr, mL, mP) {
   var th = function (s) { return '<th style="text-align:right;padding:6px 8px;font-size:10px;color:#6B7280">' + s + '</th>'; };
   var td = function (s) { return '<td style="padding:6px 8px;border-bottom:1px solid #F3F4F6;text-align:right;font-size:12px">' + s + '</td>'; };
   var par = function (b, v) { return b ? ' <span style="color:#9CA3AF;font-size:10.5px">(' + v + ')</span>' : ''; };
-  return '<div style="font-size:10px;font-weight:700;color:#102A43;text-transform:uppercase;letter-spacing:.06em;margin:10px 0 4px">Groupe par groupe — ' + esc(a1MonthLabel(mL)) + (mP ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0">(entre parenthèses : ' + esc(a1MonthLabel(mP)) + ')</span>' : '') + '</div>'
-    + '<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;margin-bottom:8px;page-break-inside:avoid"><thead><tr style="background:#F9FAFB"><th style="text-align:left;padding:6px 8px;font-size:10px;color:#6B7280">Groupe</th>' + th('Heures') + th('kWh') + th('Litres') + th('L/kWh') + th('Charge') + th('Coût du kWh') + '</tr></thead><tbody>'
+  var legende2 = '<div class="tab-legende" style="font-size:10px;font-weight:700;color:#102A43;text-transform:uppercase;letter-spacing:.06em;margin:4px 0 4px">Groupe par groupe — ' + esc(a1MonthLabel(mL)) + (mP ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0">(entre parenthèses : ' + esc(a1MonthLabel(mP)) + ')</span>' : '') + '</div>';   /* patch 187 : la légende sous son tableau, dans le même bloc */
+  return '<div class="tab-bloc" style="break-inside:avoid;page-break-inside:avoid"><table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;margin-bottom:8px;page-break-inside:avoid"><thead><tr style="background:#F9FAFB"><th style="text-align:left;padding:6px 8px;font-size:10px;color:#6B7280">Groupe</th>' + th('Heures') + th('kWh') + th('Litres') + th('L/kWh') + th('Charge') + th('Coût du kWh') + '</tr></thead><tbody>'
     + l.map(function (p) { var a = mois(p, mL), b = mP ? mois(p, mP) : null, kw = +p.g.puissanceKw || 0;
       return '<tr><td style="padding:6px 8px;border-bottom:1px solid #F3F4F6;font-weight:700;font-size:12px">' + esc(p.g.name) + '</td>' + td(F0(a.h) + par(b, b && F0(b.h))) + td(F0(a.k) + par(b, b && F0(b.k))) + td(F0(a.l) + par(b, b && F0(b.l))) + td((a.k > 0 ? (a.l / a.k).toFixed(2) : '—') + par(b, b && (b.k > 0 ? (b.l / b.k).toFixed(2) : '—'))) + td(kw > 0 && a.h > 0 ? F0(a.k / a.h / kw * 100) + ' %' : '—') + td(a.k > 0 && a.c > 0 ? fmtD(a.c / a.k) : '—') + '</tr>'; }).join('')
-    + '</tbody></table>';
+    + '</tbody></table>' + legende2 + '</div>';
 }
 
 /* ===== LE GPS COMPLET : VÉHICULES CHOISIS, EXPORT DÉPOSÉ ET LU SEUL, RELEVÉ AUX RÈGLES DU CONTRAT (patch 130, v6.99.33, 13/10/2026)
@@ -19590,7 +19593,7 @@ function openA1Simulation(id) {
     + '<div class="field row2"><label>Estimation & site modèle</label><select id="sim-mode" onchange="a1SimulationApercu()"><option value="modele"' + (s.mode !== "kw" ? ' selected' : '') + '>comme un bâtiment existant (étages)</option><option value="kw"' + (s.mode === "kw" ? ' selected' : '') + '>kW moyens saisis (bilan de puissance)</option></select><select id="sim-modele" onchange="a1SimulationApercu()">' + opt(s.modeleGensetId || s.siteGensetId) + '</select></div>'
     + '<div class="field row2"><label>Étages du modèle & étages du nouveau</label><input type="number" id="sim-et-modele" min="0" step="1" value="' + esc(s.etagesModele || "") + '" placeholder="ex. : 3" oninput="a1SimulationApercu()"><input type="number" id="sim-et-nouveau" min="0" step="1" value="' + esc(s.etagesNouveau || "") + '" placeholder="ex. : 5" oninput="a1SimulationApercu()"></div>'
     + '<div class="field row2"><label>kW moyens saisis (si bilan) & arrivée prévue</label><input type="number" id="sim-kw" min="0" step="1" value="' + esc(s.kw || "") + '" placeholder="ex. : 54" oninput="a1SimulationApercu()"><input type="month" id="sim-arrivee" value="' + esc(s.arrivee || "") + '" oninput="a1SimulationApercu()"></div>'
-    + '<div class="field"><label>Source de l’hypothèse</label><input id="sim-source" value="' + esc(s.source || "") + '" placeholder="ex. : informations du client, bilan de puissance OVELEC"></div>'
+    + '<div class="field"><label>Source de l’hypothèse</label><input id="sim-source" value="' + esc(s.source || "") + '" placeholder="ex. : informations du client, bilan de puissance OCIELEC"></div>'
     + '<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin:6px 0"><input type="checkbox" id="sim-rapport"' + (s.dansRapport !== false ? ' checked' : '') + '> Dans les rapports (section « Simulation », synthèse simulée, étude de permutation)</label>'
     + '<div id="sim-apercu" style="margin:8px 0;font-size:12.5px;line-height:1.7;background:var(--cream);border-radius:8px;padding:8px 12px"></div>'
     + '<div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="a1SimulationEnregistrer(\'' + (id || "") + '\')">Enregistrer la simulation</button></div>');
@@ -19620,7 +19623,7 @@ function a1SimulationSupprimer(id) { var s = (DB.a1simulations || []).find(funct
 var A1_SYNTH_COLS = [9.7, 9.2, 9.4, 7.5, 10.4, 7.3, 7.7, 10.5, 12.9, 7.5, 7.9];   /* patch 176 : largeurs mesurées dans Chrome (A4 : 607 px de tableau, Raleway 8,5 px en en-tête, 10 px en cellule) : chaque mot connu tient dans sa colonne */   // Groupe, Alimente, Puissance, Marche, Énergie, Charge, Conso, Rendement, Fiche, Coût, État — en %
 function a1SynthesesAligner(html) {
   var colgroup = "<colgroup>" + A1_SYNTH_COLS.map(function (w) { return '<col style="width:' + w + '%">'; }).join("") + "</colgroup>";
-  var out = String(html || "").replace(/<table class="md-table"><thead><tr><th>Groupe<\/th><th>Alimente<\/th>/g, '<table class="md-table synth-parc" style="table-layout:fixed;width:100%;display:table">' + colgroup + "<thead><tr><th>Groupe</th><th>Alimente</th>"); var TH = '<th style="white-space:normal;overflow-wrap:break-word;word-break:normal;hyphens:none;letter-spacing:0;line-height:1.2;vertical-align:bottom;padding:5px 2px">'; return out.split('<table class="md-table synth-parc"').map(function (p, i) { if (!i) return p; var fin = p.indexOf("</thead>"); if (fin < 0) return p; return p.slice(0, fin).replace(/<th>/g, TH) + p.slice(fin).replace(/<td>/g, '<td style="overflow-wrap:break-word;word-break:normal;hyphens:none;vertical-align:top;padding:6px 3px">'); }).join('<table class="md-table synth-parc"');   /* patch 174 : chaque en-tête se replie, aucun ne déborde */
+  var out = String(html || "").replace(/<table class="md-table"><thead><tr><th>Groupe<\/th><th>Alimente<\/th>/g, '<table class="md-table synth-parc" style="table-layout:fixed;width:100%;display:table">' + colgroup + "<thead><tr><th>Groupe</th><th>Alimente</th>"); var TH = '<th style="white-space:normal;overflow-wrap:normal;word-break:keep-all;hyphens:none;letter-spacing:0;line-height:1.25;vertical-align:bottom;padding:5px 2px;font-size:8px">';   /* patch 187 : titres entiers, 8 px */ return out.split('<table class="md-table synth-parc"').map(function (p, i) { if (!i) return p; var fin = p.indexOf("</thead>"); if (fin < 0) return p; return p.slice(0, fin).replace(/<th>/g, TH) + p.slice(fin).replace(/<td>/g, '<td style="overflow-wrap:normal;word-break:keep-all;hyphens:none;vertical-align:top;padding:6px 3px;font-size:9px">'); }).join('<table class="md-table synth-parc"').replace(/(<table class="md-table[\s\S]*?<\/table>)(\s*<blockquote class="md-note"[\s\S]*?<\/blockquote>)/g, '<div class="tab-bloc">$1$2</div>').replace(/(<h3[^>]*>[\s\S]*?<\/h3>\s*)(<div class="tab-bloc">[\s\S]*?<\/div>|<table class="md-table[\s\S]*?<\/table>)/g, '<div class="tab-bloc">$1$2</div>');   /* patch 187 : un tableau, sa note et son titre restent ensemble */   /* patch 174 : chaque en-tête se replie, aucun ne déborde */
 }
 
 /* ===== LES FICHES CONSTRUCTEUR, POSÉES D'UN CLIC (patch 146, v6.99.49, 14/10/2026)
@@ -19815,7 +19818,7 @@ function fichesAGerer(out) {
    posée en tête du corps : les marges des paragraphes, des tableaux (dont les tableaux Markdown de l'analyse détaillée), des
    titres de section et de sous-section, des listes et des citations. Rien d'autre ne change : le rapport ASSISTANCE PLUS
    garde ses 19 pages. Les autres documents (devis, contrat, proposition) ne sont pas touchés. */
-var RAPPORT_AERE_CSS = '<style id="rap-aere">p{margin:10px 0 16px !important}table{margin:18px 0 26px !important}.ai-md table.md-table,table.md-table{margin:18px 0 26px !important}h2.docsec{margin:34px 0 14px !important;padding-bottom:7px !important}h3,.ai-md h3{margin:24px 0 10px !important}ul,ol{margin:10px 0 18px !important}li{margin:4px 0 !important}blockquote{margin:14px 0 20px !important}</style>';   // une seule ligne : l'extracteur du banc ne retient que la première ligne d'une déclaration
+var RAPPORT_AERE_CSS = '<style id="rap-aere">p{margin:10px 0 16px !important}table{margin:18px 0 26px !important}.ai-md table.md-table,table.md-table{margin:18px 0 26px !important}h2.docsec{margin:34px 0 14px !important;padding-bottom:7px !important}h3,.ai-md h3{margin:24px 0 10px !important}ul,ol{margin:10px 0 18px !important}li{margin:4px 0 !important}blockquote{margin:14px 0 20px !important}table{break-inside:avoid !important;page-break-inside:avoid !important}.tab-bloc{break-inside:avoid !important;page-break-inside:avoid !important}.tab-bloc table{margin-bottom:6px !important}.tab-legende{font-size:10px;font-weight:700;color:#102A43;text-transform:uppercase;letter-spacing:.06em;margin:4px 0 22px !important}.ai-md .md-table,table.md-table{display:table !important}.ai-md .md-table th,table.md-table th{font-size:8px !important;letter-spacing:0 !important;white-space:normal !important;word-break:keep-all !important;overflow-wrap:normal !important;hyphens:none !important;line-height:1.25 !important}</style>';   /* patch 187 : un tableau jamais coupé, un titre de colonne jamais coupé */   // une seule ligne : l'extracteur du banc ne retient que la première ligne d'une déclaration
 
 /* ===== UNE FICHE TROUVÉE SANS CONSOMMATION N'EST PAS UNE FICHE (patch 151, v6.99.54, 15/10/2026)
    JB, ASSISTANCE PLUS : « RENAULT LOGAN — fiche constructeur (recherche web) · NaN L/100 km ». La recherche avait trouvé des sources
@@ -23283,7 +23286,7 @@ function a1ExecBannerHtml(kind){
     <button class="cta gold sm" onclick="a1ExecReport('${kind}')">📕 Rapport exécutif</button>
     ${(isGen?a1genClient:a1Client)?`<button class="cta ghost sm" onclick="enterClientMode('${isGen?a1genClient:a1Client}')" title="Un seul client à l'écran, sans outillage interne — pour montrer le programme à son dirigeant">👔 Présenter ce parc</button>`:""}
     ${(function(){ const cid=isGen?a1genClient:a1Client; const tgt=cid?a1TargetGet(kind,cid):null;
-      return `<button class="cta ghost sm" onclick="openA1Target('${kind}')">🎯 ${tgt?("Objectif : "+(isGen?fmtD(tgt.value)+"/kWh":tgt.value+" L/100")):"Fixer un objectif"}</button>
+      return `<button class="cta ghost sm" onclick="openA1Target('${kind}')">🎯 ${a1ObjectifLibelle(kind,cid)?("Objectif : "+a1ObjectifLibelle(kind,cid)):"Fixer un objectif"}</button>
         <button class="cta ghost sm" onclick="openA1ExecHistory('${kind}')">📚 Rapports${(DB.a1execreports||[]).filter(r=>r.kind===kind&&(!cid||r.clientId===cid)).length?" ("+(DB.a1execreports||[]).filter(r=>r.kind===kind&&(!cid||r.clientId===cid)).length+")":""}</button>`; })()}
     
   </div>`;
@@ -23336,7 +23339,7 @@ function a1TrendSvg(months, seriesList, opt){
   for(let i=0;i<=3;i++){ const v=min+(max-min)*i/3, y=Y(v);
     g+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="#E5E7EB"/><text x="${padL-6}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="9" fill="#6B7280">${fmt(v)}</text>`; }
   const lbl=Math.max(1,Math.ceil(months.length/8));
-  months.forEach((m,i)=>{ if(i%lbl===0) g+=`<text x="${X(i).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="9" fill="#6B7280">${m.slice(5,7)}/${m.slice(2,4)}</text>`; });
+  months.forEach((m,i)=>{ if(i%lbl===0) g+=`<text x="${X(i).toFixed(1)}" y="${H-8}" text-anchor="${i===0?"start":(i===months.length-1?"end":"middle")}" font-size="9" fill="#6B7280">${m.slice(5,7)}/${m.slice(2,4)}</text>`; });   /* patch 187 : le premier et le dernier mois affichés restent entiers (ancrés au bord) */
   if(opt.target!=null){ const y=Y(opt.target);
     g+=`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="#B5923A" stroke-width="1.6" stroke-dasharray="6 4"/><text x="${W-padR}" y="${(y-4).toFixed(1)}" text-anchor="end" font-size="9" fill="#B5923A">Objectif ${fmt(opt.target)}</text>`; }
   seriesList.forEach(s=>{
@@ -23344,16 +23347,30 @@ function a1TrendSvg(months, seriesList, opt){
     g+=`<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2"${s.dash?' stroke-dasharray="4 3"':''}/>`;
     s.values.forEach((v,i)=>{ if(v!=null) g+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.2" fill="${s.color}"/>`; });
   });
-  const legend=seriesList.map(s=>`<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:10.5px;color:#374151"><span style="width:14px;height:2.5px;background:${s.color};display:inline-block"></span>${s.name}</span>`).join("");
+  const legend=seriesList.map(s=>`<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:10.5px;color:#374151"><span style="width:14px;height:0;border-top:2.5px ${s.dash?"dashed":"solid"} ${s.color};display:inline-block"></span>${s.aDefinir?`<span style="color:#9CA3AF;font-style:italic">${s.name}</span>`:s.name}</span>`).join("");   /* patch 187 */
   return `<div style="page-break-inside:avoid;margin:8px 0"><svg width="100%" viewBox="0 0 ${W} ${H}" style="border:1px solid #E5E7EB;background:#fff">${g}</svg><div style="margin-top:3px">${legend}</div></div>`;
 }
+/* patch 187 — les courbes attendues des groupes : la conso (L) face aux litres attendus — l'objectif s'il est fixé, sinon la
+   référence constructeur quand elle existe, sinon « à définir » ; l'énergie (kWh) face aux kWh attendus, « à définir » sans
+   objectif. Une courbe sans valeur ne se trace pas, sa légende le dit. */
+function a1CourbesAttendues(months, series, cid) {
+  var t = a1TargetObj("gen", cid) || {}, tL = +t.litres > 0 ? +t.litres : 0, tK = +t.kwh > 0 ? +t.kwh : 0;
+  var expL = tL ? series.map(function () { return tL; }) : series.map(function (s) { return +s.expected > 0 ? s.expected : null; });
+  var okL = expL.some(function (v) { return v != null; });
+  var c1 = a1TrendSvg(months, [{ name: "Conso réelle (L)", color: "#102A43", values: series.map(function (s) { return s.liters; }) }, { name: okL ? (tL ? "Conso attendue (L), objectif fixé avec BSM" : "Conso attendue (L), référence constructeur") : "Conso attendue (L) : à définir", color: "#9CA3AF", dash: true, values: expL, aDefinir: !okL }], {});
+  var kwh = series.map(function (s) { return +s.kwh > 0 ? s.kwh : null; });
+  var c2 = kwh.some(function (v) { return v != null; }) ? a1TrendSvg(months, [{ name: "Énergie produite (kWh)", color: "#102A43", values: kwh }, { name: tK ? "Énergie attendue (kWh), objectif fixé avec BSM" : "Énergie attendue (kWh) : à définir", color: "#9CA3AF", dash: true, values: series.map(function () { return tK || null; }), aDefinir: !tK }], {}) : "";
+  return c1 + c2;
+}
 /* Objectif par client (cible co-définie, tracée dans chaque rapport). */
-function a1TargetGet(kind, clientId){ return (DB.a1targets||{})[(clientId||"")+"|"+kind]||null; }
+function a1TargetObj(kind, clientId){ return (DB.a1targets||{})[(clientId||"")+"|"+kind]||null; }   /* patch 187 : l'objectif entier (coût, litres, kWh) */
+function a1TargetGet(kind, clientId){ const t=a1TargetObj(kind, clientId); return (t && +t.value>0) ? t : null; }   /* la cible de coût (ou de L/100), seule lue par les courbes et cartes de coût */
+function a1ObjectifLibelle(kind, clientId){ const t=a1TargetObj(kind, clientId); if(!t) return ""; const p=[]; if(+t.value>0) p.push(kind==="gen"?fmtD(t.value)+"/kWh":t.value+" L/100"); if(kind==="gen"&&+t.litres>0) p.push(Math.round(t.litres).toLocaleString("fr-FR")+" L/mois"); if(kind==="gen"&&+t.kwh>0) p.push(Math.round(t.kwh).toLocaleString("fr-FR")+" kWh/mois"); return p.join(" · "); }
 function openA1Target(kind){
   const clientId=kind==="fleet"?a1Client:a1genClient;
   if(!clientId){ toast("Sélectionne d'abord un client."); return; }
   const isGen=kind==="gen";
-  const t=a1TargetGet(kind,clientId);
+  const t=a1TargetObj(kind,clientId);   /* patch 187 */
   const lbl=isGen?"Coût du kWh cible (Ar/kWh)":"Consommation cible (L/100 km)";
   // Suggestions BSM : une cible crédible dès le 1er rapport — −10 % vs la moyenne 3 mois, ou la médiane des sites comparables.
   const F=v=>isGen?Math.round(v):Math.round(v*10)/10;
@@ -23366,18 +23383,18 @@ function openA1Target(kind){
   if(bench&&bench.n>=2&&bench.median>0) sug.push({v:F(bench.median), label:"médiane des "+bench.n+" sites comparables BSM"});
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>🎯 Objectif — ${esc(clientName(clientId))}</h2>
     <div class="msub">Cible co-définie avec le client. Elle apparaît en pointillés or sur les courbes de chaque rapport mensuel — le client voit sa trajectoire.</div>
-    <div class="field"><label>${lbl}</label><input id="tg-val" type="number" step="0.1" value="${t?t.value:""}" placeholder="vide = pas d'objectif"></div>
+    <div class="field"><label>${lbl}</label><input id="tg-val" type="number" step="0.1" value="${t&&+t.value>0?t.value:""}" placeholder="vide = pas d'objectif"></div>${isGen?`<div class="field row2"><label>Litres attendus par mois (L) et kWh attendus par mois (kWh) — l’un, l’autre ou les deux</label><input id="tg-litres" type="number" step="1" value="${t&&+t.litres>0?t.litres:""}" placeholder="litres : vide = à définir"><input id="tg-kwh" type="number" step="1" value="${t&&+t.kwh>0?t.kwh:""}" placeholder="kWh : vide = à définir"></div><div class="hint" style="margin:-2px 0 6px">Tracés en pointillés face à la consommation et à l’énergie réelles dans chaque rapport ; laissés vides, la courbe attendue est dite « à définir ».</div>`:""}
     ${sug.length?`<div class="hint" style="margin:-2px 0 4px">Suggestions BSM (clic pour remplir — à valider avec le client) :</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${sug.map(s=>`<button class="cta ghost sm" onclick="document.getElementById('tg-val').value='${s.v}'">${esc(s.label)} → <b>${s.v}</b></button>`).join("")}</div>`:""}
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="a1TargetSave('${kind}')">Enregistrer</button></div>`);
 }
 function a1TargetSave(kind){
   const clientId=kind==="fleet"?a1Client:a1genClient;
-  const v=parseFloat((val("tg-val")||"").replace(",","."));
+  const num=id=>{ const x=parseFloat(String(val(id)||"").replace(/\s/g,"").replace(",",".")); return x>0?x:0; }; const v=num("tg-val"), li=kind==="gen"?num("tg-litres"):0, kw=kind==="gen"?num("tg-kwh"):0, aUn=v>0||li>0||kw>0;   /* patch 187 : coût, litres, kWh */
   DB.a1targets=DB.a1targets||{};
-  if(v>0) DB.a1targets[(clientId||"")+"|"+kind]={value:v, setAt:todayISO()};
+  if(aUn) DB.a1targets[(clientId||"")+"|"+kind]=Object.assign({setAt:todayISO()}, v>0?{value:v}:{}, li>0?{litres:li}:{}, kw>0?{kwh:kw}:{});
   else delete DB.a1targets[(clientId||"")+"|"+kind];
-  save(); closeModal(); if(kind==="fleet") renderA1Fleet(); else renderA1Genset(); toast(v>0?"🎯 Objectif enregistré — tracé dans les prochains rapports.":"Objectif retiré.");
+  save(); closeModal(); if(kind==="fleet") renderA1Fleet(); else renderA1Genset(); toast(aUn?"🎯 Objectif enregistré — tracé dans les prochains rapports.":"Objectif retiré.");
 }
 /* Archivage numéroté des rapports exécutifs : référence RAP-AAAA-MM-CLI-NNN, HTML conservé sur le disque serveur. */
 function a1ClientCode(id){ const c=DB.clients.find(x=>x.id===id); return ((c&&c.company||"BSM").toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,3))||"BSM"; }
@@ -23779,14 +23796,14 @@ async function a1ExecReport(kind, opts){
       const tn=(typeof a1TendanceSerie==="function")?a1TendanceSerie(series.map(s=>s[k])):null; let d=tn?tn.pct:null;   // patch 143 : la tendance sur toute la période, plus sur deux mois
       let fl="stable", col="#6B7280"; const da=(lv!=null&&av!=null&&av!==0)?(lv-av)/Math.abs(av)*100:null, fa=da==null?"—":(Math.abs(da)<3?"≈ moyenne":(da<0?"▼ ":"▲ ")+Math.abs(da).toFixed(0)+" %");
       if(d!=null&&Math.abs(d)>=3){ const good=goodDown? d<0 : d>0; fl=(d<0?"▼ ":"▲ ")+Math.abs(d).toFixed(0)+" % sur "+tn.n+" mois"; col=good?"#2F855A":"#C0392B"; (good?better:worse).push(lab+" ("+fl.trim()+")"); }
-      return `<tr><td style="padding:6px 10px;border-bottom:1px solid #F3F4F6">${lab}</td><td style="text-align:right;padding:6px 10px;color:#6B7280;border-bottom:1px solid #F3F4F6">${F(pv,t)}</td><td style="text-align:right;padding:6px 10px;font-weight:700;border-bottom:1px solid #F3F4F6">${F(lv,t)}</td><td style="text-align:right;padding:6px 10px;color:#6B7280;border-bottom:1px solid #F3F4F6">${F(av,t)}${(k==="rendement"||k==="consoL100")&&typeof a1MoyenneVsConstructeur==="function"?a1MoyenneVsConstructeur(isGen,arr,av):""}</td><td style="text-align:right;padding:6px 10px;color:#6B7280;border-bottom:1px solid #F3F4F6">${fa}</td><td style="text-align:right;padding:6px 10px;color:${col};font-weight:600;border-bottom:1px solid #F3F4F6">${fl}</td></tr>`;
+      return `<tr><td style="padding:6px 10px;border-bottom:1px solid #F3F4F6">${lab}</td><td style="text-align:right;padding:6px 10px;color:#6B7280;border-bottom:1px solid #F3F4F6;white-space:nowrap">${F(pv,t)}</td><td style="text-align:right;padding:6px 10px;font-weight:700;border-bottom:1px solid #F3F4F6;white-space:nowrap">${F(lv,t)}</td><td style="text-align:right;padding:6px 10px;color:#6B7280;border-bottom:1px solid #F3F4F6">${F(av,t)}${(k==="rendement"||k==="consoL100")&&typeof a1MoyenneVsConstructeur==="function"?a1MoyenneVsConstructeur(isGen,arr,av):""}</td><td style="text-align:right;padding:6px 10px;color:#6B7280;border-bottom:1px solid #F3F4F6">${fa}</td><td style="text-align:right;padding:6px 10px;color:${col};font-weight:600;border-bottom:1px solid #F3F4F6">${fl}</td></tr>`;   /* patch 187 : un montant reste avec son unité */
     }).join("");
     const months=series.map(s=>s.m);
     const chart1=isGen
       ? a1TrendSvg(months,[{name:"Coût du kWh (Ar)",color:"#102A43",values:series.map(s=>s.costPerKwh)}],{target:tgt?tgt.value:null})
       : a1TrendSvg(months,[{name:"Conso moyenne (L/100 km)",color:"#102A43",values:series.map(s=>s.consoL100)}],{target:tgt?tgt.value:null});
     const chart2=isGen
-      ? a1TrendSvg(months,[{name:"Conso réelle (L)",color:"#102A43",values:series.map(s=>s.liters)},{name:"Conso attendue (L)",color:"#9CA3AF",dash:true,values:series.map(s=>s.expected||null)}],{})
+      ? a1CourbesAttendues(months, series, clientId)   /* patch 187 : litres et kWh attendus, « à définir » sans objectif ni référence */
       : a1TrendSvg(months,[{name:"Coût carburant mensuel (Ar)",color:"#102A43",values:series.map(s=>s.cost)}],{});
     evoTitle="Évolution sur "+series.length+" mois & comparatif mensuel"+(arr.length>1?(isGen?" — les "+arr.length+" groupes réunis":" — la flotte entière"):"");
     evoHtml=`<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;margin-bottom:8px"><thead><tr style="background:#F9FAFB">
@@ -25703,7 +25720,7 @@ function openA1SwapStudy(){
         <input id="sw-addb-kw" type="number" min="0" step="1" value="${pin.addB?pin.addB.kw:""}" placeholder="" oninput="a1SwapRender()">
         <input id="sw-addb-lbl" value="${esc(pin.addB?pin.addB.label:"")}" placeholder="" oninput="a1SwapRender()"></div>
       <div class="hint">Repère d'estimation : demande moyenne mesurée du site ÷ nombre d'étages ≈ kW par étage, × les étages du bâtiment à venir. Hypothèse <b>déclarée</b> dans l'étude et le rapport — à confirmer par bilan de puissance sur pièces.</div>
-      <div class="field row2" style="margin-top:8px"><label style="font-size:11px">Électricien du site (qui vérifie la compatibilité) & projets déclarés (texte)</label><input id="sw-elec" value="${esc(pin.electricien||"")}" placeholder="ex : OVELEC" oninput="a1SwapRender()"><input id="sw-evol" value="${esc(pin.evolutions||"")}" placeholder="ex : S4, nouveau bâtiment en construction" oninput="a1SwapRender()"></div>
+      <div class="field row2" style="margin-top:8px"><label style="font-size:11px">Électricien du site (qui vérifie la compatibilité) & projets déclarés (texte)</label><input id="sw-elec" value="${esc(pin.electricien||"")}" placeholder="ex : OCIELEC" oninput="a1SwapRender()"><input id="sw-evol" value="${esc(pin.evolutions||"")}" placeholder="ex : S4, nouveau bâtiment en construction" oninput="a1SwapRender()"></div>
     </div>
     <div id="sw-result"></div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal();setScreen('documentation')" title="Note générique « Permutation de groupes » à générer pour un client (bibliothèque de modèles)">📄 Note méthode client</button><span id="sw-pin"></span><button class="cta ghost" onclick="closeModal()">Fermer</button><button class="cta" onclick="a1SwapPrint()">🖨 Imprimer l'étude (PDF)</button></div>`);
