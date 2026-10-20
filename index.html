@@ -834,11 +834,11 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.99.92";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.99.93";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
-const APP_VERSION_DATE = "17 octobre 2026";
+const APP_VERSION_DATE = "20 octobre 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* ===================== STOCKAGE COMPRESSÉ (patch 62, 23/09/2026) =====================
    Le navigateur n'accorde qu'environ 5 Mo à l'application ; la base réelle en pesait 2,5 le 23/09/2026, et un
@@ -15372,10 +15372,15 @@ async function syncPosesFromSheet(silent) {
 }
 /* L'onglet POSES GPS ATTENDUES, poussé par le Cockpit : ce que le prestataire voit sur sa page. */
 function clientPosesGpsLignes() {
-  var rows = [["Client", "Id", "Gps", "MachineId", "Machine", "Marque et modèle", "Site", "Boîtier", "Posé le"]];
+  var rows = [["Client", "Id", "Gps", "MachineId", "Machine", "Marque et modèle", "Site", "Boîtier", "Posé le"]], enCours = {}, parc = {};
   (DB.a1gpsPreparations || []).forEach(function (g) {
     if (g.statut === "close") return; var c = (DB.clients || []).find(function (x) { return x.id === g.clientId; }); if (!c) return;
-    g.vehicules.forEach(function (id) { var v = (DB.a1vehicles || []).find(function (x) { return x.id === id; }); if (!v || !a1MachineActive(v)) return; rows.push([c.company || "", c.id, g.id, v.id, v.plate || v.name || "", [v.marque, v.modele].filter(Boolean).join(" "), v.site || "", v.gpsId || "", v.gpsPoseLe ? frDate(v.gpsPoseLe) : ""]); });
+    g.vehicules.forEach(function (id) { var v = (DB.a1vehicles || []).find(function (x) { return x.id === id; }); if (!v || !a1MachineActive(v)) return; enCours[id] = 1; rows.push([c.company || "", c.id, g.id, v.id, v.plate || v.name || "", [v.marque, v.modele].filter(Boolean).join(" "), v.site || "", v.gpsId || "", v.gpsPoseLe ? frDate(v.gpsPoseLe) : ""]); });
+  });
+  /* patch 188 : les véhicules équipés des listes closes, sous « parc-<client> » : le client reste sur la page du prestataire, avec son export du mois. */
+  (DB.a1gpsPreparations || []).forEach(function (g) {
+    if (g.statut !== "close") return; var c = (DB.clients || []).find(function (x) { return x.id === g.clientId; }); if (!c || (typeof estClientSuivi === "function" && !estClientSuivi(c))) return;
+    (g.vehicules || []).forEach(function (id) { if (enCours[id] || (parc[c.id] && parc[c.id][id])) return; var v = (DB.a1vehicles || []).find(function (x) { return x.id === id; }); if (!v || !a1MachineActive(v) || !String(v.gpsId || "").trim()) return; (parc[c.id] = parc[c.id] || {})[id] = 1; rows.push([c.company || "", c.id, "parc-" + c.id, v.id, v.plate || v.name || "", [v.marque, v.modele].filter(Boolean).join(" "), v.site || "", v.gpsId || "", v.gpsPoseLe ? frDate(v.gpsPoseLe) : ""]); });
   });
   return rows;
 }
