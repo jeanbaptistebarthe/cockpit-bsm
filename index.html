@@ -834,7 +834,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.99.94";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.99.95";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
@@ -2808,6 +2808,10 @@ async function googleCall(action, payload){
 }
 /* Tout e-mail CLIENT part aussi en copie sur la boîte professionnelle BSM (DB.meta.mailCopyTo, réglable dans ⚙ Paramètres) :
    la preuve d'envoi vit dans la boîte pro. Copie = 2e envoi séparé (invisible pour le client, compatible avec le pont Google déjà déployé). */
+/* patch 190 : l'associé en copie visible des devis, contrats, avenants et factures (⚙ Paramètres, « Copie visible … »). Un envoi qui
+   précise cc lui-même (fenêtre du devis) garde son choix, vide compris ; jamais si l'adresse est le destinataire ; la copie boîte BSM n'en remet pas. */
+function copieAssocieAdresse(){ return String((DB.meta&&DB.meta.copieAssocie)||"").trim(); }
+function copieAssocieFamille(cat){ return ["parc-offre","r5-devis","parc-contrat","facture"].indexOf(String(cat||""))>=0; }
 async function bsmClientMail(payload){
   // 🚨 Chaque mail client porte le lien de signalement d'incident (bouton panique) en pied de message,
   // et 📕 le lien de son PORTAIL documentaire (fiches réflexes, ligne de crise) dès qu'un accès lui est ouvert.
@@ -2824,6 +2828,7 @@ async function bsmClientMail(payload){
     if(foot && payload.html) payload=Object.assign({}, payload, { html: payload.html+foot });
   }catch(_e){}
   if(typeof mailAvecBandeau==="function") payload=mailAvecBandeau(payload);   // patch 110 : la famille du courriel en tête, l'expéditeur nommé par famille
+  if(payload.cc===undefined){ const _cca=copieAssocieAdresse(); if(_cca && copieAssocieFamille(payload.categorie) && _cca.toLowerCase()!==String(payload.to||"").trim().toLowerCase()) payload=Object.assign({}, payload, { cc:_cca }); }   /* patch 190 : l'associé en copie visible */
   payload=Object.assign({}, payload, { subject:pictosTexteSobre(payload.subject), html:pictosEpurerHtml(payload.html), pdfHtml:payload.pdfHtml?pictosEpurerHtml(payload.pdfHtml):payload.pdfHtml, htmlAttach:payload.htmlAttach?pictosEpurerHtml(payload.htmlAttach):payload.htmlAttach }); const _sid=uid(), _pxc=String(payload.clientId||((DB.clients.find(function(x){ return payload.client&&norm(x.company||"")===norm(payload.client); })||{}).id||"")), _pl=Object.assign({}, payload, { html:String(payload.html||"")+envoiPixelHtml(_sid,_pxc) });   /* patch 82 : l'image de suivi, sur l'envoi au client seulement */ let res; try{ res=await googleCall("mail", _pl); }catch(_e){ res=await mailRetrouver(_pl, _e); if(!res){ courrierJournaliser(courrierEntreeSortante(payload, "echec", (_e&&_e.message)||String(_e))); throw _e; } } const _ce=courrierEntreeSortante(payload, "ok", ""); _ce.id=_sid; if(res&&res.verifie) _ce.detail=String(res.note||""); if(payload.relanceDe) _ce.relanceDe=String(payload.relanceDe); if(payload.auto) _ce.auto=true; if(payload.demandeId) _ce.demandeId=String(payload.demandeId); if(payload.miseEnRouteId) _ce.miseEnRouteId=String(payload.miseEnRouteId); if(payload.gpsId) _ce.gpsId=String(payload.gpsId); if(res){ _ce.mailId=String(res.messageId||""); _ce.threadId=String(res.threadId||""); _ce.reportUrl=String(res.reportUrl||""); } courrierJournaliser(_ce);   // patch 80 : la trace « ouvrir dans Gmail »
   // Version interactive demandée mais ni hébergée ni jointe → l'ancien google_bridge.gs est encore déployé.
   // Toast DIFFÉRÉ : sinon le toast de succès de l'envoi l'écrase immédiatement et l'alerte passe inaperçue.
@@ -2832,7 +2837,7 @@ async function bsmClientMail(payload){
   const copyTo=String(DB.meta.mailCopyTo||"").trim();
   if(copyTo && copyTo.toLowerCase()!==String(payload.to||"").trim().toLowerCase()){
     // La copie BSM réutilise l'URL du rapport hébergé (même bouton, pas de 2e fichier Drive, payload allégé).
-    const cp=Object.assign({}, payload, { to:copyTo, subject:"[Copie client → "+String(payload.to||"")+"] "+(payload.subject||"") });
+    const cp=Object.assign({}, payload, { to:copyTo, subject:"[Copie client → "+String(payload.to||"")+"] "+(payload.subject||"") }); delete cp.cc;   /* patch 190 */
     if(res && res.reportUrl){ cp.reportUrl=res.reportUrl; delete cp.htmlAttach; }
     try{ await googleCall("mail", cp); }
     catch(e){ toast("⚠️ Envoyé au client, mais copie boîte BSM en échec : "+(e.message||e)); }
@@ -8670,6 +8675,8 @@ function openSettings(){
     <div class="field"><label>E-mail pour les rapports (point CA, alertes)</label><input id="s-reportmail" value="${esc(DB.meta.reportEmail||'')}" placeholder="votre adresse e-mail"></div>
     <div class="field"><label>📥 Copie de tous les e-mails clients (boîte professionnelle BSM)</label><input id="s-mailcopy" value="${esc(DB.meta.mailCopyTo||'')}" placeholder="prenom.nom@bsmconseils.com — vide = pas de copie"></div>
     <div class="hint">Chaque e-mail envoyé à un client (relance de collecte, rapport, facture, devis) part aussi en copie sur cette adresse : la <b>preuve d'envoi</b> vit dans ta boîte pro.</div>
+    <div class="field" style="margin-top:10px"><label>👥 Copie visible des devis, contrats et factures (associé)</label><input id="s-copie-associe" value="${esc(DB.meta.copieAssocie||'')}" placeholder="adresse de l’associé — vide = aucune copie"></div>
+    <div class="hint">Mise en copie visible de chaque devis (proposée dans la fenêtre d’envoi, modifiable), du contrat, des avenants et des factures : le client la voit. La copie boîte BSM ci-dessus reste séparée.</div>
     ${typeof jbInformerParamBlocHtml === "function" ? jbInformerParamBlocHtml() : ""}
     <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
     <div class="field"><label>Révision des risques — les risques sont mobiles</label>
@@ -8750,7 +8757,7 @@ function saveSettings(){
     }
   } else { DB.meta.claudeKey=_k.claude; }
   DB.meta.reportEmail=val("s-reportmail").trim();
-  DB.meta.mailCopyTo=(val("s-mailcopy")||"").trim();
+  DB.meta.mailCopyTo=(val("s-mailcopy")||"").trim(); DB.meta.copieAssocie=(val("s-copie-associe")||"").trim();   /* patch 190 */
   if (typeof jbInformerParamLire === "function") jbInformerParamLire();   // patch 132
   const rm=parseInt(val("s-reviewmonths")); if([3,6,12].includes(rm)) DB.meta.reviewMonths=rm;
   const rh=parseInt(val("s-recurhorizon")); if(!isNaN(rh)&&rh>=1&&rh<=120){ DB.meta.recurHorizonMonths=rh; generateRecurring(); }
@@ -9305,7 +9312,7 @@ function courrierJournaliser(e){
 function courrierEntreeSortante(payload, resultat, detail){
   var c = courrierClientDe(payload), cat = courrierCategorie(payload), flux = COURRIER_FLUX[cat] || COURRIER_FLUX.autre;
   var prog = flux.programme !== "tous" ? flux.programme : (c ? (clientProgrammes(c)[0] || "tous") : "tous");
-  return { sens: "sortant", categorie: cat, nature: flux.nature, programme: prog, clientId: c ? c.id : "", client: c ? (c.company || "") : String(payload.client || ""),
+  return { sens: "sortant", categorie: cat, nature: flux.nature, programme: prog, clientId: c ? c.id : "", client: c ? (c.company || "") : String(payload.client || ""), cc: String(payload.cc || ""),
     to: String(payload.to || ""), copie: String((DB.meta && DB.meta.mailCopyTo) || ""), subject: String(payload.subject || ""), htmlName: String(payload.htmlName || payload.pdfName || ""), pieces: [payload.pdfName ? "PDF" : "", payload.htmlAttach ? "rapport interactif" : ""].filter(Boolean).join(", "),
     par: (typeof currentUser !== "undefined" && currentUser && (currentUser.name || currentUser.login)) || "", resultat: resultat || "ok", detail: String(detail || "") };
 }
@@ -28849,16 +28856,27 @@ function mailA1Offer(offerId){
   const o=(DB.a1offers||[]).find(x=>x.id===offerId); if(!o){ toast("Devis introuvable."); return; }
   const c=DB.clients.find(x=>x.id===o.clientId); const to=(c&&c.contactEmail)||"";
   if(!to){ toast("Renseignez l'e-mail du client dans sa fiche."); return; }
-  confirmModal("Envoyer l'offre par mail ?", "Destinataire : "+esc(to)+" — "+esc(o.label||""), async ()=>{
-    closeModal();
-    const html=docAvecRetouche("devis:"+o.id, a1OfferDoc(o));   /* patch 167 */
-    const subject="[BSM] "+(o.label||a1ProductDef(o.product).label)+" — "+(c?c.company:clientName(o.clientId));
-    try{
-      await bsmClientMail({ to, subject, html, pdfHtml:html, pdfName:(o.ref||"offre-A1"), clientId:o.clientId, categorie:"parc-offre" });
-      o.emailedAt=todayISO(); o.emailedTo=to; save(); a1RefreshCurrent();
-      toast("Devis envoyé à "+to+" ✅");
-    }catch(e){ toast("Échec envoi : "+(e.message||e)+" — nécessite le serveur local + pont Google configuré."); }
-  });
+  /* patch 190 : la fenêtre d'envoi porte « Copie à » (visible par le destinataire), pré-rempli depuis ⚙ Paramètres, modifiable, vide = pas de copie */
+  const cc0=copieAssocieAdresse();
+  window.__yes=function(){ return mailA1OfferEnvoyer(offerId); };
+  openModal('<span class="close" onclick="closeModal()">✕</span><h2>Envoyer le devis ?</h2>'
+    +'<div class="x" style="font-size:13.5px;color:var(--ink);line-height:1.6;margin:8px 0 12px">Destinataire : <b>'+esc(to)+'</b>'+(c&&c.company?' ('+esc(c.company)+')':'')+' — '+esc(o.label||"")+(o.ref?', devis '+esc(o.ref):'')+', PDF joint.</div>'
+    +'<div class="field"><label>Copie à <span style="font-weight:400;color:var(--muted);font-size:11px">— visible par le destinataire</span></label><input id="am-cc" value="'+esc(cc0)+'" placeholder="une adresse, ou plusieurs séparées par une virgule — vide = pas de copie"></div>'
+    +'<div class="hint" style="margin-top:4px">Pré-rempli depuis ⚙ Paramètres, modifiable ici avant l’envoi. La copie boîte BSM part comme d’habitude.</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="mailA1OfferEnvoyer(\''+esc(offerId)+'\')">✉️ Envoyer</button></div>', "compact");
+}
+async function mailA1OfferEnvoyer(offerId){
+  const o=(DB.a1offers||[]).find(x=>x.id===offerId); if(!o) return;
+  const c=DB.clients.find(x=>x.id===o.clientId); const to=(c&&c.contactEmail)||""; if(!to) return;
+  const cc=String(val("am-cc")||"").trim();
+  closeModal();
+  const html=docAvecRetouche("devis:"+o.id, a1OfferDoc(o));   /* patch 167 */
+  const subject="[BSM] "+(o.label||a1ProductDef(o.product).label)+" — "+(c?c.company:clientName(o.clientId));
+  try{
+    await bsmClientMail({ to, cc, subject, html, pdfHtml:html, pdfName:(o.ref||"offre-A1"), clientId:o.clientId, categorie:"parc-offre" });
+    o.emailedAt=todayISO(); o.emailedTo=to; o.emailedCc=cc; save(); a1RefreshCurrent();
+    toast("Devis envoyé à "+to+(cc?" (copie : "+cc+")":"")+" ✅");
+  }catch(e){ toast("Échec envoi : "+(e.message||e)+" — nécessite le serveur local + pont Google configuré."); }
 }
 
 /* ===================== PROGRAMME DE PARC — Groupes électrogènes / JIRAMA ===================== */
