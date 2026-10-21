@@ -834,11 +834,11 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.99.93";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.99.94";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
-const APP_VERSION_DATE = "20 octobre 2026";
+const APP_VERSION_DATE = "21 octobre 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* ===================== STOCKAGE COMPRESSÉ (patch 62, 23/09/2026) =====================
    Le navigateur n'accorde qu'environ 5 Mo à l'application ; la base réelle en pesait 2,5 le 23/09/2026, et un
@@ -1111,6 +1111,7 @@ function load(){
   // patch 187 (17/10/2026, JB) : l'électricien d'ALTHEA s'écrit OCIELEC ; la simulation S4 prend pour modèle le site où elle sera
   // raccordée (Bâtiments S3), plus Bâtiments S1, S2. Une fois, sur chaque poste ; un choix refait ensuite à la main est respecté.
   if(!DB.meta.m187){ try{ Object.keys(DB.a1swapReport||{}).forEach(function(k){ var p=DB.a1swapReport[k]; if(p&&/^\s*OVELEC\s*$/i.test(String(p.electricien||""))) p.electricien="OCIELEC"; }); (DB.a1simulations||[]).forEach(function(s){ var gs=DB.a1gensets||[], site=gs.find(function(x){ return x.id===s.siteGensetId; }), mod=gs.find(function(x){ return x.id===s.modeleGensetId; }); if(s&&/^S4/i.test(String(s.nom||""))&&s.mode==="modele"&&site&&mod&&mod.id!==site.id&&/S1/.test(String(mod.site||""))&&/S3/.test(String(site.site||""))) s.modeleGensetId=site.id; }); }catch(e){} DB.meta.m187=true; }
+  if(!DB.meta.m189){ try{ var deb189=a1MonthStartAfter(todayISO()); (DB.a1offers||[]).forEach(function(o){ if(!o||!o.id) return; var st=o.setupTxId?(DB.transactions||[]).find(function(t){ return t.id===o.setupTxId; }):null; if(st&&!st.a1OfferId) st.a1OfferId=o.id; if((o.mode||"abonnement")!=="ponctuel"&&!o.accepteLe&&!o.emailedAt&&a1AboTermsDefaut(o.terms)) o.terms=a1AboTerms(o); }); (DB.recurring||[]).forEach(function(rc){ if(!rc.a1OfferId) return; (DB.transactions||[]).forEach(function(t){ if(t.recurringId===rc.id&&!t.a1OfferId) t.a1OfferId=rc.a1OfferId; }); var o=(DB.a1offers||[]).find(function(x){ return x.id===rc.a1OfferId; }); if(o&&!o.offert&&!o.accepteLe&&!facturationContratSigne(o.clientId)){ o.offertStart=""; o.offertEnd=""; } if(o&&!o.accepteLe&&!o.offertStart&&!(o.offert&&o.offertEnd)&&!facturationContratSigne(o.clientId)&&String(rc.startDate||"")<deb189){ rc.startDate=deb189; DB.transactions=(DB.transactions||[]).filter(function(t){ return !(t.recurringId===rc.id&&t.status==="prevu"&&!t.emailedAt&&!t.invoiceNo&&String(t.period||"")<deb189.slice(0,7)); }); } }); }catch(e){} DB.meta.m189=true; }   /* patch 189 : les échéances d'un devis se reconnaissent (a1OfferId) ; celles d'un devis non accepté commencent le mois suivant ; les conditions laissées au défaut d'un devis non envoyé suivent le devis */
   // Assainissement tarif JIRAMA (2026-08-17) : une facture mal saisie (21,653 kWh au lieu de 21 653) avait produit
   // un « tarif » de 2,6 M Ar/kWh adopté silencieusement → chiffres absurdes dans les rapports. Un tarif > 20 000 Ar/kWh
   // est physiquement impossible : on l'écarte et on reprend le dernier tarif plausible de l'historique.
@@ -1265,11 +1266,13 @@ function generateRecurring(){
       // règlement n'est pas confirmé — le CA effectif ne gonfle jamais tout seul avec le temps.
       // Une CHARGE/un salaire échu(e) est présumé(e) payé(e), comme avant.
       const st = isIncome ? "prevu" : (isPast?"realise":"prevu");
-      DB.transactions.push({ id:uid(), sens:rc.sens||"sortant", label:rc.label, amount:rc.amount,
+      const nt={ id:uid(), sens:rc.sens||"sortant", label:rc.label, amount:rc.amount,
         currency:rc.currency||DB.meta.defaultCurrency, method: (!isIncome&&isPast)?(rc.method||""):"", category:rc.category,
         clientId:rc.clientId||"", employeeId:rc.employeeId||"", missionId:rc.missionId||"", recurringId:rc.id,
         invoice: !!rc.invoice, entity:rc.entity||"bsmac",
-        nature:rc.sens==="entrant"?"client":"prestataire", period, date:dstr, dueDate:dstr, status: st });
+        nature:rc.sens==="entrant"?"client":"prestataire", period, date:dstr, dueDate:dstr, status: st };
+      if(rc.a1OfferId) nt.a1OfferId=rc.a1OfferId;   /* patch 189 : l'échéance d'un devis du Programme de parc se reconnaît : prévision tant que sa facture n'est pas émise */
+      DB.transactions.push(nt);
       created++;
     }
   });
@@ -3206,7 +3209,7 @@ function agg(){
     const v = txDefault(tx);
     if(tx.sens==="entrant"){
       if(tx.status==="realise" && inYear(tx.date,y)) caEffectif+=v;
-      if(tx.status==="prevu"){ caProvisoire+=v; enAttente+=v; if((tx.dueDate||tx.date)<todayISO()) enRetard+=v; }
+      if(tx.status==="prevu"){ caProvisoire+=v; enAttente+=v; if(txEncaissementAttendu(tx)&&(tx.dueDate||tx.date)<todayISO()) enRetard+=v; }
     } else {
       if(tx.status==="realise" && inYear(tx.date,y)) chargesPayees+=v;
       if(tx.status==="prevu") chargesPrevues+=v;
@@ -7050,7 +7053,7 @@ function financesRemiseAZeroAppliquer(n) {
 /* ----------------------------- Budget ----------------------------- */
 let budgetSens="tous", budgetStatus="tous";
 function txRowHtml(t){
-  const retard = t.sens==="entrant"&&t.status==="prevu"&&(t.dueDate||t.date)<todayISO();
+  const retard = t.sens==="entrant"&&t.status==="prevu"&&txEncaissementAttendu(t)&&(t.dueDate||t.date)<todayISO();
   const locked = t.status==="realise"&&monthLocked(t.date);
   return `<tr><td><b>${esc(t.label)}</b>${(t.supplier||t.pieceNo)?`<div style="font-size:10.5px;color:var(--muted)">${esc(t.supplier||"")}${t.pieceNo?(t.supplier?" · ":"")+"n° "+esc(t.pieceNo):""}</div>`:""}</td><td>${clientLink(t.clientId)}</td><td>${esc(t.category||"—")}</td>
     <td>${frDate(t.date)}${retard?`<br><span class="badge b-red">échéance dépassée</span>`:""}</td>
@@ -7073,7 +7076,7 @@ function renderBudget(){
   const D=(arr,f)=>arr.filter(f).reduce((s,t)=>s+txDefault(t),0);
   const encaisse=D(entr,t=>t.status==="realise"&&inYear(t.date,y));
   const prevuIn=D(entr,t=>t.status==="prevu");
-  const retardIn=D(entr,t=>t.status==="prevu"&&(t.dueDate||t.date)<todayISO());
+  const retardIn=D(entr,t=>t.status==="prevu"&&txEncaissementAttendu(t)&&(t.dueDate||t.date)<todayISO());
   const paye=D(sortie,t=>t.status==="realise"&&inYear(t.date,y));
   const prevuOut=D(sortie,t=>t.status==="prevu");
   const grp={}; sortie.forEach(t=>{ const g=expenseGroup(t.category); grp[g]=(grp[g]||0)+txDefault(t); });
@@ -8106,12 +8109,12 @@ function generateAdvice(){
   };
   const in7=isoPlus(t,7);
   // 1. Encaissements en retard → relancer le client
-  DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="prevu"&&(x.dueDate||x.date)<t).forEach(x=>{
+  DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="prevu"&&txEncaissementAttendu(x)&&(x.dueDate||x.date)<t).forEach(x=>{
     add("retard-"+x.id,"danger","⏰","Encaissement en retard",
       `« ${x.label} » (${fmt(x.amount,x.currency)}${x.clientId?", "+clientName(x.clientId):""}) : échéance du ${frDate(x.dueDate||x.date)} dépassée. Relancer le client et confirmer la date d'encaissement.`);
   });
   // 1b. Encaissements proches (≤ 7 j) → anticiper la relance / facturation
-  DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="prevu"&&(x.dueDate||x.date)>=t&&(x.dueDate||x.date)<=in7).forEach(x=>{
+  DB.transactions.filter(x=>x.sens==="entrant"&&x.status==="prevu"&&txEncaissementAttendu(x)&&(x.dueDate||x.date)>=t&&(x.dueDate||x.date)<=in7).forEach(x=>{
     add("soonin-"+x.id,"warn","🔔","Encaissement à venir",
       `« ${x.label} » (${fmt(x.amount,x.currency)}${x.clientId?", "+clientName(x.clientId):""}) : échéance le ${frDate(x.dueDate||x.date)}. Préparer la facturation / relance du client.`);
   });
@@ -9900,8 +9903,11 @@ function invoiceData(t){
    À 15-20 clients, relancer un par un ne tient plus : un clic = un e-mail de rappel
    par échéance en retard (client avec e-mail), tracé sur la transaction (lastRelanceAt)
    + copie boîte BSM. Une échéance relancée depuis moins de 7 jours est décochée par défaut. */
+/* patch 189 : une échéance née d'un devis du Programme de parc (a1OfferId) n'est qu'une prévision tant que sa facture n'est pas émise :
+   jamais « en retard » ni « à venir » avant le contrat signé et la facture du mois écoulé. Une échéance saisie à la main garde son échéance. */
+function txEncaissementAttendu(t){ return !(t && t.a1OfferId && !t.emailedAt && !t.invoiceNo); }
 function overdueRelanceList(){
-  return DB.transactions.filter(t=>inEntity(t)&&t.sens==="entrant"&&t.status==="prevu"&&(t.dueDate||t.date)<todayISO());
+  return DB.transactions.filter(t=>inEntity(t)&&t.sens==="entrant"&&t.status==="prevu"&&txEncaissementAttendu(t)&&(t.dueDate||t.date)<todayISO());
 }
 function openRelanceBatch(){
   const list=overdueRelanceList().sort((a,b)=>String(a.dueDate||a.date).localeCompare(String(b.dueDate||b.date)));
@@ -16467,13 +16473,15 @@ function a1OfferParcLibelle(o) {
 }
 function a1OfferGpsRow(o) {
   var spec = a1OfferSpec(o); if (!spec) return "";
-  if (!spec.gps) return '<tr><td>Géolocalisation</td><td style="text-align:right">en option, non retenue — ' + a1Ar(a1BaremeGps()) + ' par machine équipée et par mois : boîtier fourni, posé et entretenu, abonnement et plateforme</td></tr>';
+  if (!spec.gps) return '<tr><td>Géolocalisation</td><td style="text-align:right">en option, non retenue — tarif par machine équipée communiqué sur demande : boîtier fourni, posé et entretenu, abonnement et plateforme</td></tr>';
   return '<tr><td>Géolocalisation (option)</td><td style="text-align:right">' + spec.gps + ' machine' + (spec.gps > 1 ? 's' : '') + ' équipée' + (spec.gps > 1 ? 's' : '') + ' × ' + a1Ar(a1BaremeGps()) + ' / mois : boîtier fourni, posé et entretenu, abonnement et plateforme</td></tr>';
 }
-function a1AboTerms() {
-  var t = a1BaremeTypes(), r = a1BaremeRemises();
-  return "Devis valable 30 jours à compter de son émission. Tarifs hors taxes, en ariary, par machine suivie et par mois, selon son type : " + t.map(function (x) { return x.court + " " + a1Ar(x.prix); }).join(", ") + " ; remise sur le suivi selon la taille du parc : " + r.map(function (x) { return x.pct + " % dès " + x.min + " machines"; }).join(", ") + ", lissée pour qu’une machine ajoutée ne fasse jamais baisser le prix. Géolocalisation en option, " + a1Ar(a1BaremeGps()) + " par machine équipée et par mois (boîtier fourni, posé et entretenu par le prestataire désigné par BSM). Mise en route réglée à la signature du contrat ; mensualités facturées à terme échu, règlement à " + BAREME_PARC.reglementJours + " jours. Engagement de " + BAREME_PARC.dureeMois + " mois, renouvelable ; préavis de " + BAREME_PARC.preavisMois + " mois. Une machine ajoutée ou cédée entre ou sort de la facturation le mois suivant sa déclaration, au prix de son type. Périmètre et tarif revus à chaque date anniversaire. Suspension de plein droit si les relevés ne sont pas transmis deux mois de suite.";
+function a1AboTerms(o) {   /* patch 189 : les conditions suivent le devis : ses types, sa géolocalisation, sa mise en route */
+  var t = a1BaremeTypes(), r = a1BaremeRemises(), spec = o ? a1OfferSpec(o) : null, c = (spec && spec.comptes) || null, presents = c ? t.filter(function (x) { return +c[x.cle] > 0; }) : [], gps = !!(spec && +spec.gps > 0), jours = !!(o && +o.merJours > 0);
+  return "Devis valable 30 jours à compter de son émission. Tarifs hors taxes, en ariary, par machine suivie et par mois, selon son type : " + (presents.length ? presents : t).map(function (x) { return x.court + " " + a1Ar(x.prix); }).join(", ") + " ; remise sur le suivi selon la taille du parc : " + r.map(function (x) { return x.pct + " % dès " + x.min + " machines"; }).join(", ") + ", lissée pour qu’une machine ajoutée ne fasse jamais baisser le prix. Géolocalisation en option, par machine équipée, boîtier fourni, posé et entretenu par le prestataire désigné par BSM" + (gps ? ", au prix indiqué ci-dessus" : " ; tarif communiqué sur demande") + ". " + (jours ? "Mise en route facturée à sa date, sur les jours de présence estimés au devis ou sur le relevé des jours réellement passés s’il est établi avant" : "Mise en route réglée à la signature du contrat") + " ; mensualités facturées à terme échu, règlement à " + BAREME_PARC.reglementJours + " jours. Engagement de " + BAREME_PARC.dureeMois + " mois, renouvelable ; préavis de " + BAREME_PARC.preavisMois + " mois. Une machine ajoutée ou cédée entre ou sort de la facturation le mois suivant sa déclaration, au prix de son type. Périmètre et tarif revus à chaque date anniversaire. Suspension de plein droit si les relevés ne sont pas transmis deux mois de suite.";
 }
+/* patch 189 : un texte de conditions laissé au défaut suit le devis ; un texte écrit par JB ne bouge jamais. */
+function a1AboTermsDefaut(t) { t = String(t || "").trim(); var fin = "Suspension de plein droit si les relevés ne sont pas transmis deux mois de suite."; return !t || (t.indexOf("Devis valable 30 jours à compter de son émission. Tarifs hors taxes, en ariary, par machine suivie et par mois") === 0 && t.length > fin.length && t.lastIndexOf(fin) === t.length - fin.length); }
 function a1OfferTarifHint(clientId) {
   var p = a1ParcTypes(clientId), tf = a1TarifParcDetail({ comptes: p.comptes, gps: p.gps });
   if (!p.total) return '<div class="hint" style="margin-top:6px">Aucune machine en base pour ce client : le barème se calcule sur le parc importé.</div>';
@@ -16514,7 +16522,7 @@ function a1ContratLignesPrix(o, lig, mt, enAr) {
   var spec = a1OfferSpec(o) || { comptes: { vhl: +o.veh || 0, groupe: +o.gen || 0 }, gps: +o.gpsN || 0 }, tf = a1TarifParcDetail(spec), h = "";
   tf.lignes.forEach(function (l) { h += lig(l.lib + " — " + l.n + " machine" + (l.n > 1 ? "s" : "") + " suivie" + (l.n > 1 ? "s" : ""), l.n + " × " + a1Ar((o.parType && o.parType[l.cle]) || l.puNet || l.pu) + " HT / mois"); });
   var rm = a1OffreRemise(o, tf); if (rm.ar || rm.comprise) h += lig(rm.comprise ? "Remise sur le suivi" : "Remise de taille de parc", a1OffreRemiseTxt(rm, tf.n));
-  h += tf.gpsN ? lig("Géolocalisation (option)", tf.gpsN + " machine" + (tf.gpsN > 1 ? "s" : "") + " équipée" + (tf.gpsN > 1 ? "s" : "") + " × " + a1Ar(tf.gpsPu) + " HT / mois") : lig("Géolocalisation", "en option, non retenue — " + a1Ar(a1BaremeGps()) + " par machine équipée et par mois");
+  h += tf.gpsN ? lig("Géolocalisation (option)", tf.gpsN + " machine" + (tf.gpsN > 1 ? "s" : "") + " équipée" + (tf.gpsN > 1 ? "s" : "") + " × " + a1Ar(tf.gpsPu) + " HT / mois") : lig("Géolocalisation", "en option, non retenue — par avenant, au tarif par machine équipée communiqué sur demande");
   h += lig("Abonnement mensuel", mt(enAr(o.prix)));
   return h;
 }
@@ -18655,7 +18663,7 @@ function a1MerRegle(o) { var t = (o && +o.merTauxEur > 0) ? +o.merTauxEur : a1Me
 function a1MerDevisLibelle(o) {
   if (!(o && +o.merJours > 0)) return "Mise en route (forfait unique, réglée à la signature)";
   var g = a1MerRegle(o), j = a1MerJoursArrondis(o.merJours);
-  return "Mise en route au temps de présence sur site — " + String(j).replace(".", ",") + " jour" + (j > 1 ? "s" : "") + " estimé" + (j > 1 ? "s" : "") + " × " + g.heures + " h × " + g.taux + " € HT, soit " + Math.round(g.parJourEur).toLocaleString("fr-FR") + " € (" + a1Ar(g.parJourAr) + ") par jour — facturée à la date de mise en route sur ces jours estimés, ou sur le relevé des jours réels s’il est établi avant";
+  return "Mise en route — " + String(j).replace(".", ",") + " jour" + (j > 1 ? "s" : "") + " de présence sur site, ajustée aux jours réellement passés";   /* patch 189 : le devis dit les jours et le prix, pas le détail horaire */
 }
 function a1MerContratLigne(o) {
   var g = a1MerRegle(o), j = a1MerJoursArrondis(o.merJours), eur = a1MerMontantEur(j, g.taux, g.heures), ar = a1MerMontantAr(j, g.taux, g.heures, g.change);
@@ -18998,7 +19006,7 @@ function a1PropositionDoc(o) {
       + '<p><b>Ce que ' + esc(nomCab) + ' ne fait jamais :</b> tirer une conclusion sur les personnes. Un écart est une question posée au client, jamais une preuve. Vos données restent les vôtres ; la charte de sécurité des données est annexée au contrat.</p>')
     // 3
     + A("3 — Les options", T(
-        lig("Géolocalisation", (gpsN > 0 ? '<b>' + gpsN + ' boîtier' + (gpsN > 1 ? 's' : '') + '</b> × ' + a1Ar(gpsPu) + ' HT par mois, compris dans la mensualité ci-dessous' : 'en option, ' + a1Ar(gpsPu) + ' HT par machine équipée et par mois') + ' — véhicules choisis un à un ; boîtier fourni, posé et entretenu par le prestataire désigné par ' + esc(nomCab) + ' ; distances lues chaque mois et recoupées avec le carburant')
+        lig("Géolocalisation", (gpsN > 0 ? '<b>' + gpsN + ' boîtier' + (gpsN > 1 ? 's' : '') + '</b> × ' + a1Ar(gpsPu) + ' HT par mois, compris dans la mensualité ci-dessous' : 'en option, par machine équipée, tarif communiqué sur demande') + ' — véhicules choisis un à un ; boîtier fourni, posé et entretenu par le prestataire désigné par ' + esc(nomCab) + ' ; distances lues chaque mois et recoupées avec le carburant')
         + lig("Suivi d’entretien seul", "si vous ne souhaitez garder que l’entretien : par avenant à effet au premier jour du mois suivant, " + pct + " % du prix du suivi, option GPS inchangée, soit " + mt(entretienSeul) + " par mois pour ce parc ; " + esc(nomCab) + " garde une veille des dérives et vous propose la reprise de l’analyse si une machine sort du cadre")
         + lig("Mise en route", merTxt + " — récolte des documents, vérification, calage des périodicités, rapport initial sur l’historique disponible")))
     // 4
@@ -20629,7 +20637,7 @@ function a1OfferConditionsRows(o) {
   if (tf && tf.lignes.length) tf.lignes.forEach(function (l) { var pu = (o.parType && o.parType[l.cle]) || l.puNet || l.pu; rows += a1OfferLigneHtml(cap(l.pluriel || l.court + "s") + (l.cle === "moto" ? " suivies" : " suivis"), l.n + " × " + a1Ar(pu) + " HT par mois"); });
   else if (o.machines) rows += a1OfferLigneHtml("Parc suivi", esc(a1OfferParcLibelle(o)));
   if (tf) { var rm = a1OffreRemise(o, tf); if (rm.ar || rm.comprise) rows += a1OfferLigneHtml("Remise selon la taille du parc", rm.comprise ? rm.pct + " %, comprise dans les prix ci-dessus" : "− " + a1Ar(rm.ar) + " HT par mois (" + a1PctTxt(rm.pct) + " du suivi)"); }
-  if (spec) rows += spec.gps ? a1OfferLigneHtml("Géolocalisation (option retenue)", spec.gps + " boîtier" + (spec.gps > 1 ? "s" : "") + " × " + a1Ar(a1BaremeGps()) + " HT par mois — boîtier fourni, posé et entretenu, abonnement et plateforme") : a1OfferLigneHtml("Géolocalisation (option)", "non retenue — " + a1Ar(a1BaremeGps()) + " par machine équipée et par mois");
+  if (spec) rows += spec.gps ? a1OfferLigneHtml("Géolocalisation (option retenue)", spec.gps + " boîtier" + (spec.gps > 1 ? "s" : "") + " × " + a1Ar(a1BaremeGps()) + " HT par mois — boîtier fourni, posé et entretenu, abonnement et plateforme") : a1OfferLigneHtml("Géolocalisation (option)", "non retenue — tarif par machine équipée communiqué sur demande");
   rows += a1OfferLigneHtml("Abonnement mensuel", a1OfferPrixHt(o.monthlyFee, cur, o.taux), true);
   rows += a1OfferLigneHtml(esc(a1MerDevisLibelle(o)), o.miseEnPlaceOfferte ? '<span style="color:#128a45">offerte' + (o.miseEnPlaceMotif ? " — " + esc(o.miseEnPlaceMotif) : "") + '</span>' : (o.setupFee ? a1OfferPrixHt(o.setupFee, cur, o.taux) + (+o.miseEnPlaceRemisePct > 0 ? ' <span style="color:#128a45;font-weight:400">— barème ' + a1OfferPrixHt(o.setupFeeBrut || o.setupFee, cur, o.taux) + ', remise de ' + o.miseEnPlaceRemisePct + ' %' + (o.miseEnPlaceMotif ? ' (' + esc(o.miseEnPlaceMotif) + ')' : '') + '</span>' : '') : "—"), true);
   if (o.offert && o.offertEnd) rows += a1OfferLigneHtml("Période offerte", '<span style="color:#128a45">' + frDate(o.offertStart) + " → " + frDate(o.offertEnd) + " (facturation au " + frDate(a1OfferBillingStart(o)) + ")</span>");
@@ -20637,8 +20645,8 @@ function a1OfferConditionsRows(o) {
 }
 function a1OfferConditionsTexte(o) {
   var parts = ["Facturation en ariary (1 € = " + a1TauxAr(o.taux).toLocaleString("fr-FR") + " Ar de référence, montants arrondis au millier)"];
-  var r = bsmRib(); parts.push("règlement par virement bancaire" + (r.iban ? " — " + r.titulaire + " · " + r.banque + " · IBAN " + r.iban + " · BIC " + r.bic : "") + ((o.mode || "abonnement") === "ponctuel" ? "" : " ; mensualités à " + BAREME_PARC.reglementJours + " jours date de facture"));
-  if ((o.mode || "abonnement") !== "ponctuel") { parts.push("une machine ajoutée ou cédée entre ou sort de la facturation le mois suivant sa déclaration, au prix de son type"); parts.push("durée " + BAREME_PARC.dureeMois + " mois, préavis " + BAREME_PARC.preavisMois + " mois ; périmètre et tarif revus à chaque date anniversaire"); }
+  var r = bsmRib(); parts.push("règlement par virement bancaire" + (r.iban ? " — " + r.titulaire + " · " + r.banque + " · IBAN " + r.iban + " · BIC " + r.bic : "") + ((o.mode || "abonnement") === "ponctuel" || String(o.terms || "").indexOf("règlement à " + BAREME_PARC.reglementJours + " jours") >= 0 ? "" : " ; mensualités à " + BAREME_PARC.reglementJours + " jours date de facture"));
+  if ((o.mode || "abonnement") !== "ponctuel") { var tt = String(o.terms || ""); if (tt.indexOf("machine ajoutée ou cédée") < 0) parts.push("une machine ajoutée ou cédée entre ou sort de la facturation le mois suivant sa déclaration, au prix de son type"); if (tt.indexOf("préavis") < 0) parts.push("durée " + BAREME_PARC.dureeMois + " mois, préavis " + BAREME_PARC.preavisMois + " mois ; périmètre et tarif revus à chaque date anniversaire"); }   /* patch 189 : une règle déjà écrite dans les conditions du devis ne se répète pas */
   return '<p style="font-size:11px;color:#4B5563;line-height:1.55;margin:8px 0 0"><b>Conditions.</b> ' + parts.map(function (p) { return esc(p.charAt(0).toUpperCase() + p.slice(1)); }).join(". ") + '.</p>';
 }
 function a1OfferBody(o) {
@@ -28440,12 +28448,13 @@ function a1OfferModeUI(m){
   const product=val("ao-product")||"flotte", def=a1ProductDef(product), fl2=a1FlashDefaults(product);
   const ABO_TERMS=a1AboTerms(); const _ABO_TERMS_ANCIEN="Offre valable 30 jours à compter de son émission. Tarifs hors taxes, au barème du suivi de parc par tranche de machines suivies (euros ; contre-valeur en ariary au taux en vigueur). Facturation mensuelle à terme échu. Engagement de "+BAREME_PARC.dureeMois+" mois, renouvelable ; préavis de "+BAREME_PARC.preavisMois+" mois. Le franchissement d'une tranche fait l'objet d'un avenant chiffré. Suspension de plein droit si les relevés ne sont pas transmis deux mois de suite. Périmètre et tarif révisés à chaque date anniversaire.";
   const swap=(id,fromV,toV)=>{ const el=document.getElementById(id); if(el && el.value.trim()===fromV.trim()) el.value=toV; };
-  if(p){ swap("ao-label",def.label,fl2.label); swap("ao-intro",def.pitch,fl2.intro); swap("ao-scope",def.scope,fl2.scope); swap("ao-terms",ABO_TERMS,fl2.terms); }
-  else { swap("ao-label",fl2.label,def.label); swap("ao-intro",fl2.intro,def.pitch); swap("ao-scope",fl2.scope,def.scope); swap("ao-terms",fl2.terms,ABO_TERMS); }
+  const swapTerms=(toFlash)=>{ const el=document.getElementById("ao-terms"); if(!el) return; if(toFlash){ if(a1AboTermsDefaut(el.value)) el.value=fl2.terms; } else if(el.value.trim()===fl2.terms.trim()) el.value=ABO_TERMS; };   /* patch 189 : les conditions d'abonnement suivent le devis, on les reconnaît au défaut */
+  if(p){ swap("ao-label",def.label,fl2.label); swap("ao-intro",def.pitch,fl2.intro); swap("ao-scope",def.scope,fl2.scope); swapTerms(true); }
+  else { swap("ao-label",fl2.label,def.label); swap("ao-intro",fl2.intro,def.pitch); swap("ao-scope",fl2.scope,def.scope); swapTerms(false); }
 }
 function a1Offer(clientId, product){ product=product||"flotte"; const l=(DB.a1offers||[]); return l.find(o=>o.clientId===clientId && (o.product||"flotte")===product) || l.find(o=>o.clientId===clientId && (o.mode||"abonnement")==="abonnement") || null; }   // patch 94 : une seule offre d'abonnement par client
 function a1MonthStartAfter(dstr){ const p=(dstr||todayISO()).split("-"); let y=+p[0], m=+p[1]; m++; if(m>12){ m=1; y++; } return y+"-"+String(m).padStart(2,"0")+"-01"; }
-function a1OfferBillingStart(o){ return (o.offert && o.offertEnd) ? a1MonthStartAfter(o.offertEnd) : (o.offertStart||(todayISO().slice(0,7)+"-01")); }
+function a1OfferBillingStart(o){ return (o.offert && o.offertEnd) ? a1MonthStartAfter(o.offertEnd) : (o.offertStart||a1MonthStartAfter(todayISO())); }   /* patch 189 : sans date donnée, l'échéancier d'un devis commence le mois suivant : jamais une mensualité du mois en cours */
 function a1OfferRefNext(){ const y=new Date().getFullYear(); const n=(DB.a1offers||[]).filter(o=>o.ref).length+1; return "BSM-OFF-A1-"+y+"-"+String(n).padStart(3,"0"); }
 /* ===== GRILLE DE FACTURATION ET CONTRAT DU SUIVI DE PARC =============================
    Barème arrêté le 20/09/2026, calé sur le coût-jour BSM (point mort × 12 / 130 jours
@@ -28763,6 +28772,7 @@ function openA1Offer(clientId, product){
   if(isNew) o={clientId,product,mode:"abonnement",entity:entityFilter||"bsmac",currency:"MGA",setupFee:BAREME_PARC.miseEnRoute,monthlyFee:(a1TarifParcDetail({comptes:a1ParcTypes(clientId).comptes,gps:a1ParcTypes(clientId).gps}).prix||""),machines:a1ParcCompte(clientId).total,veh:a1ParcCompte(clientId).veh,gen:a1ParcCompte(clientId).gen,types:a1ParcTypes(clientId).comptes,gpsN:a1ParcTypes(clientId).gps,gpsInclus:a1ParcTypes(clientId).gps>0,offert:false,offertStart:todayISO(),offertEnd:"",
     prestaDate:todayISO(), passCredit:true, passMonths:6, reviewMonths:12,
     label:a1OfferDefautsPour(a1ParcCompte(clientId)).label, intro:a1OfferDefautsPour(a1ParcCompte(clientId)).pitch, scope:a1OfferDefautsPour(a1ParcCompte(clientId)).scope, validite:"30 jours", terms:a1AboTerms()};
+  if(isNew) o.terms=a1AboTerms(o);   /* patch 189 : un devis neuf naît avec les conditions de son parc */
   const mode0=o.mode||"abonnement", isFlash=mode0==="ponctuel";
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>${def.icon} Devis — ${esc(clientName(clientId))}</h2>
     <div class="msub" style="margin-top:-4px">${esc(def.label)}</div>
@@ -28800,9 +28810,9 @@ function saveA1Offer(clientId, product){
   product=product||"flotte"; let o=a1Offer(clientId,product);
   const obj={ clientId, product, mode:val("ao-mode")||"abonnement", label:val("ao-label"), intro:val("ao-intro"), scope:val("ao-scope"), validite:val("ao-validite"), terms:val("ao-terms"),
     merJours:a1MerJoursArrondis(parseFloat(val("ao-mer-jours"))||0), merTauxEur:a1MerTauxEur(), merHeuresJour:a1MerHeuresJour(), merTauxAr:a1TauxAr(), setupFeeBrut:Math.round(parseFloat(val("ao-setup"))||0), miseEnPlaceRemisePct:Math.min(100,Math.max(0,parseFloat(val("ao-mep-remise"))||0)), setupFee:Math.round(parseFloat(val("ao-setup"))||0), monthlyFee:Math.round(parseFloat(val("ao-monthly"))||0),
-    currency:val("ao-cur"), entity:val("ao-entity"), offert:document.getElementById("ao-offert").checked, offertStart:val("ao-offstart"), offertEnd:val("ao-offend"),
+    currency:val("ao-cur"), entity:val("ao-entity"), offert:document.getElementById("ao-offert").checked, offertStart:document.getElementById("ao-offert").checked?val("ao-offstart"):"", offertEnd:document.getElementById("ao-offert").checked?val("ao-offend"):"", /* patch 189c */
     miseEnPlaceOfferte:!!(document.getElementById("ao-mep-offerte")&&document.getElementById("ao-mep-offerte").checked), miseEnPlaceMotif:(val("ao-mep-motif-txt")||"").trim(), prestaDate:val("ao-presta")||todayISO(), passCredit:document.getElementById("ao-passcredit").checked, passMonths:parseInt(val("ao-passmonths"))||6, reviewMonths:parseInt(val("ao-review"))||12 };
-  if(obj.mode==="ponctuel"){ obj.monthlyFee=0; obj.offert=false; } if(obj.miseEnPlaceOfferte) obj.setupFee=0; else if(obj.miseEnPlaceRemisePct>0) obj.setupFee=a1RemiseNet(obj.setupFeeBrut,obj.miseEnPlaceRemisePct,obj.currency); Object.assign(obj, a1OfferTypesChamps(a1OfferTypesLire())); if(obj.mode!=="ponctuel" && a1OfferLabelDefaut(obj.label)) obj.label=a1OfferDefautsPour(obj).label; // analyse ponctuelle : forfait unique, jamais de mensualité ni de période offerte
+  if(obj.mode==="ponctuel"){ obj.monthlyFee=0; obj.offert=false; } if(obj.miseEnPlaceOfferte) obj.setupFee=0; else if(obj.miseEnPlaceRemisePct>0) obj.setupFee=a1RemiseNet(obj.setupFeeBrut,obj.miseEnPlaceRemisePct,obj.currency); Object.assign(obj, a1OfferTypesChamps(a1OfferTypesLire())); if(obj.mode!=="ponctuel" && a1OfferLabelDefaut(obj.label)) obj.label=a1OfferDefautsPour(obj).label; if(obj.mode!=="ponctuel" && !(o&&o.emailedAt) && a1AboTermsDefaut(obj.terms)) obj.terms=a1AboTerms(obj); /* patch 189 */ // analyse ponctuelle : forfait unique, jamais de mensualité ni de période offerte
   if(o){ if(o.product) obj.product=o.product; Object.assign(o,obj); } else { obj.id=uid(); obj.created=todayISO(); obj.ref=a1OfferRefNext(); DB.a1offers.push(obj); o=obj; }
   if(!o.ref) o.ref=a1OfferRefNext();
   syncA1OfferRecurring(o);
@@ -28825,7 +28835,7 @@ function syncA1OfferRecurring(o){
     const flash=o.mode==="ponctuel";
     const when=flash?(o.prestaDate||todayISO()):(o.offertStart||todayISO());
     const tx={ id:uid(), sens:"entrant", label:(flash?"Programme de parc — ":"Mise en route — ")+(o.label||"Programme de parc")+" · "+clientName(o.clientId), amount:o.setupFee, currency:o.currency, remisePct:o.miseEnPlaceRemisePct||0, brut:o.setupFeeBrut||o.setupFee,
-      category:"Honoraires mission", clientId:o.clientId, entity:o.entity, nature:"client", status:"prevu", date:when, dueDate:when, method:"" };
+      category:"Honoraires mission", clientId:o.clientId, entity:o.entity, nature:"client", status:"prevu", date:when, dueDate:when, method:"", a1OfferId:o.id };
     DB.transactions.push(tx); o.setupTxId=tx.id;
   }
 }
