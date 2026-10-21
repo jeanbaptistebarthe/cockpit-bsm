@@ -834,7 +834,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.99.96";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.99.97";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
@@ -1036,7 +1036,7 @@ function load(){
   DB.r5reports=DB.r5reports||[]; // rapports d'audit R5 (brouillon / édité / envoyé), archivés par client
   DB.solutionsLib=DB.solutionsLib||[]; // bibliothèque de solutions chiffrées (texte + investissement + gain, par secteur) — s'enrichit à chaque reco chiffrée
   DB.a1gpslogs=DB.a1gpslogs||[]; DB.a1invoices=DB.a1invoices||[]; DB.a1specs=DB.a1specs||[]; DB.a1docs=DB.a1docs||[];
-  DB.a1explications=DB.a1explications||[]; DB.a1maint=DB.a1maint||[]; DB.a1peaks=DB.a1peaks||[]; DB.a1ot=DB.a1ot||[]; DB.a1parcEvenements=DB.a1parcEvenements||[]; DB.a1ouvertures=DB.a1ouvertures||[]; DB.a1demandes=DB.a1demandes||[]; DB.a1miseEnRoute=DB.a1miseEnRoute||[]; DB.a1depots=DB.a1depots||[]; DB.a1lectures=DB.a1lectures||[]; DB.a1gpsPreparations=DB.a1gpsPreparations||[]; DB.a1pannes=DB.a1pannes||[]; DB.a1avenants=DB.a1avenants||[]; // chantiers A1 B (carnet d'entretien) et A (mesure de pointe) — 21/08
+  DB.a1explications=DB.a1explications||[]; DB.a1maint=DB.a1maint||[]; DB.a1peaks=DB.a1peaks||[]; DB.a1ot=DB.a1ot||[]; DB.a1parcEvenements=DB.a1parcEvenements||[]; DB.a1ouvertures=DB.a1ouvertures||[]; DB.a1demandes=DB.a1demandes||[]; DB.a1miseEnRoute=DB.a1miseEnRoute||[]; DB.a1depots=DB.a1depots||[]; DB.a1lectures=DB.a1lectures||[]; DB.a1gpsPreparations=DB.a1gpsPreparations||[]; DB.a1pannes=DB.a1pannes||[]; DB.a1avenants=DB.a1avenants||[]; DB.a1merSite=DB.a1merSite||[]; /* patch 192 */ // chantiers A1 B (carnet d'entretien) et A (mesure de pointe) — 21/08
   // Références lues dans un fichier client mais rattachées à aucune machine. Sans trace,
   // elles disparaissaient avec le message d'import : du volume et du coût hors de toute analyse.
   DB.a1orphans=DB.a1orphans||[];
@@ -1446,7 +1446,7 @@ const SB_URL = "https://fxaeeplylyeitukctlph.supabase.co";
 const SB_KEY = "sb_publishable_SrXvreUFVJgLLBi6PLvA-g_ARBg2SST";
 // Clé VAPID PUBLIQUE (Web Push) — publique par nature ; la clé privée vit dans les secrets Supabase.
 const PUSH_VAPID_PUBLIC = "BM6Kpk3mQIq8bJihU4TbVho2TXy9BNz-0tlgmHtlHGg8rqbt6W1kKkJz0z_ct8aqOCEvdZFMA6bAA7xZoTkbOKw";
-const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","a1orphans","a1imports","a1iaLog","a1docs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge","r5reports","solutionsLib","a1execreports","a1periodicites","a1maint","a1peaks","directives"]; // directives (consignes direction→membre, RLS ciblée toUid) + a1maint + a1peaks ajoutés 21/08 (carnet d'entretien & mesures de pointe) ; a1execreports ajouté 18/08 : le registre des rapports exécutifs A1 suit sur tous les appareils (le HTML archivé reste sur le PC serveur)
+const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","a1orphans","a1imports","a1iaLog","a1docs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge","r5reports","solutionsLib","a1execreports","a1periodicites","a1maint","a1peaks","directives","a1merSite"]; // directives (consignes direction→membre, RLS ciblée toUid) + a1maint + a1peaks ajoutés 21/08 (carnet d'entretien & mesures de pointe) ; a1execreports ajouté 18/08 : le registre des rapports exécutifs A1 suit sur tous les appareils (le HTML archivé reste sur le PC serveur)
 /* ===== CLOISONNEMENT PAR RÔLE (chantier 21/08) — miroir de la table collection_policies =====
    La VRAIE barrière est la RLS serveur (migration 0007) : le cloud ne LIVRE et n'ACCEPTE que ce que
    le rôle autorise. Ce miroir côté app évite simplement de pousser des collections interdites
@@ -15044,7 +15044,7 @@ function clientMiseEnRouteCard(cid) {
         dep.contrat + dep.cg + dep.carnet + dep.carb + dep.tickets ? '<button class="cta ghost sm" onclick="openDepots(\'' + esc(cid) + '\')">📂 Voir</button>' : "")
       + (typeof gpsLigneHtml === "function" ? gpsLigneHtml(cid) : miseEnRouteLigne("<b>4 · GPS</b>", non("prestataire non défini"), "", ""))
       + '</div>'
-      + (dir ? '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="cta ghost sm" onclick="miseEnRouteClore(\'' + esc(m.id) + '\')" title="Clore cette mise en route (le client ne voit plus les dépôts)">Clore</button></div>' : '');
+      + (dir ? '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="cta sm" onclick="openMerSite(\'' + esc(cid) + '\')" title="La fiche de points à remplir sur site, avec les équipes du client">📋 Sur site</button><button class="cta ghost sm" onclick="miseEnRouteClore(\'' + esc(m.id) + '\')" title="Clore cette mise en route (le client ne voit plus les dépôts)">Clore</button></div>' : '');
   }
   return '<div class="card a1-int" style="border-left:3px solid var(--gold)" id="mer-client-' + esc(cid) + '"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><div><h2 style="margin:0">🚀 Mise en route</h2><div class="msub" style="margin:2px 0 0">Le client accepte, tout se lance : contrat, facturation, documents, GPS.</div></div><div>' + tete + '</div></div><div style="margin-top:8px">' + corps + '</div></div>';
 }
@@ -18708,11 +18708,223 @@ function merFactureBoutonHtml(m) {
   var o = a1OffreAbonnement(m.clientId), j = a1MerJoursArrondis(o.merJours);
   return '<button class="cta sm" onclick="openMerFacture(\'' + esc(m.clientId) + '\')">🧾 Facturer la mise en route (' + String(j).replace(".", ",") + ' j estimé' + (j > 1 ? 's' : '') + ')</button> ';
 }
+/* ===== patch 192 : MISE EN ROUTE SUR SITE (v6.99.97, 21/10/2026) =====================================================
+   La fiche de points à remplir chez le client, avec ses équipes, sur le Cockpit mobile comme sur le PC : une carte par machine
+   (le parc), puis l'entretien, le carburant, les équipes et la routine du mois, les documents remis, le calage. Chaque saisie
+   part dans la base (DB.a1merSite, synchronisée par le nuage, hors ligne compris) ; « Enregistrer ce camion » crée ou complète
+   la machine dans le parc (a1EcrireMachine, fiche constructeur appliquée), pose le compteur du jour J et la dernière vidange,
+   range la charge moyenne ; les équipes entrent dans les responsables d'actions du client ; la fiche imprimable sort pré-remplie.
+   Même procédure pour chaque client, avant comme après « Le client accepte ». */
+var MER_SITE_LIBS = { camion: "Camion", vhl: "Véhicule", moto: "Moto", engin: "Engin", groupe: "Groupe", groupeGros: "Groupe" };
+var _merSiteTimer = null;
+function merSiteDe(cid, sansCreer) {
+  DB.a1merSite = Array.isArray(DB.a1merSite) ? DB.a1merSite : [];
+  var f = DB.a1merSite.find(function (x) { return x.clientId === cid; });
+  if (f || sansCreer) return f || null;
+  f = { id: uid(), clientId: cid, creeLe: todayISO(), dateSite: "", presentsClient: "", equipe: "", lignes: [], entretien: {}, carburant: {}, equipes: {}, documents: {}, calage: {}, ouvert: { ligne: 1, section: 0 }, maj: "" };
+  DB.a1merSite.push(f); return f;
+}
+function merSiteKind(cle) { return (typeof a1CleGen === "function" && a1CleGen(cle)) ? "gen" : "veh"; }
+function merSiteLigneVide(cle) { return { cle: cle, kind: merSiteKind(cle), machineId: "", plate: "", name: "", marque: "", modele: "", annee: "", compteur: "", carburant: "", reservoir: "", kva: "", site: "", chauffeur: "", vidangeDate: "", vidangeKm: "", chargeT: "", cg: false, ass: false, vt: false, obs: "", enregistre: "" }; }
+function merSiteLigneDeMachine(m, kind) {
+  var l = merSiteLigneVide(a1TypeTarif(kind === "gen" ? "gen" : "fleet", m)); l.kind = kind; l.machineId = m.id; l.plate = m.plate || ""; l.name = m.name || ""; l.marque = m.marque || ""; l.modele = m.modele || ""; l.annee = m.annee || "";
+  l.compteur = kind === "gen" ? (m.heuresCompteur || "") : (m.kmActuel || ""); l.carburant = m.motorisation || m.fuel || ""; l.reservoir = m.reservoir || ""; l.kva = m.puissanceKva || ""; l.site = m.site || ""; l.chauffeur = m.driver || m.operator || ""; l.chargeT = m.chargeMoyT || ""; l.enregistre = "parc"; return l;
+}
+/* Les lignes : les machines déjà au parc d'abord, puis autant de lignes vides que le devis compte de machines de chaque type. */
+function merSiteLignesInit(cid, f) {
+  var lignes = Array.isArray(f.lignes) ? f.lignes : [], parId = {}; lignes.forEach(function (l) { if (l.machineId) parId[l.machineId] = 1; });
+  (DB.a1vehicles || []).forEach(function (m) { if (m.clientId === cid && m.statut !== "cede" && !parId[m.id]) { lignes.push(merSiteLigneDeMachine(m, "veh")); parId[m.id] = 1; } });
+  (DB.a1gensets || []).forEach(function (m) { if (m.clientId === cid && m.statut !== "cede" && !parId[m.id]) { lignes.push(merSiteLigneDeMachine(m, "gen")); parId[m.id] = 1; } });
+  var o = (typeof a1OffreAbonnement === "function") ? a1OffreAbonnement(cid) : null, spec = o ? a1OfferSpec(o) : null, comptes = (spec && spec.comptes) || {};
+  Object.keys(comptes).forEach(function (cle) { var n = Math.max(0, Math.round(+comptes[cle] || 0)), deja = lignes.filter(function (l) { return l.cle === cle; }).length; for (var i = deja; i < n; i++) lignes.push(merSiteLigneVide(cle)); });
+  lignes.forEach(function (l, i) { l.n = i + 1; if (!l.kind) l.kind = merSiteKind(l.cle); });
+  f.lignes = lignes; return lignes;
+}
+function merSiteSauverBientot() { try { if (_merSiteTimer) clearTimeout(_merSiteTimer); _merSiteTimer = setTimeout(function () { _merSiteTimer = null; save(); }, 600); } catch (e) { save(); } }
+/* Une saisie = une écriture : chemin « lignes.3.plate », « equipes.respNom », « carburant.bons »… */
+function merSiteMaj(cid, chemin, valeur) {
+  var f = merSiteDe(cid); if (!f) return; var p = String(chemin).split("."), o = f;
+  for (var i = 0; i < p.length - 1; i++) { var k = Array.isArray(o) ? +p[i] : p[i]; if (o[k] == null || typeof o[k] !== "object") o[k] = {}; o = o[k]; }
+  var last = Array.isArray(o) ? +p[p.length - 1] : p[p.length - 1];
+  o[last] = (typeof valeur === "string") ? valeur.trim() : valeur; f.maj = new Date().toISOString(); merSiteSauverBientot();
+  var el = document.getElementById("ms-etat"); if (el) el.textContent = "● Enregistré " + new Date().toTimeString().slice(0, 5);
+}
+function merSiteChampHtml(cid, chemin, label, valeur, type, ph, attrs) {
+  var t = type || "text", v = (valeur == null) ? "" : String(valeur);
+  return '<div class="field" style="margin:0;min-width:0"><label style="font-size:11px">' + label + '</label><input type="' + t + '" value="' + esc(v) + '" placeholder="' + esc(ph || "") + '" ' + (attrs || "") + ' style="width:100%;padding:7px 8px;font-size:13px;box-sizing:border-box" onchange="merSiteMaj(\'' + esc(cid) + '\',\'' + chemin + '\',this.value)"></div>';
+}
+function merSiteSelectHtml(cid, chemin, label, valeur, options) {
+  return '<div class="field" style="margin:0;min-width:0"><label style="font-size:11px">' + label + '</label><select style="width:100%;padding:7px 8px;font-size:13px" onchange="merSiteMaj(\'' + esc(cid) + '\',\'' + chemin + '\',this.value)">' + options.map(function (op) { return '<option value="' + esc(op[0]) + '"' + (String(valeur || "") === op[0] ? " selected" : "") + '>' + esc(op[1]) + '</option>'; }).join("") + '</select></div>';
+}
+function merSiteCaseHtml(cid, chemin, label, coche) {
+  return '<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;margin:2px 10px 2px 0"><input type="checkbox"' + (coche ? " checked" : "") + ' onchange="merSiteMaj(\'' + esc(cid) + '\',\'' + chemin + '\',this.checked)"> ' + label + '</label>';
+}
+function merSiteSpecDe(l) {
+  if (!(l.marque && l.modele) || typeof a1SpecLookup !== "function") return null;
+  try { return a1SpecLookup(l.kind === "gen" ? "gen" : "fleet", { marque: l.marque, modele: l.modele }); } catch (e) { return null; }
+}
+function merSiteSpecUtiliser(cid, n) {
+  var f = merSiteDe(cid), l = f && f.lignes[n - 1], s = l && merSiteSpecDe(l); if (!s) return;
+  if (!l.reservoir && s.reservoir) l.reservoir = s.reservoir; if (!l.carburant && (s.motorisation || s.fuel)) l.carburant = s.motorisation || s.fuel; if (l.kind === "gen" && !l.kva && s.puissanceKva) l.kva = s.puissanceKva;
+  f.maj = new Date().toISOString(); merSiteSauverBientot(); openMerSite(cid, { ligne: n });
+}
+/* La carte d'une machine : ce que le Cockpit sait est déjà écrit, le reste se remplit sur place. */
+function merSiteCarteHtml(cid, f, n) {
+  var l = f.lignes[n - 1], i = n - 1, gen = l.kind === "gen", lib = MER_SITE_LIBS[l.cle] || "Machine", s = merSiteSpecDe(l), P = "lignes." + i + ".";
+  var spec = s ? '<div class="hint" style="margin:4px 0 0;font-size:11px">Fiche constructeur trouvée : ' + esc(((s.brand || "") + " " + (s.model || "")).trim()) + (gen ? (s.consoTheoLh ? ", " + s.consoTheoLh + " L/h" : "") : (s.consoTheo ? ", " + s.consoTheo + " L/100 km" : "")) + (s.reservoir ? ", réservoir " + s.reservoir + " L" : "") + '. <a href="#" onclick="merSiteSpecUtiliser(\'' + esc(cid) + '\',' + n + ');return false">Utiliser</a></div>' : ((l.marque && l.modele) ? '<div class="hint" style="margin:4px 0 0;font-size:11px">Aucune fiche constructeur pour ce modèle : elle sera cherchée à l’enregistrement.</div>' : "");
+  return '<div class="card" style="padding:12px;margin:8px 0;border-left:3px solid ' + (l.machineId ? "var(--green)" : "var(--gold)") + '">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:13.5px">' + esc(lib) + ' ' + n + ' sur ' + f.lignes.length + '</b><span style="font-size:11.5px;color:' + (l.machineId ? "var(--green)" : "var(--muted)") + '">' + (l.machineId ? "✓ au parc" : "à compléter") + '</span></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + (gen ? merSiteChampHtml(cid, P + "name", "Nom ou n° du groupe", l.name, "", "GE 1") : merSiteChampHtml(cid, P + "plate", "Immatriculation", l.plate, "", "0000 TAA")) + merSiteChampHtml(cid, P + "annee", "Année", l.annee, "number", "aaaa", 'min="1980" max="2100"') + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteChampHtml(cid, P + "marque", "Marque", l.marque, "", "marque") + merSiteChampHtml(cid, P + "modele", "Modèle", l.modele, "", "modèle") + '</div>' + spec
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px">' + merSiteChampHtml(cid, P + "compteur", gen ? "Compteur horaire le jour J (h)" : "Compteur le jour J (km)", l.compteur, "number", gen ? "h" : "km", 'min="0" step="1"') + merSiteChampHtml(cid, P + "carburant", "Carburant", l.carburant, "", "gasoil") + merSiteChampHtml(cid, P + "reservoir", "Réservoir (L)", l.reservoir, "number", "L", 'min="0" step="1"') + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteChampHtml(cid, P + "site", "Site / affectation", l.site, "", "site") + merSiteChampHtml(cid, P + "chauffeur", gen ? "Opérateur" : "Chauffeur", l.chauffeur, "", "nom") + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px">' + merSiteChampHtml(cid, P + "vidangeDate", "Dernière vidange : date", l.vidangeDate, "date", "") + merSiteChampHtml(cid, P + "vidangeKm", gen ? "… heures" : "… km", l.vidangeKm, "number", gen ? "h" : "km", 'min="0" step="1"') + (gen ? merSiteChampHtml(cid, P + "kva", "Puissance (kVA)", l.kva, "number", "kVA", 'min="0" step="1"') : merSiteChampHtml(cid, P + "chargeT", "Charge moyenne (t)", l.chargeT, "number", "≈ t", 'min="0" step="0.5"')) + '</div>'
+    + '<div style="margin-top:8px;font-size:11px;color:var(--muted)">Documents vus</div><div>' + merSiteCaseHtml(cid, P + "cg", "Carte grise", l.cg) + merSiteCaseHtml(cid, P + "ass", "Assurance", l.ass) + merSiteCaseHtml(cid, P + "vt", "Visite technique", l.vt) + '</div>'
+    + merSiteChampHtml(cid, P + "obs", "Observations", l.obs, "", "remorques, état, particularités")
+    + '<div style="display:flex;gap:8px;margin-top:10px"><button class="cta ghost sm" ' + (n > 1 ? 'onclick="openMerSite(\'' + esc(cid) + '\',{ligne:' + (n - 1) + '})"' : "disabled") + '>◂ Précédent</button><button class="cta sm" style="flex:1" onclick="merSiteEnregistrerLigne(\'' + esc(cid) + '\',' + n + ')">💾 Enregistrer ' + (gen ? "ce groupe" : "cette machine") + '</button><button class="cta ghost sm" ' + (n < f.lignes.length ? 'onclick="openMerSite(\'' + esc(cid) + '\',{ligne:' + (n + 1) + '})"' : "disabled") + '>Suivant ▸</button></div>'
+    + '</div>';
+}
+/* « Enregistrer » : la machine entre au parc (ou la fiche existante se complète), fiche constructeur appliquée, compteur du jour J, dernière vidange, charge moyenne. */
+function merSiteEnregistrerLigne(cid, n) {
+  var f = merSiteDe(cid), l = f && f.lignes[n - 1]; if (!l) return null;
+  var gen = l.kind === "gen", ref = String(gen ? (l.name || l.plate) : (l.plate || l.name) || "").trim();
+  if (!ref) { toast(gen ? "Un nom ou un numéro pour ce groupe, d’abord." : "L’immatriculation, d’abord."); return null; }
+  var champs = gen
+    ? { name: ref, marque: l.marque || "", modele: l.modele || "", annee: parseInt(l.annee, 10) || "", puissanceKva: parseFloat(l.kva) || "", fuel: l.carburant || "", reservoir: parseFloat(l.reservoir) || "", site: l.site || "", operator: l.chauffeur || "" }
+    : { name: l.name || ref, plate: ref, type: (l.cle === "camion" ? "Camion" : (l.cle === "moto" ? "Moto" : "Voiture / VHL")), marque: l.marque || "", modele: l.modele || "", annee: parseInt(l.annee, 10) || "", motorisation: l.carburant || "", reservoir: parseFloat(l.reservoir) || "", site: l.site || "", driver: l.chauffeur || "" };
+  if (gen && l.cle === "engin") champs.categorie = "engin";
+  var r = a1EcrireMachine({ kind: gen ? "gen" : "veh", refs: [ref], cid: cid, champs: champs, forcerCreation: false, source: "mise en route sur site" });
+  if (!r || !r.machine) { toast("⛔ " + ((r && r.verdict && r.verdict.raison) || "Enregistrement impossible.")); return null; }
+  var m = r.machine;
+  Object.keys(champs).forEach(function (k) { if (champs[k] !== "" && champs[k] != null && (m[k] == null || m[k] === "")) m[k] = champs[k]; });
+  if (gen) { if (parseFloat(l.compteur) > 0) m.heuresCompteur = parseFloat(l.compteur); } else { if (parseFloat(l.compteur) > 0) m.kmActuel = parseFloat(l.compteur); if (parseFloat(l.chargeT) > 0) m.chargeMoyT = parseFloat(l.chargeT); }
+  if (l.obs) m.notes = (m.notes ? m.notes + " · " : "") + "Mise en route : " + l.obs;
+  try { if (typeof a1AutoSpecApply === "function") a1AutoSpecApply(m, gen ? "gen" : "fleet"); } catch (e) {}
+  if (l.vidangeDate) {
+    DB.a1maint = DB.a1maint || [];
+    if (!DB.a1maint.some(function (x) { return x.machineId === m.id && x.date === l.vidangeDate && /vidange/i.test(x.type || ""); }))
+      DB.a1maint.push({ id: uid(), kind: gen ? "gen" : "fleet", machineId: m.id, clientId: cid, date: l.vidangeDate, type: "Vidange & filtres", at: parseFloat(l.vidangeKm) || 0, cost: 0, currency: (DB.meta && DB.meta.defaultCurrency) || "MGA", nextDate: "", nextEvery: 0, note: "déclarée à la mise en route sur site", source: "mise en route" });
+  }
+  l.machineId = m.id; l.name = m.name || l.name; l.enregistre = todayISO(); f.maj = new Date().toISOString(); save();
+  toast(r.cree ? (gen ? "Groupe enregistré au parc." : "Machine enregistrée au parc.") : "Fiche existante complétée.");
+  openMerSite(cid, { ligne: Math.min(n + 1, f.lignes.length) }); return m;
+}
+function merSiteSectionHtml(cid, f, n, titre, resume, contenu) {
+  var ouvert = (+(f.ouvert && f.ouvert.section) === n);
+  if (!ouvert) return '<div class="card" style="padding:10px 12px;margin:8px 0;display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer" onclick="openMerSite(\'' + esc(cid) + '\',{section:' + n + '})"><div style="min-width:0"><div style="font-weight:600;font-size:13.5px">' + n + ' · ' + titre + '</div><div style="font-size:11.5px;color:var(--muted);margin-top:2px">' + resume + '</div></div><div style="font-size:12px;color:var(--muted);white-space:nowrap">▸</div></div>';
+  return '<div class="card" style="padding:12px;margin:8px 0;border-left:3px solid var(--gold)"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:13.5px">' + n + ' · ' + titre + '</b><span style="font-size:12px;color:var(--muted);cursor:pointer" onclick="openMerSite(\'' + esc(cid) + '\',{section:0})">Replier ▴</span></div>' + contenu + '</div>';
+}
+function merSiteOuiNon(v) { return v === "oui" ? "oui" : (v === "non" ? "non" : "?"); }
+function merSiteResumeEntretien(f) { var e = f.entretien || {}; return (e.qui === "interne" ? "atelier interne" : (e.qui === "prestataire" ? "prestataire " + (e.prestataire || "") : "qui entretient ?")) + " · carnet : " + merSiteOuiNon(e.carnet) + " · factures 12 mois : " + merSiteOuiNon(e.factures12); }
+function merSiteEntretienHtml(cid, f) {
+  var e = f.entretien || {};
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteSelectHtml(cid, "entretien.qui", "Qui entretient", e.qui, [["", "—"], ["interne", "atelier interne"], ["prestataire", "prestataire"]]) + merSiteChampHtml(cid, "entretien.prestataire", "Prestataire", e.prestataire, "", "nom du garage") + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteSelectHtml(cid, "entretien.carnet", "Carnet d’entretien tenu", e.carnet, [["", "—"], ["oui", "oui"], ["non", "non"]]) + merSiteSelectHtml(cid, "entretien.factures12", "Factures des 12 derniers mois", e.factures12, [["", "—"], ["oui", "disponibles"], ["non", "non"]]) + '</div>'
+    + '<div class="hint" style="margin:8px 0 0;font-size:11px">Les périodicités (vidange, filtres, freins, pneus…) se confirment avec le client, marque par marque : <a href="#" onclick="openA1Periodicites(\'' + esc(cid) + '\',\'fleet\');return false">périodicités d’entretien</a>.</div>';
+}
+function merSiteResumeCarburant(f) { var c = f.carburant || {}, modes = ["station", "bons", "carte", "cuve"].filter(function (k) { return c[k]; }); return (modes.length ? modes.join(", ") : "mode d’achat ?") + " · " + (c.pleins ? "pleins " + c.pleins : "pleins ?") + (c.quiNote ? " · note : " + c.quiNote : ""); }
+function merSiteCarburantHtml(cid, f) {
+  var c = f.carburant || {};
+  return '<div style="margin-top:8px;font-size:11px;color:var(--muted)">Mode d’achat</div><div>' + merSiteCaseHtml(cid, "carburant.station", "station", c.station) + merSiteCaseHtml(cid, "carburant.bons", "bons", c.bons) + merSiteCaseHtml(cid, "carburant.carte", "carte", c.carte) + merSiteCaseHtml(cid, "carburant.cuve", "cuve interne", c.cuve) + '</div>'
+    + '<div style="margin-top:6px;font-size:11px;color:var(--muted)">Justificatifs</div><div>' + merSiteCaseHtml(cid, "carburant.tickets", "tickets", c.tickets) + merSiteCaseHtml(cid, "carburant.releveFournisseur", "relevé fournisseur", c.releveFournisseur) + merSiteCaseHtml(cid, "carburant.cahier", "cahier", c.cahier) + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteSelectHtml(cid, "carburant.pleins", "Pleins", c.pleins, [["", "—"], ["complets", "complets"], ["partiels", "partiels"], ["mixtes", "complets et partiels"]]) + merSiteChampHtml(cid, "carburant.quiNote", "Qui note", c.quiNote, "", "nom") + '</div>';
+}
+function merSiteResumeEquipes(f) { var e = f.equipes || {}; return (e.respNom ? "relevé : " + e.respNom : "responsable du relevé ?") + (e.jour ? " · le " + e.jour + " de chaque mois" : " · jour ?") + (e.canal ? " · " + (e.canal === "espace" ? "espace des équipes" : "fiche papier") : "") + " · charge saisie chaque mois"; }
+function merSiteEquipesHtml(cid, f) {
+  var e = f.equipes || {}, c = (DB.clients || []).find(function (x) { return x.id === cid; }) || {};
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteChampHtml(cid, "equipes.respNom", "Responsable du relevé", e.respNom, "", "nom") + merSiteChampHtml(cid, "equipes.respFonction", "Fonction", e.respFonction, "", "fonction") + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteChampHtml(cid, "equipes.respTel", "Téléphone", e.respTel, "tel", "03x …") + merSiteChampHtml(cid, "equipes.respMail", "Courriel", e.respMail, "email", "adresse") + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteChampHtml(cid, "equipes.suppleant", "Suppléant", e.suppleant, "", "nom") + merSiteChampHtml(cid, "equipes.suppleantMail", "Courriel du suppléant", e.suppleantMail, "email", "adresse") + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px">' + merSiteChampHtml(cid, "equipes.jour", "Jour du relevé", e.jour, "number", "1 à 28", 'min="1" max="28"') + merSiteSelectHtml(cid, "equipes.canal", "Canal", e.canal, [["", "—"], ["espace", "espace des équipes"], ["papier", "fiche papier"]]) + merSiteChampHtml(cid, "equipes.validePar", "Validé par", e.validePar, "", "nom") + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteChampHtml(cid, "equipes.dirigeant", "Dirigeant", e.dirigeant || c.contactName || "", "", "nom") + merSiteChampHtml(cid, "equipes.facturation", "Courriel de facturation", e.facturation || c.billingEmail || "", "email", "adresse") + '</div>'
+    + '<div class="hint" style="margin:6px 0 0;font-size:11px">Les équipes saisissent chaque mois, par machine : date, compteur, litres, coût, et la charge moyenne du mois.</div>'
+    + '<div style="margin-top:10px"><button class="cta sm" onclick="merSiteEquipesEnregistrer(\'' + esc(cid) + '\')">💾 Enregistrer les équipes dans la fiche client</button></div>';
+}
+/* Le responsable et son suppléant deviennent des responsables d'actions du client ; l'adresse de facturation entre sur la fiche. */
+function merSiteEquipesEnregistrer(cid) {
+  var f = merSiteDe(cid), e = f.equipes || {}, c = (DB.clients || []).find(function (x) { return x.id === cid; }); if (!c) return 0;
+  c.responsables = Array.isArray(c.responsables) ? c.responsables : []; var n = 0;
+  [[e.respNom, e.respFonction, e.respMail, e.respTel], [e.suppleant, "suppléant du relevé", e.suppleantMail, ""]].forEach(function (p) {
+    var nom = String(p[0] || "").trim(), mail = String(p[2] || "").trim().toLowerCase(); if (!nom && !mail) return;
+    var ex = c.responsables.find(function (r) { return (mail && String(r.email || "").toLowerCase() === mail) || (nom && String(r.name || "").toLowerCase() === nom.toLowerCase()); });
+    if (ex) { if (nom) ex.name = nom; if (p[1]) ex.fonction = p[1]; if (mail) ex.email = mail; if (p[3]) ex.tel = p[3]; } else { c.responsables.push({ name: nom || mail, fonction: p[1] || "", email: mail, tel: p[3] || "" }); } n++;
+  });
+  if (e.facturation && /@/.test(e.facturation)) c.billingEmail = String(e.facturation).trim();
+  if (e.dirigeant && !c.contactName) c.contactName = String(e.dirigeant).trim();
+  e.enregistreLe = todayISO(); f.maj = new Date().toISOString(); save(); toast(n ? n + " responsable(s) enregistré(s) sur la fiche client." : "Rien à enregistrer : nomme au moins le responsable du relevé."); openMerSite(cid, { section: 4 }); return n;
+}
+function merSiteResumeDocuments(f) { var d = f.documents || {}, n = ["releves3m", "factures", "cartesGrises", "chauffeurs", "planning"].filter(function (k) { return d[k]; }).length; return n + " sur 5 remis"; }
+function merSiteDocumentsHtml(cid, f) {
+  var d = f.documents || {};
+  return '<div style="margin-top:8px">' + merSiteCaseHtml(cid, "documents.releves3m", "relevés carburant des 3 derniers mois", d.releves3m) + '<br>' + merSiteCaseHtml(cid, "documents.factures", "factures d’entretien", d.factures) + merSiteCaseHtml(cid, "documents.cartesGrises", "cartes grises (photos)", d.cartesGrises) + '<br>' + merSiteCaseHtml(cid, "documents.chauffeurs", "liste des chauffeurs", d.chauffeurs) + merSiteCaseHtml(cid, "documents.planning", "planning d’utilisation", d.planning) + '</div>'
+    + '<div class="hint" style="margin:6px 0 0;font-size:11px">Les fichiers eux-mêmes se déposent dans l’espace de dépôts du client ; ici on note ce qui a été remis.</div>';
+}
+function merSiteCalageDefauts(cid, f) {
+  var k = f.calage || {}, m = (typeof miseEnRouteDe === "function") ? miseEnRouteDe(cid) : null, o = (typeof a1OffreAbonnement === "function") ? a1OffreAbonnement(cid) : null;
+  var debut = k.abonnementDebut || (m && m.abonnementDebut) || a1MonthStartAfter(todayISO());
+  var jour = parseInt((f.equipes || {}).jour, 10) || 0, premier = k.premierReleve || (jour ? agendaJourPlus(a1MonthStartAfter(debut), jour - 1) : "");
+  var jours = (k.joursBsm !== "" && k.joursBsm != null) ? k.joursBsm : ((o && +o.merJours > 0) ? a1MerJoursArrondis(o.merJours) : "");
+  return { abonnementDebut: debut, premierReleve: premier, joursBsm: jours, signBsm: k.signBsm || "", signClient: k.signClient || "" };
+}
+function merSiteResumeCalage(cid, f) { var k = merSiteCalageDefauts(cid, f); return "abonnement dès le " + frDate(k.abonnementDebut) + (k.joursBsm !== "" ? " · " + String(k.joursBsm).replace(".", ",") + " jour(s) BSM" : "") + (k.premierReleve ? " · premier relevé le " + frDate(k.premierReleve) : ""); }
+function merSiteCalageHtml(cid, f) {
+  var k = merSiteCalageDefauts(cid, f);
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteChampHtml(cid, "calage.abonnementDebut", "Abonnement à compter du", k.abonnementDebut, "date", "") + merSiteChampHtml(cid, "calage.premierReleve", "Premier relevé attendu le", k.premierReleve, "date", "") + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteChampHtml(cid, "calage.joursBsm", "Jours de présence BSM sur site", k.joursBsm, "number", "demi-journée possible", 'min="0.5" step="0.5"') + '<div class="hint" style="margin:0;align-self:end;font-size:11px">Pré-remplit la facture de mise en route ; le devis en estimait ' + ((typeof a1OffreAbonnement === "function" && a1OffreAbonnement(cid) && +a1OffreAbonnement(cid).merJours > 0) ? String(a1MerJoursArrondis(a1OffreAbonnement(cid).merJours)).replace(".", ",") : "—") + '.</div></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteChampHtml(cid, "calage.signBsm", "Signé pour BSM par", k.signBsm, "", "nom") + merSiteChampHtml(cid, "calage.signClient", "Signé pour le client par", k.signClient, "", "nom, fonction") + '</div>';
+}
+/* L'écran : une feuille plein écran, lisible au téléphone ; ouvert depuis la fiche client (carte Mise en route, carte du devis) et le bouton Faire. */
+function openMerSite(cid, opt) {
+  var c = (DB.clients || []).find(function (x) { return x.id === cid; }); if (!c) { toast("Client introuvable."); return; }
+  var f = merSiteDe(cid); merSiteLignesInit(cid, f); opt = opt || {}; f.ouvert = f.ouvert || { ligne: 1, section: 0 };
+  if (opt.ligne) f.ouvert.ligne = +opt.ligne; if (opt.section !== undefined) f.ouvert.section = +opt.section;
+  var o = (typeof a1OffreAbonnement === "function") ? a1OffreAbonnement(cid) : null, sp = o ? a1OfferSpec(o) : null, cs = (sp && sp.comptes) || {};
+  var L = f.lignes, n = Math.min(Math.max(1, +f.ouvert.ligne || 1), Math.max(1, L.length)), faits = L.filter(function (l) { return l.machineId; }).length, total = L.length;
+  var parc = Object.keys(cs).filter(function (k) { return +cs[k] > 0; }).map(function (k) { var t = a1BaremeType(k); return cs[k] + " " + (cs[k] > 1 ? (t.pluriel || t.court + "s") : t.court); }).join(", ");
+  var pills = L.map(function (l, i) { var cur = (i + 1) === n; return '<span onclick="openMerSite(\'' + esc(cid) + '\',{ligne:' + (i + 1) + '})" style="cursor:pointer;font-size:11px;padding:3px 7px;border-radius:12px;border:1px solid var(--line);background:' + (cur ? "#0D1F45" : (l.machineId ? "#E8F5EC" : "#fff")) + ';color:' + (cur ? "#fff" : "var(--ink)") + '">' + (i + 1) + (l.machineId ? " ✓" : " ·") + ((l.plate || l.name) ? " " + esc(l.plate || l.name) : "") + '</span>'; }).join(" ");
+  var html = '<span class="close" onclick="closeModal()">✕</span>'
+    + '<div style="background:#0D1F45;color:#fff;padding:10px 12px;border-radius:10px;margin:0 0 8px"><div style="font-size:11px;color:#C7A25A;letter-spacing:.4px">PROGRAMME DE PARC · MISE EN ROUTE SUR SITE</div><div style="font:700 15px Georgia,serif;margin-top:2px">' + esc(c.company || "") + '</div><div style="font-size:11.5px;color:#D1D5DB;margin-top:2px">' + (o ? "Devis " + esc(o.ref || "") + (parc ? " · " + esc(parc) : "") + " · GPS " + ((sp && sp.gps) ? "retenu" : "non retenu") : "sans devis d’abonnement enregistré") + '</div></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' + merSiteChampHtml(cid, "dateSite", "Date sur site", f.dateSite, "date", "") + merSiteChampHtml(cid, "presentsClient", "Pour le client", f.presentsClient, "", "nom, fonction") + merSiteChampHtml(cid, "equipe", "Équipe présente", f.equipe, "", "noms") + '</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin:8px 0 4px">Parc : <b style="color:var(--ink)">' + faits + ' sur ' + total + '</b> au parc · chaque saisie part dans la base, hors ligne compris</div>'
+    + '<div class="card" style="padding:8px 12px;margin:6px 0;display:flex;justify-content:space-between;align-items:center"><b style="font-size:13.5px">1 · Le parc</b><span style="font-size:11.5px;color:var(--muted)">' + faits + ' ✓ · ' + (total - faits) + ' à compléter</span></div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 4px">' + pills + '</div>'
+    + (L.length ? merSiteCarteHtml(cid, f, n) : '<div class="hint">Aucune machine attendue : enregistre d’abord un devis d’abonnement, ou importe le parc.</div>')
+    + merSiteSectionHtml(cid, f, 2, "L’entretien", merSiteResumeEntretien(f), merSiteEntretienHtml(cid, f))
+    + merSiteSectionHtml(cid, f, 3, "Le carburant", merSiteResumeCarburant(f), merSiteCarburantHtml(cid, f))
+    + merSiteSectionHtml(cid, f, 4, "Les équipes et la routine du mois", merSiteResumeEquipes(f), merSiteEquipesHtml(cid, f))
+    + merSiteSectionHtml(cid, f, 5, "Documents remis à BSM", merSiteResumeDocuments(f), merSiteDocumentsHtml(cid, f))
+    + merSiteSectionHtml(cid, f, 6, "Calage et signatures", merSiteResumeCalage(cid, f), merSiteCalageHtml(cid, f))
+    + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:10px;font-size:11.5px"><span id="ms-etat" style="color:var(--green)">● ' + (f.maj ? "Enregistré " + new Date(f.maj).toTimeString().slice(0, 5) : "Rien de saisi encore") + '</span><button class="cta ghost sm" onclick="openMerSiteDoc(\'' + esc(cid) + '\')">🖨 Fiche imprimable</button></div>';
+  openModal(html, "sheet");
+}
+/* La fiche imprimable, pré-remplie : ce que le Cockpit sait est écrit, le reste est une ligne pointillée à remplir à la main. */
+function merSiteDocBlanc(n) { return '<span style="display:inline-block;min-width:' + (n || 60) + 'px;border-bottom:1px dotted #9CA3AF">&nbsp;</span>'; }
+function merSiteDocVal(v, n) { return (v !== "" && v != null) ? esc(String(v)) : merSiteDocBlanc(n); }
+function merSiteDocCase(t, on) { return '<span style="display:inline-block;width:10px;height:10px;border:1px solid #6B7280;vertical-align:middle;margin-right:3px;background:' + (on ? "#0D1F45" : "#fff") + '"></span>' + t + ' '; }
+function a1MerSiteDoc(cid) {
+  var c = (DB.clients || []).find(function (x) { return x.id === cid; }) || {}, f = merSiteDe(cid); merSiteLignesInit(cid, f);
+  var o = (typeof a1OffreAbonnement === "function") ? a1OffreAbonnement(cid) : null, sp = o ? a1OfferSpec(o) : null, k = merSiteCalageDefauts(cid, f), e = f.equipes || {}, en = f.entretien || {}, ca = f.carburant || {}, d = f.documents || {};
+  var th = function (s) { return '<th style="border:1px solid #D1D5DB;padding:3px 4px;font-size:9.5px;text-align:left;background:#F6F1E8;color:#374151">' + s + '</th>'; }, td = function (s) { return '<td style="border:1px solid #D1D5DB;padding:4px;font-size:10px;height:20px">' + s + '</td>'; };
+  var sec = function (n, t) { return '<h2 class="docsec" style="margin:12px 0 5px">' + n + ' · ' + t + '</h2>'; };
+  var lignes = f.lignes.map(function (l) { var gen = l.kind === "gen"; return '<tr>' + td(l.n) + td('<b>' + merSiteDocVal(gen ? (l.name || l.plate) : (l.plate || l.name), 56) + '</b>') + td(merSiteDocVal([l.marque, l.modele].filter(Boolean).join(" "), 70)) + td(merSiteDocVal(l.annee, 26)) + td(merSiteDocVal(l.compteur, 46)) + td(merSiteDocVal(l.carburant, 30)) + td(merSiteDocVal(l.reservoir, 26)) + td(merSiteDocVal(l.site, 56)) + td(merSiteDocVal(l.chauffeur, 50)) + td(merSiteDocVal(l.vidangeDate ? frDate(l.vidangeDate) + (l.vidangeKm ? " · " + l.vidangeKm : "") : "", 60)) + td(gen ? merSiteDocVal(l.kva, 26) : merSiteDocVal(l.chargeT, 26)) + td(merSiteDocCase("CG", l.cg) + merSiteDocCase("Ass.", l.ass) + merSiteDocCase("VT", l.vt)) + td(merSiteDocVal(l.obs, 50)) + '</tr>'; }).join("");
+  var grid = function (rows) { return '<table style="width:100%;border-collapse:collapse;font-size:10.5px">' + rows.map(function (r) { return '<tr><td style="padding:2px 6px 2px 0;color:#374151;width:38%">' + r[0] + '</td><td style="padding:2px 0">' + r[1] + '</td></tr>'; }).join("") + '</table>'; };
+  var body = '<div style="display:flex;gap:16px;font-size:10.5px;flex-wrap:wrap"><div>Date sur site : ' + merSiteDocVal(f.dateSite ? frDate(f.dateSite) : "", 70) + '</div><div>Pour BSM : ' + esc((typeof currentUser !== "undefined" && currentUser && currentUser.name) || "Jean-Baptiste Barthe") + '</div><div>Pour le client : ' + merSiteDocVal(f.presentsClient, 120) + '</div><div>Équipe présente : ' + merSiteDocVal(f.equipe, 120) + '</div></div>'
+    + sec("1", "Le parc, machine par machine" + (sp ? " (" + f.lignes.length + " attendue" + (f.lignes.length > 1 ? "s" : "") + " au devis" + (sp.gps ? ", géolocalisation retenue" : "") + ")" : ""))
+    + '<table class="tab-bloc" style="width:100%;border-collapse:collapse"><tr>' + th("N°") + th("Immat. / nom") + th("Marque / modèle") + th("Année") + th("Compteur jour J") + th("Carbu.") + th("Rés. (L)") + th("Site / affectation") + th("Chauffeur") + th("Dernière vidange") + th("Charge (t) / kVA") + th("Documents vus") + th("Observations") + '</tr>' + lignes + '</table>'
+    + '<div style="display:flex;gap:22px"><div style="flex:1">' + sec("2", "L’entretien") + grid([["Qui entretient", merSiteDocCase("atelier interne", en.qui === "interne") + merSiteDocCase("prestataire", en.qui === "prestataire") + merSiteDocVal(en.prestataire, 90)], ["Carnet d’entretien tenu", merSiteDocCase("oui", en.carnet === "oui") + merSiteDocCase("non", en.carnet === "non")], ["Factures des 12 derniers mois", merSiteDocCase("disponibles", en.factures12 === "oui") + merSiteDocCase("non", en.factures12 === "non")], ["Périodicités", "confirmées marque par marque dans le Cockpit"]])
+    + sec("3", "Le carburant") + grid([["Mode d’achat", merSiteDocCase("station", ca.station) + merSiteDocCase("bons", ca.bons) + merSiteDocCase("carte", ca.carte) + merSiteDocCase("cuve interne", ca.cuve)], ["Justificatifs", merSiteDocCase("tickets", ca.tickets) + merSiteDocCase("relevé fournisseur", ca.releveFournisseur) + merSiteDocCase("cahier", ca.cahier)], ["Pleins", merSiteDocCase("complets", ca.pleins === "complets") + merSiteDocCase("partiels", ca.pleins === "partiels") + merSiteDocCase("mixtes", ca.pleins === "mixtes") + " · qui note : " + merSiteDocVal(ca.quiNote, 70)]]) + '</div>'
+    + '<div style="flex:1">' + sec("4", "Les équipes et la routine du mois") + grid([["Responsable du relevé", merSiteDocVal(e.respNom, 90) + " · " + merSiteDocVal(e.respFonction, 60)], ["Téléphone · courriel", merSiteDocVal(e.respTel, 70) + " · " + merSiteDocVal(e.respMail, 90)], ["Suppléant", merSiteDocVal(e.suppleant, 90) + (e.suppleantMail ? " · " + esc(e.suppleantMail) : "")], ["Jour du relevé", "le " + merSiteDocVal(e.jour, 22) + " de chaque mois · " + merSiteDocCase("espace des équipes", e.canal === "espace") + merSiteDocCase("fiche papier", e.canal === "papier")], ["Saisi chaque mois", "date, compteur, litres, coût, charge moyenne du mois"], ["Validé par", merSiteDocVal(e.validePar, 90)], ["Dirigeant · facturation", merSiteDocVal(e.dirigeant || c.contactName, 80) + " · " + merSiteDocVal(e.facturation || c.billingEmail, 100)]])
+    + sec("5", "Documents remis à BSM") + grid([["", merSiteDocCase("relevés carburant des 3 derniers mois", d.releves3m)], ["", merSiteDocCase("factures d’entretien", d.factures) + merSiteDocCase("cartes grises (photos)", d.cartesGrises)], ["", merSiteDocCase("liste des chauffeurs", d.chauffeurs) + merSiteDocCase("planning d’utilisation", d.planning)]]) + '</div></div>'
+    + sec("6", "Calage") + '<div style="font-size:10.5px;display:flex;gap:18px;flex-wrap:wrap"><div>Abonnement à compter du : <b>' + esc(frDate(k.abonnementDebut)) + '</b></div><div>Premier relevé attendu le : ' + merSiteDocVal(k.premierReleve ? frDate(k.premierReleve) : "", 60) + '</div><div>Jours de présence BSM sur site : ' + merSiteDocVal(k.joursBsm !== "" ? String(k.joursBsm).replace(".", ",") : "", 24) + (o && +o.merJours > 0 ? " (" + String(a1MerJoursArrondis(o.merJours)).replace(".", ",") + " estimé" + (a1MerJoursArrondis(o.merJours) > 1 ? "s" : "") + " au devis)" : "") + '</div></div>'
+    + '<div style="font-size:10.5px;margin-top:8px">Signatures : BSM ' + merSiteDocVal(k.signBsm, 110) + ' · client ' + merSiteDocVal(k.signClient, 110) + '</div>';
+  return docChrome(body, { title: "Fiche de mise en route — " + (c.company || ""), typeLabel: "Fiche de mise en route", ref: o ? (o.ref || "") : "", date: frLong(todayISO()), signature: "aucune", marges: "9mm 11mm", piedCourt: true, serre: true, clientName: c.company || "", clientContact: (typeof docClientSignataire === "function" && c.id) ? docClientSignataire(c) : "", clientEmail: c.contactEmail || "", objet: "Programme de parc — mise en route sur site" });
+}
+function openMerSiteDoc(cid) { var c = (DB.clients || []).find(function (x) { return x.id === cid; }); openPrintable(a1MerSiteDoc(cid), { cle: "mersite:" + cid, titre: "Fiche de mise en route — " + ((c && c.company) || "") }); }
 function openMerFacture(cid) {
   var m = (typeof miseEnRouteDe === "function") ? miseEnRouteDe(cid) : null, o = a1OffreAbonnement(cid), c = (DB.clients || []).find(function (x) { return x.id === cid; });
   if (!m || !o || !c) { toast("Mise en route introuvable pour ce client."); return; }
   if (m.factureEnvoyeeLe) { toast("La mise en route est déjà facturée (" + (m.factureNo || "") + ")."); return; }
-  var g = a1MerRegle(o), j = a1MerJoursArrondis(o.merJours) || 1;
+  var g = a1MerRegle(o), _fs = (typeof merSiteDe === "function") ? merSiteDe(cid, true) : null, j = (_fs && _fs.calage && +_fs.calage.joursBsm > 0) ? a1MerJoursArrondis(+_fs.calage.joursBsm) : (a1MerJoursArrondis(o.merJours) || 1);   /* patch 192 : les jours notés sur site pré-remplissent la facture */
   openModal('<span class="close" onclick="closeModal()">✕</span><h2>🧾 Facturer la mise en route — ' + esc(c.company || "") + '</h2><div class="msub">Les jours réellement passés sur site (récolte, vérification des documents, calage). Demi-journée possible. La facture part au client avec la contre-valeur en euros.</div>'
     + '<div class="grid2"><div class="field"><label>Jours de présence sur site</label><input id="mf-jours" type="number" min="0.5" step="0.5" value="' + j + '" oninput="merFactureUI()"></div><div class="field"><label>Heures par jour</label><input id="mf-heures" type="number" min="1" step="0.5" value="' + g.heures + '" oninput="merFactureUI()"></div>'
     + '<div class="field"><label>Tarif horaire (€ HT)</label><input id="mf-taux" type="number" min="1" step="1" value="' + g.taux + '" oninput="merFactureUI()"></div><div class="field"><label>Taux de change (Ar pour 1 €)</label><input id="mf-change" type="number" min="1" step="1" value="' + g.change + '" oninput="merFactureUI()"></div></div>'
@@ -19267,6 +19479,7 @@ function fichePlusBasculer() {
 var GESTES_CLAVIER = [
   { mots: "avenant périmètre volet entretien seul reprise suspendre", ic: "✂", lib: "Avenant — changer le périmètre", prog: "parc", go: function (c) { return "openA1Perimetre('" + c.id + "')"; }, si: function (c) { return typeof openA1Perimetre === "function" && (a1ContratsDe(c.id).some(function (k) { return k.type === "suivi"; }) || !!miseEnRouteDe(c.id)); } },
   { mots: "facturer facture mise en route heures sur site jours", ic: "🧾", lib: "Facturer la mise en route", prog: "parc", go: function (c) { return "openMerFacture('" + c.id + "')"; }, si: function (c) { return typeof openMerFacture === "function" && !!miseEnRouteDe(c.id); } },
+  { mots: "mise en route sur site fiche de points récolte équipes parc camions", ic: "📋", lib: "Mise en route sur site", prog: "parc", go: function (c) { return "openMerSite('" + c.id + "')"; }, si: function (c) { return typeof openMerSite === "function" && !!((typeof a1OffreAbonnement === "function" && a1OffreAbonnement(c.id)) || miseEnRouteDe(c.id)); } },   /* patch 192 */
   { mots: "devis offre prix tarif abonnement", ic: "🧮", lib: "Devis", prog: "parc", go: function (c) { return "openA1Offer('" + c.id + "','" + ((DB.a1vehicles || []).some(function (v) { return v.clientId === c.id; }) ? "flotte" : "genset") + "')"; }, si: function () { return typeof openA1Offer === "function"; }, tous: true },
   { mots: "proposition étude envoyer", ic: "📄", lib: "Proposition d’étude", prog: "parc", go: function (c) { return "openA1Proposition('" + c.id + "')"; }, si: function (c) { return typeof openA1Proposition === "function" && typeof a1PropositionOffre === "function" && !!a1PropositionOffre(c.id); } },
   { mots: "gps boîtier boitier véhicules équiper choisir", ic: "📡", lib: "GPS — choisir les véhicules à équiper", prog: "parc", go: function (c) { return "openA1GpsChoix('" + c.id + "')"; }, si: function (c) { return typeof openA1GpsChoix === "function" && typeof gpsChoixAttendu === "function" && gpsChoixAttendu(c.id); } },
@@ -28775,7 +28988,7 @@ function a1OfferCard(clientId, product){
         <button class="cta ghost sm" onclick="openA1Offer('${clientId}','${product}')">✎ Modifier</button>
         <button class="cta ghost sm" onclick="printA1Offer('${o.id}')">🖨 PDF</button>
         <button class="cta ghost sm" onclick="openA1Proposition('${clientId}')">📄 Proposition d’étude</button>
-        ${o.accepteLe?"":`<button class="cta sm" onclick="mailA1Offer('${o.id}')">✉️ Envoyer</button>`}${typeof a1OfferAccepterBoutonHtml==="function"?a1OfferAccepterBoutonHtml(o):""}<button class="cta ghost sm" onclick="a1OffreSupprimer('${o.id}')" title="Retire le devis, sa ligne récurrente, ses mouvements prévus et ses contrats non signés — corbeille 30 jours">🗑 Supprimer</button></div></div>
+        ${o.accepteLe?"":`<button class="cta sm" onclick="mailA1Offer('${o.id}')">✉️ Envoyer</button>`}${typeof a1OfferAccepterBoutonHtml==="function"?a1OfferAccepterBoutonHtml(o):""}<button class="cta ghost sm" onclick="openMerSite('${clientId}')" title="La fiche de points à remplir sur site, avec les équipes du client">📋 Sur site</button><button class="cta ghost sm" onclick="a1OffreSupprimer('${o.id}')" title="Retire le devis, sa ligne récurrente, ses mouvements prévus et ses contrats non signés — corbeille 30 jours">🗑 Supprimer</button></div></div>
     <div class="mini-list" style="margin-top:8px">
       ${o.machines?`<div class="li"><span>Parc suivi</span><b>${a1OfferParcLibelle(o)}</b></div>`:""}<div class="li"><span>Mise en route</span><b>${o.miseEnPlaceOfferte?'<span style="color:var(--green)">offerte</span>':(o.setupFee?a1MontantArEur(o.setupFee,o.currency)+(+o.miseEnPlaceRemisePct>0?' <span style="color:var(--green)">(remise '+o.miseEnPlaceRemisePct+' %)</span>':''):"—")}</b></div>
       <div class="li"><span>Tarif récurrent (mensuel)</span><b>${o.monthlyFee?a1MontantArEur(o.monthlyFee,o.currency):"—"}</b></div>
