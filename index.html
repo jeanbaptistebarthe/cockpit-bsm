@@ -834,7 +834,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.99.98";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.99.99";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
@@ -13474,9 +13474,9 @@ function a1ContratDonneesHtml(c) {
 /* Annexe 1 : les conditions générales, celles du dossier de signature, une seule source. */
 function a1ContratAnnexe1Html(I) {
   return '<div style="page-break-before:always;break-before:page"></div><h2 class="docsec">Annexe 1 — Conditions Générales de Prestation de Services</h2>'
-    + '<p style="font-size:11px;color:#6B7280">Référence BSM-CGPS-2026-001, version 1.0. Elles s\'appliquent à tout ce que les conditions particulières ne prévoient pas ; en cas de contradiction, les conditions particulières prévalent (article 10). '
+    + '<p style="font-size:11px;color:#6B7280">Référence BSM-CGPS-2026-001, version ' + CGPS_VERSION + ' du ' + CGPS_DATE + '. Elles s\'appliquent à tout ce que les conditions particulières ne prévoient pas ; en cas de contradiction, les conditions particulières prévalent (article 10). '
     + 'L\'article 5, exclusivité sectorielle, ne s\'applique pas au suivi de parc (article 10).</p>'
-    + '<div style="font-size:11px;line-height:1.5">' + cgpsArticlesHtml(I).replace(/<h2>/g, '<h3 style="font-size:12px;margin:9px 0 2px;color:#0B2545">').replace(/<\/h2>/g, '</h3>') + '</div>';
+    + '<div style="font-size:11px;line-height:1.5">' + (cgpsArticlesHtml(I) + cgpsParticulieresHtml()).replace(/<h2>/g, '<h3 style="font-size:12px;margin:9px 0 2px;color:#0B2545">').replace(/<\/h2>/g, '</h3>') + '</div>';
 }
 /* Annexe 3 : la charte de sécurité des données, extraits opposables, la même que le dossier de signature. */
 function a1ContratAnnexe3Html() {
@@ -13484,7 +13484,10 @@ function a1ContratAnnexe3Html() {
     + '<p style="font-size:11px;color:#6B7280">Référence BSM-SEC-2026-001, version 1.2 — extraits opposables ; la version intégrale est remise sur demande. Elle décrit le dispositif visé à l\'article 9.</p>'
     + '<div style="font-size:11px;line-height:1.5">' + charteArticlesHtml().replace(/<h2>/g, '<h3 style="font-size:12px;margin:9px 0 2px;color:#0B2545">').replace(/<\/h2>/g, '</h3>').replace(/<div class="frame">/g, '<div style="border-left:3px solid #B5923A;background:#FBF9F4;padding:8px 10px;margin:6px 0">') + '</div>';
 }
-/* Les conditions générales (BSM-CGPS-2026-001 v1.0) : douze articles, une seule source, relue par le dossier de signature et jointe au contrat de suivi. */
+/* Les conditions générales (BSM-CGPS-2026-001 v1.1) : douze articles généraux, puis les conditions particulières par programme (cgpsParticulieresHtml, patch 195) ; douze articles, une seule source, relue par le dossier de signature et jointe au contrat de suivi. */
+/* patch 195 (22/10/2026) : version 1.1 des conditions générales : les douze articles, puis les conditions particulières par programme. */
+var CGPS_VERSION = "1.1";
+var CGPS_DATE = "22 octobre 2026";
 function cgpsArticlesHtml(I) { return `
   <h2>1 · Définitions & champ</h2><p>« BSM » : <b>${esc(I.legal)}</b>, ${esc(I.forme)}, NIF ${esc(I.nif)}, STAT ${esc(I.stat)}, siège ${esc(I.adr)}, exerçant sous le nom commercial « ${esc(I.cab)} ». Les présentes régissent toute mission ; l'acceptation d'un devis ou le versement de l'acompte emporte adhésion pleine et entière.</p>
   <h2>2 · Commande & lancement</h2><p>Toute mission fait l'objet d'un devis écrit. <b>La mission n'est lancée qu'après acceptation écrite ET encaissement d'un acompte de 30 % minimum.</b> Le calendrier court de l'encaissement et de la remise des informations nécessaires.</p>
@@ -13528,6 +13531,30 @@ function aiPseudoValeurOk(v) {
   if (/^\d{1,4}$/.test(v)) return "";
   return v;
 }
+/* patch 195 : les conditions particulières par programme, après les douze articles. Elles reçoivent ce que le devis de parc
+   portait jusque-là et disent où elles dérogent aux articles généraux. Jointes avec les articles à chaque contrat et dossier. */
+function cgpsParticulieresHtml() {
+  var P = function (s) { return '<p>' + s + '</p>'; }, B = function (t, s) { return '<p><b>' + t + '.</b> ' + s + '</p>'; };
+  return '<h2>13 · Conditions particulières — Programme de parc</h2>'
+    + P('Elles complètent les articles 1 à 12 pour le suivi de parc (véhicules, groupes électrogènes, engins). En cas de contradiction, elles priment.')
+    + B('P1 · Prix', 'Tarif hors taxes, en ariary, par machine suivie et par mois, selon son type, au barème en vigueur à la date du devis ; remise sur le suivi selon la taille du parc, lissée pour qu’une machine ajoutée ne fasse jamais baisser le prix. Une machine ajoutée ou cédée entre ou sort de la facturation le mois suivant sa déclaration, au prix de son type. Périmètre et tarif sont revus à chaque date anniversaire.')
+    + B('P2 · Géolocalisation', 'Option par machine équipée, boîtier fourni, posé et entretenu par le prestataire désigné par BSM ; tarif communiqué sur demande, écrit au devis quand l’option est retenue. Les boîtiers restent la propriété de BSM ou de son prestataire et sont déposés au terme du contrat.')
+    + B('P3 · Mise en route', 'Facturée à sa date, sur les jours de présence estimés au devis, ou sur le relevé des jours réellement passés chez le Client, demi-journée comprise, s’il est établi avant cette date ; à défaut de jours au devis, forfait réglé à la signature.')
+    + B('P4 · Facturation et règlement', 'Mensualités facturées à terme échu, règlement à 30 jours date de facture, par virement, par dérogation à l’article 3 qui prévoit 15 jours. Les pénalités de retard de l’article 3 s’appliquent.')
+    + B('P5 · Durée', 'Engagement de 12 mois, renouvelable ; préavis de 3 mois. Le périmètre peut passer du suivi complet au suivi d’entretien seul par avenant, au premier jour du mois suivant. L’article 11 s’applique pour le reste.')
+    + B('P6 · Relevés et données du Client', 'Le Client transmet chaque mois, par machine, les relevés de compteur, de carburant, de coût et de charge moyenne, et déclare les interventions d’entretien. Suspension de plein droit du suivi si les relevés ne sont pas transmis deux mois de suite. Les références constructeur et les périodicités retenues sont celles confirmées avec le Client.')
+    + B('P7 · Confidentialité du parc', 'Par dérogation à l’article 5, sans exclusivité : BSM peut suivre les parcs de plusieurs entreprises d’un même secteur. Aucune donnée d’un client n’est comparée nommément à celle d’un autre, et aucune imputation n’est portée dans un document remis au Client.')
+    + '<h2>14 · Conditions particulières — Gouvernance des risques R5®</h2>'
+    + B('R1 · Prix et règlement', 'Prix hors taxes ; en devise étrangère, taux du 1ᵉʳ du mois figés, clause ±5 %. Factures payables à 15 jours ; pénalités de retard selon l’article 3.')
+    + B('R2 · Durée et préavis', 'Diagnostic : prestation unique. Accompagnement : préavis de 60 jours.')
+    + B('R3 · Confidentialité', 'Confidentialité totale, accord de confidentialité joint au contrat ; rapports réservés à la direction du Client.');
+}
+/* Le document autonome, sans bloc client : imprimable depuis les documents de chaque client. */
+function cgpsDoc() {
+  var I = bsmIdent(), corps = '<p style="font-size:11px;color:#6B7280">Référence BSM-CGPS-2026-001, version ' + CGPS_VERSION + ' du ' + CGPS_DATE + '. Elles s’appliquent à tout ce que les conditions particulières de chaque contrat ne précisent pas, et sont jointes à chaque contrat et dossier de signature.</p>' + (cgpsArticlesHtml(I) + cgpsParticulieresHtml()).replace(/<h2>/g, '<h2 class="docsec">');
+  return docChrome(corps, { title: "Conditions générales de prestation de services", typeLabel: "Conditions générales", ref: "BSM-CGPS-2026-001 · v" + CGPS_VERSION, date: frLong(todayISO()), signature: "aucune", marges: "10mm 14mm", piedCourt: true, serre: true, clientName: false, objet: "Conditions générales et particulières, par programme" });
+}
+function openCgpsDoc() { openPrintable(cgpsDoc(), { cle: "cgps", titre: "Conditions générales de BSM — v" + CGPS_VERSION }); }
 function aiPseudoEchapper(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 /* Un motif tolérant : casse ignorée, espaces et traits d'union libres entre les morceaux, bornes alphanumériques.
    « 1432 TBP », « 1432TBP » et « 1432-TBP » sont la même plaque ; « 6496MD » se lit aussi « 6496 MD ». */
@@ -16526,10 +16553,7 @@ function a1OfferGpsRow(o) {
   if (!spec.gps) return '<tr><td>Géolocalisation</td><td style="text-align:right">en option, non retenue — tarif par machine équipée communiqué sur demande : boîtier fourni, posé et entretenu, abonnement et plateforme</td></tr>';
   return '<tr><td>Géolocalisation (option)</td><td style="text-align:right">' + spec.gps + ' machine' + (spec.gps > 1 ? 's' : '') + ' équipée' + (spec.gps > 1 ? 's' : '') + ' × ' + a1Ar(a1BaremeGps()) + ' / mois : boîtier fourni, posé et entretenu, abonnement et plateforme</td></tr>';
 }
-function a1AboTerms(o) {   /* patch 189 : les conditions suivent le devis : ses types, sa géolocalisation, sa mise en route */
-  var t = a1BaremeTypes(), r = a1BaremeRemises(), spec = o ? a1OfferSpec(o) : null, c = (spec && spec.comptes) || null, presents = c ? t.filter(function (x) { return +c[x.cle] > 0; }) : [], gps = !!(spec && +spec.gps > 0), jours = !!(o && +o.merJours > 0);
-  return "Devis valable 30 jours à compter de son émission. Tarifs hors taxes, en ariary, par machine suivie et par mois, selon son type : " + (presents.length ? presents : t).map(function (x) { return x.court + " " + a1Ar(x.prix); }).join(", ") + " ; remise sur le suivi selon la taille du parc : " + r.map(function (x) { return x.pct + " % dès " + x.min + " machines"; }).join(", ") + ", lissée pour qu’une machine ajoutée ne fasse jamais baisser le prix. Géolocalisation en option, par machine équipée, boîtier fourni, posé et entretenu par le prestataire désigné par BSM" + (gps ? ", au prix indiqué ci-dessus" : " ; tarif communiqué sur demande") + ". " + (jours ? "Mise en route facturée à sa date, sur les jours de présence estimés au devis ou sur le relevé des jours réellement passés s’il est établi avant" : "Mise en route réglée à la signature du contrat") + " ; mensualités facturées à terme échu, règlement à " + BAREME_PARC.reglementJours + " jours. Engagement de " + BAREME_PARC.dureeMois + " mois, renouvelable ; préavis de " + BAREME_PARC.preavisMois + " mois. Une machine ajoutée ou cédée entre ou sort de la facturation le mois suivant sa déclaration, au prix de son type. Périmètre et tarif revus à chaque date anniversaire. Suspension de plein droit si les relevés ne sont pas transmis deux mois de suite.";
-}
+function a1AboTerms(o) { return ""; }   /* patch 195 : plus de texte de conditions par défaut sur le devis : les conditions générales (BSM-CGPS-2026-001) et les conditions particulières du Programme de parc sont jointes au contrat ; a1OfferConditionsTexte les cite en une phrase */
 /* patch 189 : un texte de conditions laissé au défaut suit le devis ; un texte écrit par JB ne bouge jamais. */
 function a1AboTermsDefaut(t) { t = String(t || "").trim(); var fin = "Suspension de plein droit si les relevés ne sont pas transmis deux mois de suite."; return !t || (t.indexOf("Devis valable 30 jours à compter de son émission. Tarifs hors taxes, en ariary, par machine suivie et par mois") === 0 && t.length > fin.length && t.lastIndexOf(fin) === t.length - fin.length); }
 function a1OfferTarifHint(clientId) {
@@ -20911,17 +20935,15 @@ function a1OfferConditionsRows(o) {
   if (o.offert && o.offertEnd) rows += a1OfferLigneHtml("Période offerte", '<span style="color:#128a45">' + frDate(o.offertStart) + " → " + frDate(o.offertEnd) + " (facturation au " + frDate(a1OfferBillingStart(o)) + ")</span>");
   return rows;
 }
-function a1OfferConditionsTexte(o) {
-  var parts = ["Facturation en ariary (1 € = " + a1TauxAr(o.taux).toLocaleString("fr-FR") + " Ar de référence, montants arrondis au millier)"];
-  var r = bsmRib(); parts.push("règlement par virement bancaire" + (r.iban ? " — " + r.titulaire + " · " + r.banque + " · IBAN " + r.iban + " · BIC " + r.bic : "") + ((o.mode || "abonnement") === "ponctuel" || String(o.terms || "").indexOf("règlement à " + BAREME_PARC.reglementJours + " jours") >= 0 ? "" : " ; mensualités à " + BAREME_PARC.reglementJours + " jours date de facture"));
-  if ((o.mode || "abonnement") !== "ponctuel") { var tt = String(o.terms || ""); if (tt.indexOf("machine ajoutée ou cédée") < 0) parts.push("une machine ajoutée ou cédée entre ou sort de la facturation le mois suivant sa déclaration, au prix de son type"); if (tt.indexOf("préavis") < 0) parts.push("durée " + BAREME_PARC.dureeMois + " mois, préavis " + BAREME_PARC.preavisMois + " mois ; périmètre et tarif revus à chaque date anniversaire"); }   /* patch 189 : une règle déjà écrite dans les conditions du devis ne se répète pas */
-  return '<p style="font-size:11px;color:#4B5563;line-height:1.55;margin:8px 0 0"><b>Conditions.</b> ' + parts.map(function (p) { return esc(p.charAt(0).toUpperCase() + p.slice(1)); }).join(". ") + '.</p>';
+function a1OfferConditionsTexte(o) {   /* patch 195 : une phrase ; le détail vit dans les conditions générales jointes au contrat ; le RIB est sur la facture */
+  var ponctuel = (o.mode || "abonnement") === "ponctuel", val = String(o.validite || "30 jours").trim();
+  return '<p style="font-size:11px;color:#4B5563;line-height:1.55;margin:8px 0 0"><b>Conditions.</b> Devis valable ' + esc(val) + (/jour|mois|semaine/i.test(val) ? '' : ' jours') + ' à compter de son émission. Prix hors taxes, en ariary (1 € = ' + a1TauxAr(o.taux).toLocaleString("fr-FR") + ' Ar de référence, montants arrondis au millier). Conditions générales de prestation de services de BSM, BSM-CGPS-2026-001 version ' + CGPS_VERSION + (ponctuel ? '' : ', dont les conditions particulières du Programme de parc') + ' : jointes au contrat, disponibles sur simple demande.</p>';
 }
 function a1OfferBody(o) {
   return '<p style="line-height:1.5;margin:0">' + esc(o.intro || a1ProductDef(o.product).pitch) + '</p>'
     + '<h2 class="docsec" style="margin-top:10px">Prestations incluses</h2><ul style="margin:4px 0 2px 16px;line-height:1.45;font-size:11.5px;columns:2;column-gap:22px">' + a1OfferPrestations(o).map(function (l) { return '<li style="break-inside:avoid;margin:0 0 2px">' + esc(l) + '</li>'; }).join("") + '</ul>'
     + '<h2 class="docsec" style="margin-top:10px">Conditions financières</h2><table style="width:100%;border-collapse:collapse">' + a1OfferConditionsRows(o) + '</table>' + a1OfferConditionsTexte(o)
-    + (o.terms ? '<p style="font-size:11px;color:#4B5563;line-height:1.55;margin:6px 0 0">' + esc(o.terms) + '</p>' : '');
+    + ((o.terms && !a1AboTermsDefaut(o.terms)) ? '<p style="font-size:11px;color:#4B5563;line-height:1.55;margin:6px 0 0"><b>Conditions particulières à ce devis.</b> ' + esc(o.terms) + '</p>' : '');   /* patch 195 : un ancien texte par défaut ne s'imprime plus */
 }
 function a1OfferDocOpt(o) {
   var c = DB.clients.find(function (x) { return x.id === o.clientId; });
@@ -21048,6 +21070,7 @@ function clientDocumentsLignes(cid) {
   });
   if (typeof clientDevis === "function" && clientDevis(cid)) { var d0 = clientDevis(cid); L.push({ type: "Devis (ancien simulateur)", ref: d0.ref || "", date: d0.date || "", etat: "archivé", ton: "muet", gestes: "" }); }
   L.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+  L.push({ type: "Conditions générales de BSM", ref: "BSM-CGPS-2026-001 · v" + CGPS_VERSION, date: "", etat: "jointes à chaque contrat et dossier de signature", ton: "ok", gestes: '<button class="cta ghost sm" onclick="openCgpsDoc()">👁</button>' });   /* patch 195 */
   return L;
 }
 function clientDocumentsCardHtml(c) {
@@ -21191,7 +21214,7 @@ function r5DevisBody(d) {
     body += ligne("Acompte à la signature (30 %)", esc(fmt(k.ac, cur)));
     body += ligne("Solde", esc(fmt(k.solde, cur)) + " en " + k.n + " mensualité" + (k.n > 1 ? "s" : "") + " de ≈ " + esc(fmt(k.mens, cur)));
   }
-  body += '</table><p style="font-size:11px;color:#4B5563;line-height:1.55;margin:8px 0 0"><b>Conditions.</b> Prix hors taxes' + (cur === "MGA" ? "" : ", en " + (cur === "USD" ? "dollars" : "euros") + " (politique de change BSM : taux du 1ᵉʳ du mois figés, clause ±5 %)") + '. Factures payables à ' + (+d.paiementJours || 15) + ' jours, pénalités 1 % par mois de retard. ' + (d.type === "acc" ? 'Préavis de ' + (+d.preavisJours || 60) + ' jours. ' : '') + 'Confidentialité totale, accord de confidentialité joint au contrat. Devis valable ' + (+d.validite || 30) + ' jours.</p>';
+  body += '</table><p style="font-size:11px;color:#4B5563;line-height:1.55;margin:8px 0 0"><b>Conditions.</b> Prix hors taxes' + (cur === "MGA" ? "" : ", en " + (cur === "USD" ? "dollars" : "euros") + " (politique de change BSM : taux du 1ᵉʳ du mois figés, clause ±5 %)") + '. ' + ((+d.paiementJours || 15) !== 15 ? 'Factures payables à ' + (+d.paiementJours) + ' jours. ' : '') + ((d.type === "acc" && (+d.preavisJours || 60) !== 60) ? 'Préavis de ' + (+d.preavisJours) + ' jours. ' : '') + 'Devis valable ' + (+d.validite || 30) + ' jours. Conditions générales de prestation de services de BSM, BSM-CGPS-2026-001 version ' + CGPS_VERSION + ', dont les conditions particulières de la Gouvernance des risques R5® : jointes au contrat, disponibles sur simple demande.</p>';   /* patch 195 */
   return body;
 }
 function r5DevisDoc(d) {
@@ -29077,7 +29100,7 @@ function openA1Offer(clientId, product){
     <div class="field row2" id="ao-offdates" style="${o.offert?'':'display:none'}"><label>Début & fin de la période offerte</label>
       <input type="date" id="ao-offstart" value="${o.offertStart||todayISO()}"><input type="date" id="ao-offend" value="${o.offertEnd||''}"></div>
     </div>
-    <div class="field"><label>Validité (facultatif) & conditions</label><input id="ao-validite" value="${esc(o.validite||'')}" placeholder="Ex : 30 jours" style="margin-bottom:6px"><textarea id="ao-terms" rows="3" style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">${esc(o.terms||'')}</textarea></div>
+    <div class="field"><label>Validité (facultatif) et conditions particulières à ce devis</label><input id="ao-validite" value="${esc(o.validite||'')}" placeholder="Ex : 30 jours" style="margin-bottom:6px"><textarea id="ao-terms" rows="3" placeholder="Les conditions générales et celles du Programme de parc sont jointes au contrat : n’écris ici qu’une condition propre à ce devis." style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">${esc(o.terms||'')}</textarea></div>
     <div class="hint">À l'enregistrement : le forfait et le tarif mensuel deviennent des <b>entrées</b> liées à ce client (Budget / CA / Compte de résultat). L'offre reste <b>éditable</b>, <b>exportable en PDF</b> et <b>envoyable par mail</b> depuis sa fiche.</div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveA1Offer('${clientId}','${product}')">Enregistrer l'offre</button></div>`); a1OfferTarifUI(false); a1OfferRemiseUI();
 }
@@ -35644,10 +35667,10 @@ ${(o.type==="a1"||o.type==="diag")?contratDoc:`<div class="doc">${hd("BSM-CC-"+(
   <h2>Article 5 — Durée</h2><p>Durée initiale : <b>${o.dureeMois} mois</b> à compter de l'encaissement de l'acompte, renouvelable tacitement par périodes de 12 mois sauf dénonciation avec préavis de ${o.preavisJours} jours. À l'échéance : suspension des accès en ligne, conservation des PDF par le Client, survie des clauses de confidentialité et de propriété intellectuelle.</p>
   <p style="margin-top:10px">Fait à Antananarivo, le ${esc(D)}, en deux exemplaires originaux.</p>${sig}
   ${dft("Contrat-cadre R5® v1.0")}</div>`}
-<div class="doc">${hd("BSM-CGPS-2026-001","1.0")}
+<div class="doc">${hd("BSM-CGPS-2026-001",CGPS_VERSION)}
   <h1>Conditions Générales de Prestation de Services</h1><div class="sub">Annexe 1 du contrat-cadre — applicables à toute mission BSM</div>
-  ${cgpsArticlesHtml(I)}
-  ${dft("CGPS BSM-CGPS-2026-001 v1.0")}</div>
+  ${cgpsArticlesHtml(I)}${cgpsParticulieresHtml()}
+  ${dft("CGPS BSM-CGPS-2026-001 v" + CGPS_VERSION)}</div>
 <div class="doc">${hd(o.ndaRef||("BSM-NDA-"+(new Date().getFullYear())),"1.0")}
   <h1>Accord de confidentialité réciproque</h1><div class="sub">Annexe 3 — entre ${esc(I.legal)} ${esc(I.forme)} (nom commercial « ${esc(I.cab)} ») et ${esc(c.company||"[CLIENT]")}</div>
   <h2>1 · Informations confidentielles</h2><p>Toutes informations échangées à l'occasion de la relation, quel qu'en soit le support : données financières, commerciales, techniques et sociales ; cartographies, incidents et signalements ; rapports et plans d'action ; méthodes et outils (dont la Méthode R5® et le BSM Cockpit) ; l'existence des discussions. <b>Exclusions</b> : informations publiques sans faute, licitement détenues avant communication, reçues d'un tiers de bonne foi, développées indépendamment, ou dont la loi exige la divulgation (information préalable de l'autre partie dans la mesure permise).</p>
