@@ -844,7 +844,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.0";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
@@ -11988,12 +11988,164 @@ function a1FamilleLabel(cle) {
 }
 
 /* Les periodicites d'un client. Rien en base = rien de confirme. */
+/* ================== PÉRIODICITÉS PAR MODÈLE (patch 193 D2, v6.100.1, 22/10/2026) ==================
+   Une règle d'entretien vaut pour un modèle (Scania P360, Isuzu FVR…), pas pour tout le parc d'un client : les marques ne
+   s'entretiennent pas pareil. Une entrée de DB.a1periodicites porte désormais un `modele` (clé a1NameKey(marque modèle)) ;
+   sans modèle, c'est la règle générale du client, qui sert de repli ; puis vient la référence d'atelier.
+   Ordre de résolution (a1PeriodicitePour) : règle du modèle de la machine → règle générale du client → rien. */
+function a1ModeleLib(m) { return m ? String((m.marque || "") + " " + (m.modele || "")).trim() : ""; }
+function a1ModeleCle(m) { var lib = a1ModeleLib(m); return lib ? a1NameKey(lib) : ""; }
+function a1PeriodicitePourModele(clientId, kind, famille, modele) {
+  if (!modele) return null;
+  return a1PeriodicitesDe(clientId).filter(function (p) { return p.famille === famille && (!p.kind || p.kind === kind) && p.modele === modele; })[0] || null;
+}
+function a1ModeleMachines(clientId, kind, cle) { return (DB[kind === "gen" ? "a1gensets" : "a1vehicles"] || []).filter(function (m) { return m.clientId === clientId && m.statut !== "cede" && a1ModeleCle(m) === cle; }); }
+/* Les modèles du parc d'un client : les machines en base, plus les lignes de la fiche de mise en route sur site qui ne sont pas
+   encore des machines (marque et modèle saisis sur place). */
+function a1ModelesDe(clientId, kind) {
+  var G = {}, ordre = [], isGen = kind === "gen";
+  var poser = function (marque, modele, m) { var lib = a1ModeleLib({ marque: marque, modele: modele }); if (!lib) return; var cle = a1NameKey(lib); if (!G[cle]) { G[cle] = { cle: cle, lib: lib, marque: marque || "", modele: modele || "", machines: [], lignes: 0 }; ordre.push(cle); } if (m) G[cle].machines.push(m); else G[cle].lignes++; };
+  (DB[isGen ? "a1gensets" : "a1vehicles"] || []).forEach(function (m) { if (m.clientId === clientId && m.statut !== "cede") poser(m.marque, m.modele, m); });
+  try { var f = (typeof merSiteDe === "function") ? merSiteDe(clientId, true) : null; (f && f.lignes || []).forEach(function (l) { if ((l.kind === "gen") !== isGen) return; if (l.machineId && (DB[isGen ? "a1gensets" : "a1vehicles"] || []).some(function (m) { return m.id === l.machineId; })) return; poser(l.marque, l.modele, null); }); } catch (e) { }
+  return ordre.map(function (k) { var g = G[k]; g.n = g.machines.length + g.lignes; return g; }).sort(function (a, b) { return b.n - a.n || a.lib.localeCompare(b.lib, "fr"); });
+}
+/* La fiche constructeur du modèle, avec son plan d'entretien quand la recherche ou la bibliothèque le connaît. */
+function a1ModelePlanConstructeur(kind, cle, machines) {
+  var m = (machines || [])[0]; if (!m) return null;
+  var s = null;
+  try { if (m.specId) s = (DB.a1specs || []).find(function (x) { return x.id === m.specId; }) || null; } catch (e) { s = null; }
+  if (!s && kind !== "gen") { try { s = (typeof rechercheFicheConnue === "function") ? rechercheFicheConnue(m) : null; } catch (e) { s = null; } }
+  if (!s) { try { var lib = a1SpecLookup(kind, m); if (lib && lib.entretien && Object.keys(lib.entretien).length) s = lib; } catch (e) { } }
+  if (s && s.s) s = s.s;
+  if (!s) return null;
+  var plan = s.entretien || {}, fams = Object.keys(plan).filter(function (k) { var p = plan[k]; return p && (+p.km || +p.h || +p.heures || +p.mois) && A1_FAMILLES.some(function (f) { return f.cle === k; }); });
+  var src = (s.sources || [])[0] || null, domaine = src ? (src.domaine || String(src.url || "").replace(/^https?:\/\//, "").split("/")[0]) : "";
+  return { spec: s, plan: plan, familles: fams, sources: s.sources || [], domaine: domaine };
+}
+function a1PeriodiciteTexte(p, kind) {
+  if (!p) return "";
+  var isGen = kind === "gen", u = isGen ? ((+p.heures || +p.h) ? (+p.heures || +p.h).toLocaleString("fr-FR") + " h" : "") : (+p.km ? (+p.km).toLocaleString("fr-FR") + " km" : ""), m = +p.mois ? (+p.mois) + " mois" : "";
+  return [u, m].filter(Boolean).join(" / ");
+}
+var A1_PER_ETATS = { aucun: "aucun plan", "plan-constructeur": "plan constructeur, à confirmer", "constructeur-a-confirmer": "constructeur, à confirmer", "a-confirmer": "à confirmer", confirme: "confirmé" };
+function a1ModelePeriodicitesEtat(clientId, kind, cle, machines) {
+  var regles = a1PeriodicitesDe(clientId).filter(function (p) { return (!p.kind || p.kind === kind) && p.modele === cle; });
+  var conf = regles.filter(function (p) { return p.confirme; }).length, constr = regles.filter(a1PeriodiciteEstConstructeur).length;
+  var plan = a1ModelePlanConstructeur(kind, cle, machines);
+  var etat = !regles.length ? (plan && plan.familles.length ? "plan-constructeur" : "aucun") : (conf === regles.length ? "confirme" : (constr ? "constructeur-a-confirmer" : "a-confirmer"));
+  return { cle: cle, regles: regles, n: regles.length, confirmees: conf, etat: etat, libelle: A1_PER_ETATS[etat], plan: plan };
+}
+function a1ModelePeriodicitesResume(clientId, kind, cle, machines) {
+  var e = a1ModelePeriodicitesEtat(clientId, kind, cle, machines);
+  if (e.regles.length) return e.regles.map(function (p) { return a1FamilleLabel(p.famille).toLowerCase() + " " + a1PeriodiciteTexte(p, kind) + (p.confirme ? "" : " (à confirmer)"); }).join(" · ");
+  if (e.plan && e.plan.familles.length) return "constructeur : " + e.plan.familles.map(function (f) { return a1FamilleLabel(f).toLowerCase() + " " + a1PeriodiciteTexte(e.plan.plan[f], kind); }).join(" · ");
+  return "aucun plan connu : la recherche constructeur part à l’enregistrement, sinon la règle générale du client";
+}
+/* L'éditeur : une règle par modèle. Les puces en tête passent d'un modèle à l'autre ; « Règle générale » ouvre l'éditeur du client. */
+function openA1PeriodicitesModeles(clientId, kind, cle, retour) {
+  var cid = clientId || (typeof a1ParcClientCourant === "function" ? a1ParcClientCourant() : "") || a1Client || a1genClient || "";
+  if (!cid) { toast("Choisis d’abord un client : les périodicités sont les siennes."); return; }
+  kind = kind === "gen" ? "gen" : "fleet"; var isGen = kind === "gen";
+  var c = (DB.clients || []).find(function (x) { return x.id === cid; }) || {};
+  var modeles = a1ModelesDe(cid, kind);
+  if (!modeles.length) { toast("Aucun modèle renseigné sur les machines de ce client : indique marque et modèle sur leurs fiches."); return; }
+  if (!cle || !modeles.some(function (m) { return m.cle === cle; })) cle = modeles[0].cle;
+  var M = modeles.filter(function (m) { return m.cle === cle; })[0], mach = M.machines.length ? M.machines : [{ marque: M.marque, modele: M.modele }];
+  var E = a1ModelePeriodicitesEtat(cid, kind, cle, mach), plan = E.plan, ret = retour ? ",'" + esc(retour) + "'" : "";
+  var chips = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 8px"><span style="font-size:12px;color:var(--muted);align-self:center">Pour quelles machines ?</span>'
+    + '<button class="cta ghost sm" onclick="openA1Periodicites(\'' + cid + '\',\'' + kind + '\')" title="La règle qui vaut pour toute machine sans règle à son modèle">Règle générale du client · repli</button>'
+    + modeles.map(function (m) { var e = m.cle === cle ? E : a1ModelePeriodicitesEtat(cid, kind, m.cle, m.machines.length ? m.machines : [{ marque: m.marque, modele: m.modele }]); return '<button class="cta ' + (m.cle === cle ? "" : "ghost") + ' sm" onclick="openA1PeriodicitesModeles(\'' + cid + '\',\'' + kind + '\',\'' + m.cle + '\'' + ret + ')">' + esc(m.lib) + ' (' + m.n + ') · ' + e.libelle + '</button>'; }).join("") + '</div>';
+  var phrase = (plan && plan.familles.length ? '<b>' + esc(M.lib) + '</b> : plan constructeur trouvé par la recherche (' + esc(plan.domaine || "fiche constructeur") + (plan.sources.length ? ', ' + plan.sources.length + ' source' + (plan.sources.length > 1 ? 's' : '') : '') + ').' : '<b>' + esc(M.lib) + '</b> : aucun plan constructeur connu.')
+    + ' Une machine sans règle à son modèle suit la règle générale du client, puis la référence d’atelier.';
+  var ids = {}; M.machines.forEach(function (m) { ids[m.id] = 1; });
+  var lignes = A1_FAMILLES.filter(function (f) { return f.cle !== "autre" && (isGen || f.cle !== "hydraulique"); }).map(function (f) {
+    var pm = a1PeriodicitePourModele(cid, kind, f.cle, cle), pc = plan && plan.plan[f.cle], pg = pm ? null : a1PeriodicitePour(cid, kind, f.cle), p = pm || (pc ? { km: isGen ? 0 : (+pc.km || 0), heures: isGen ? (+pc.h || +pc.heures || 0) : 0, mois: +pc.mois || 0, confirme: false } : (pg || a1PeriodiciteReference(f.cle, kind)));
+    var n = (DB.a1maint || []).filter(function (x) { return ids[x.machineId] && a1FamilleEntretien(x.type) === f.cle; }).length;
+    var base = pm ? a1PeriodiciteBaseHtml(pm) : (pc ? '<div style="font-size:11px;color:var(--navy);font-weight:600">constructeur : ' + esc(a1PeriodiciteTexte({ km: pc.km, heures: pc.h || pc.heures, mois: pc.mois }, kind)) + ' — base obligatoire</div>' : (pg ? '<div style="font-size:11px;color:var(--muted)">règle générale du client : ' + esc(a1PeriodiciteTexte(pg, kind)) + (pg.confirme ? '' : ' (à confirmer)') + '</div>' : ''));
+    return '<tr><td style="padding:6px 8px"><b>' + esc(f.label) + '</b><div style="font-size:11px;color:var(--muted)">' + (n ? n + ' intervention' + (n > 1 ? 's' : '') + ' au carnet' : 'aucune au carnet') + '</div>' + base + '</td>'
+      + '<td style="padding:6px 4px"><input id="pm-' + f.cle + '-u" type="number" min="0" style="width:92px" value="' + (isGen ? (p.heures || "") : (p.km || "")) + '"></td>'
+      + '<td style="padding:6px 4px"><input id="pm-' + f.cle + '-m" type="number" min="0" style="width:72px" value="' + (p.mois || "") + '"></td>'
+      + '<td style="padding:6px 4px;text-align:center"><input id="pm-' + f.cle + '-c" type="checkbox"' + (p.confirme ? " checked" : "") + '></td></tr>';
+  }).join("");
+  openModal('<span class="close" onclick="' + (retour === "mersite" ? "openMerSite('" + cid + "',{section:2})" : "closeModal()") + '">✕</span>'
+    + '<h2>🔧 Périodicités d’entretien — ' + esc(c.company || "") + '</h2>'
+    + '<div class="msub">Ce que le client applique réellement, famille par famille, <b>modèle par modèle</b>. Une valeur <b>constructeur</b> est la base ; ce que vous saisissez d’autre s’ajoute en supplément. Tant que « confirmé » n’est pas coché, l’échéance reste interne et ne part dans aucun document.</div>'
+    + chips + '<div style="font-size:12.5px;margin:0 0 8px">' + phrase + '</div>'
+    + '<div style="max-height:44vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;border-bottom:1px solid var(--line)"><th style="padding:6px 8px">Famille</th><th style="padding:6px 4px">Tous les ' + (isGen ? "(heures)" : "(km)") + '</th><th style="padding:6px 4px">ou (mois)</th><th style="padding:6px 4px;text-align:center">Confirmé<br><span style="font-weight:400;font-size:10px;color:var(--muted)">par le client</span></th></tr></thead><tbody>' + lignes + '</tbody></table></div>'
+    + '<div class="hint" style="margin-top:8px">La question à poser, pour les ' + esc(M.lib) + ' : « chez vous, la vidange d’un ' + esc(M.modele || M.lib) + ' se fait tous les combien de ' + (isGen ? "heures" : "kilomètres") + ', et tous les combien de mois ? »</div>'
+    + '<div class="modal-actions"><button class="cta" onclick="a1PeriodicitesModeleEnregistrer(\'' + cid + '\',\'' + kind + '\',\'' + cle + '\'' + ret + ')">Enregistrer pour les ' + esc(M.lib) + '</button>'
+    + '<button class="cta ghost" onclick="' + (retour === "mersite" ? "openMerSite('" + cid + "',{section:2})" : "closeModal()") + '">Annuler</button></div>');
+}
+function a1PeriodicitesModeleEnregistrer(cid, kind, cle, retour) {
+  DB.a1periodicites = DB.a1periodicites || [];
+  var isGen = kind === "gen", n = 0, M = a1ModelesDe(cid, kind).filter(function (m) { return m.cle === cle; })[0], lib = M ? M.lib : cle;
+  var plan = M ? a1ModelePlanConstructeur(kind, cle, M.machines.length ? M.machines : [{ marque: M.marque, modele: M.modele }]) : null;
+  A1_FAMILLES.filter(function (f) { return f.cle !== "autre"; }).forEach(function (f) {
+    var eu = document.getElementById("pm-" + f.cle + "-u"); if (!eu) return;
+    var u = +eu.value || 0, m = +((document.getElementById("pm-" + f.cle + "-m") || {}).value) || 0, c = !!((document.getElementById("pm-" + f.cle + "-c") || {}).checked);
+    var ex = a1PeriodicitePourModele(cid, kind, f.cle, cle);
+    if (!u && !m) { if (ex) DB.a1periodicites = DB.a1periodicites.filter(function (p) { return p !== ex; }); return; }
+    if (ex && a1PeriodiciteEstConstructeur(ex)) { if ((isGen ? +ex.heures : +ex.km) !== u || +ex.mois !== m) a1PeriodiciteSupplementAjouter(ex, { km: isGen ? 0 : u, heures: isGen ? u : 0, mois: m, source: "précision du client", by: (currentUser && currentUser.login) || "" }); ex.confirme = c; ex.at = todayISO(); n++; return; }
+    var pc = plan && plan.plan[f.cle], memeConstr = !!(pc && (isGen ? (+pc.h || +pc.heures || 0) : (+pc.km || 0)) === u && (+pc.mois || 0) === m);
+    var o = ex || { id: uid(), clientId: cid, kind: kind, famille: f.cle };
+    o.modele = cle; o.modeleLib = lib; o.km = isGen ? 0 : u; o.heures = isGen ? u : 0; o.mois = m; o.confirme = c;
+    o.source = memeConstr ? ("constructeur — fiche " + (plan.domaine || "constructeur") + (c ? ", confirmé par le client" : " — à confirmer")) : (c ? "confirmé par le client" : "référence d’atelier — à confirmer");
+    o.at = todayISO(); o.by = (currentUser && currentUser.login) || "";
+    if (!ex) DB.a1periodicites.push(o); n++;
+  });
+  save(); closeModal();
+  if (retour === "mersite") openMerSite(cid, { section: 2 });
+  else if (typeof currentScreen !== "undefined" && currentScreen === "a1parc" && typeof renderA1Parc === "function") renderA1Parc();
+  else if (typeof a1RefreshCurrent === "function") a1RefreshCurrent();
+  toast("🔧 " + lib + " : " + n + " périodicité(s) enregistrée(s) — les échéances se recalculent.");
+}
+/* La carte du volet Entretien de l'onglet Parc : un tableau par périmètre, une ligne par modèle, la règle générale en repli. */
+function a1ParcPeriodicitesCardHtml(E) {
+  var cid = E.cid;
+  var parts = (E.periodicites || []).filter(function (p) { return p.familles > 0 || (p.modeles && p.modeles.length); }).map(function (p) {
+    var kind = p.kind, lib = kind === "gen" ? "Groupes et engins" : "Véhicules";
+    var rows = (p.modeles || []).map(function (m) {
+      var mach = a1ModeleMachines(cid, kind, m.cle), resume = a1ModelePeriodicitesResume(cid, kind, m.cle, mach.length ? mach : [{ marque: m.marque, modele: m.modele }]);
+      var badge = m.etat === "confirme" ? '<span class="badge b-green">confirmé</span>' : (m.etat === "aucun" ? '<span class="badge b-grey">aucun plan</span>' : '<span class="badge b-orange">' + esc(m.libelle) + '</span>');
+      return '<tr id="a1p-modele-per-' + m.cle + '"><td><b>' + esc(m.lib) + '</b><div style="font-size:11px;color:var(--muted)">' + m.n + ' machine' + (m.n > 1 ? 's' : '') + '</div></td><td style="font-size:12px">' + esc(resume) + '</td><td>' + badge + '</td><td class="a1-int" style="white-space:nowrap"><button class="cta ' + (m.etat === "confirme" ? "ghost" : "gold") + ' sm" onclick="openA1PeriodicitesModeles(\'' + cid + '\',\'' + kind + '\',\'' + m.cle + '\')">' + (m.etat === "confirme" ? "✎ Modifier" : "Confirmer avec le client ▸") + '</button></td></tr>';
+    }).join("");
+    var general = a1PeriodicitesDe(cid).filter(function (x) { return (!x.kind || x.kind === kind) && !x.modele; });
+    var gTxt = general.length ? general.map(function (x) { return a1FamilleLabel(x.famille).toLowerCase() + " " + a1PeriodiciteTexte(x, kind) + (x.confirme ? "" : " (à confirmer)"); }).join(" · ") : "aucune : la référence d’atelier sert de repli";
+    return '<div style="margin-top:10px"><div style="font-weight:600;font-size:13px;margin-bottom:4px">' + lib + ' — ' + p.confirmees + ' / ' + p.familles + ' famille' + (p.familles > 1 ? 's' : '') + ' confirmée' + (p.familles > 1 ? 's' : '') + (p.modelesAConfirmer ? ' · <span style="color:var(--orange)">' + p.modelesAConfirmer + ' modèle' + (p.modelesAConfirmer > 1 ? 's' : '') + ' à confirmer</span>' : '') + '</div>'
+      + (rows ? '<div style="overflow-x:auto"><table><thead><tr><th>Modèle</th><th>Règles</th><th>État</th><th class="a1-int"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="hint">Aucun modèle renseigné sur les machines : indique marque et modèle sur leurs fiches.</div>')
+      + '<div style="font-size:12px;color:var(--muted);margin-top:6px">Règle générale du client (repli) : ' + gTxt + ' <span class="a1-int"><button class="cta ghost sm" onclick="openA1Periodicites(\'' + cid + '\',\'' + kind + '\')">✎</button></span></div></div>';
+  }).join("");
+  return '<div class="card" id="a1p-periodicites"><h2>🔧 Périodicités d’entretien, par modèle</h2><div class="hint">Une règle par modèle : ce que le client applique vraiment, confirmé avec lui. Une machine sans règle à son modèle suit la règle générale, puis la référence d’atelier ; une règle « à confirmer » reste interne.</div>' + (parts || '<div class="hint">Aucune machine.</div>') + '</div>';
+}
+/* Sur site, au téléphone : la rubrique Entretien de la fiche de mise en route, marque par marque. */
+function merSiteModeles(f) {
+  var G = {}, ordre = [];
+  (f && f.lignes || []).forEach(function (l) { var lib = a1ModeleLib(l); if (!lib) return; var kind = l.kind === "gen" ? "gen" : "fleet", cle = a1NameKey(lib), k = kind + "|" + cle; if (!G[k]) { G[k] = { cle: cle, lib: lib, kind: kind, marque: l.marque || "", modele: l.modele || "", n: 0 }; ordre.push(k); } G[k].n++; });
+  return ordre.map(function (k) { return G[k]; });
+}
+function merSitePeriodicitesHtml(cid, f) {
+  var mods = merSiteModeles(f);
+  if (!mods.length) return '<div class="hint" style="margin:8px 0 0;font-size:11px">Les périodicités se confirment marque par marque : renseigne marque et modèle sur les lignes du parc, les cartes apparaissent ici.</div>';
+  return '<div style="font-size:12px;font-weight:600;margin:10px 0 4px">Périodicités, marque par marque</div>' + mods.map(function (m) {
+    var mach = a1ModeleMachines(cid, m.kind, m.cle), e = a1ModelePeriodicitesEtat(cid, m.kind, m.cle, mach.length ? mach : [{ marque: m.marque, modele: m.modele }]);
+    var badge = e.etat === "confirme" ? '<span style="color:var(--green);font-weight:600">✓ confirmé</span>' : '<span style="color:' + (e.etat === "aucun" ? "var(--muted)" : "var(--orange)") + ';font-weight:600">' + esc(e.libelle) + '</span>';
+    return '<div class="card" id="ms-per-' + m.cle + '" style="padding:10px 12px;margin:6px 0"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><span><b>' + esc(m.lib) + '</b> <span style="font-size:11.5px;color:var(--muted)">' + m.n + ' ' + (m.kind === "gen" ? "machine" : "véhicule") + (m.n > 1 ? "s" : "") + '</span></span><span style="font-size:11.5px">' + badge + '</span></div><div style="font-size:12px;color:var(--muted);margin:4px 0 8px">' + esc(a1ModelePeriodicitesResume(cid, m.kind, m.cle, mach.length ? mach : [{ marque: m.marque, modele: m.modele }])) + '</div><button class="cta sm" onclick="openA1PeriodicitesModeles(\'' + esc(cid) + '\',\'' + m.kind + '\',\'' + m.cle + '\',\'mersite\')">Confirmer avec le client ▸</button></div>';
+  }).join("");
+}
+function merSitePeriodicitesDocHtml(cid, f) {
+  var mods = merSiteModeles(f); if (!mods.length) return "";
+  return '<div style="font-size:10.5px;margin:2px 0 6px"><b>Périodicités, marque par marque :</b> ' + mods.map(function (m) { var mach = a1ModeleMachines(cid, m.kind, m.cle), e = a1ModelePeriodicitesEtat(cid, m.kind, m.cle, mach.length ? mach : [{ marque: m.marque, modele: m.modele }]); return esc(m.lib) + ' (' + e.libelle + ') : ' + esc(a1ModelePeriodicitesResume(cid, m.kind, m.cle, mach.length ? mach : [{ marque: m.marque, modele: m.modele }])); }).join(" ; ") + '</div>';
+}
 function a1PeriodicitesDe(clientId) {
   return (DB.a1periodicites || []).filter(function (p) { return (p.clientId || "") === (clientId || ""); });
 }
-function a1PeriodicitePour(clientId, kind, famille) {
+/* patch 193 D2 : la règle du modèle de la machine d'abord (clé a1ModeleCle), la règle générale du client ensuite, rien sinon.
+   `machine` est une machine (marque, modèle) ou directement une clé de modèle ; absent, on lit la règle générale comme avant. */
+function a1PeriodicitePour(clientId, kind, famille, machine) {
+  var cle = machine ? (typeof machine === "string" ? machine : a1ModeleCle(machine)) : "";
+  if (cle) { var pm = a1PeriodicitePourModele(clientId, kind, famille, cle); if (pm) return pm; }
   var l = a1PeriodicitesDe(clientId).filter(function (p) {
-    return p.famille === famille && (!p.kind || p.kind === kind);
+    return p.famille === famille && (!p.kind || p.kind === kind) && !p.modele;
   });
   if (l.length) return l[0];
   return null;
@@ -12040,7 +12192,7 @@ function openA1Periodicites(clientId, kind) {
     + 'l\'échéance s\'affiche en interne et <b>ne part dans aucun document remis au client</b>. Une valeur <b>constructeur</b> est la base obligatoire : ce que vous saisissez d\'autre s\'ajoute en supplément, sans la remplacer.</div>'
     + '<div style="display:flex;gap:8px;margin:6px 0 10px">'
     + '<button class="cta ghost sm" onclick="setScreen(\'' + (isGen ? "a1genset" : "a1fleet") + '\')">' + (isGen ? "🔌 Groupes" : "🚗 Véhicules") + '</button>'
-    + '<button class="cta ghost sm" onclick="openA1Periodicites(\'' + cid + '\',\'' + (isGen ? "fleet" : "gen") + '\')">↔ Passer aux ' + (isGen ? "véhicules" : "groupes") + '</button></div>'
+    + '<button class="cta ghost sm" onclick="openA1Periodicites(\'' + cid + '\',\'' + (isGen ? "fleet" : "gen") + '\')">↔ Passer aux ' + (isGen ? "véhicules" : "groupes") + '</button><button class="cta sm" onclick="openA1PeriodicitesModeles(\'' + cid + '\',\'' + kind + '\')" title="Une règle par modèle : Scania, Isuzu… ne s’entretiennent pas pareil">🚚 Par modèle ▸</button></div>'
     + '<div style="max-height:46vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">'
     + '<thead><tr style="text-align:left;border-bottom:1px solid var(--line)">'
     + '<th style="padding:6px 8px">Famille</th>'
@@ -12088,11 +12240,15 @@ function a1PeriodicitesEtat(clientId, kind) {
   var tvx = (DB.a1maint || []).filter(function (x) { return ids[x.machineId]; });
   var fam = {}; tvx.forEach(function (x) { var f = a1FamilleEntretien(x.type); fam[f] = (fam[f] || 0) + 1; });
   var connues = Object.keys(fam).filter(function (f) { return f !== "autre"; });
-  var renseignees = connues.filter(function (f) { return !!a1PeriodicitePour(clientId, kind, f); });
-  var confirmees = connues.filter(function (f) { var p = a1PeriodicitePour(clientId, kind, f); return p && p.confirme; });
+  /* patch 193 D2 : une famille est renseignée si chaque machine a une règle (celle de son modèle, sinon la générale), confirmée si toutes l'ont confirmée. */
+  var regle = function (f) { return mach.length ? mach.map(function (m) { return a1PeriodicitePour(clientId, kind, f, m); }) : [a1PeriodicitePour(clientId, kind, f)]; };
+  var renseignees = connues.filter(function (f) { return regle(f).every(Boolean); });
+  var confirmees = connues.filter(function (f) { return regle(f).every(function (p) { return p && p.confirme; }); });
+  var modeles = a1ModelesDe(clientId, kind).map(function (m) { var e = a1ModelePeriodicitesEtat(clientId, kind, m.cle, m.machines.length ? m.machines : [{ marque: m.marque, modele: m.modele }]); return { cle: m.cle, lib: m.lib, marque: m.marque, modele: m.modele, n: m.n, regles: e.n, confirmees: e.confirmees, etat: e.etat, libelle: e.libelle }; });
   return { machines: mach.length, interventions: tvx.length, familles: connues.length,
     renseignees: renseignees.length, confirmees: confirmees.length,
-    manquantes: connues.filter(function (f) { return !a1PeriodicitePour(clientId, kind, f); }).map(a1FamilleLabel) };
+    manquantes: connues.filter(function (f) { return !regle(f).every(Boolean); }).map(a1FamilleLabel),
+    modeles: modeles, modelesAConfirmer: modeles.filter(function (x) { return x.etat !== "confirme"; }).length };
 }
 
 /* La carte qui le dit a l'ecran, avec le bouton pour remplir. */
@@ -15203,15 +15359,18 @@ function lectureAppliquerVehicule(cid, l) {
 function lectureAssistantDisponible() { try { return !!(typeof serverEnabled !== "undefined" && serverEnabled && aiResolve("a1").model); } catch (e) { return false; } }
 function lecJson(rep) { var m = String(rep || "").match(/\{[\s\S]*\}/); if (!m) return null; try { return JSON.parse(m[0]); } catch (e) { return null; } }
 /* Les périodicités d'un client, posées sans écraser ce qu'il a confirmé ; entre deux modèles, la plus courte l'emporte. */
-function lecturePeriodicites(cid, plan, source) {
+function lecturePeriodicites(cid, plan, source, modele, modeleLib) {   /* patch 193 D2 : au modèle de la machine quand il est connu */
   var n = 0; DB.a1periodicites = DB.a1periodicites || [];
   Object.keys(plan || {}).forEach(function (fam) {
     var f = A1_FAMILLES.find(function (x) { return x.cle === fam; }); if (!f) return;
     var p = plan[fam] || {}, km = +p.km || 0, mois = +p.mois || 0; if (!km && !mois) return;
-    var ex = DB.a1periodicites.find(function (x) { return x.clientId === cid && x.kind === "fleet" && x.famille === fam; });
+    var ex = DB.a1periodicites.find(function (x) { return x.clientId === cid && x.kind === "fleet" && x.famille === fam && (x.modele || "") === (modele || ""); });
+    var exG = modele ? DB.a1periodicites.find(function (x) { return x.clientId === cid && x.kind === "fleet" && x.famille === fam && !x.modele; }) : null;   // patch 193 D2 : la règle générale du client
+    if (!ex && exG && exG.confirme && !a1SourceConstructeur(source)) return;   // ce que le client a confirmé pour tout le parc n'est pas contredit par une lecture non constructeur
     if (ex && a1PeriodiciteEstConstructeur(ex) && !a1SourceConstructeur(source)) { a1PeriodiciteSupplementAjouter(ex, { km: km, heures: 0, mois: mois, source: source, by: "lecture automatique" }); n++; return; }   // patch 120 : la valeur constructeur reste la base
     if (ex && ex.confirme && !a1SourceConstructeur(source)) return;
     var o = ex || { id: uid(), clientId: cid, kind: "fleet", famille: fam };
+    if (modele) { o.modele = modele; o.modeleLib = modeleLib || ""; if (!ex && exG && (+exG.km || +exG.mois)) a1PeriodiciteSupplementAjouter(o, { km: +exG.km || 0, heures: 0, mois: +exG.mois || 0, source: "règle générale du client" + (exG.confirme ? " (confirmée)" : ""), by: exG.by || "" }); }   // patch 193 D2
     if (ex && a1SourceConstructeur(source) && !a1PeriodiciteEstConstructeur(ex)) { a1PeriodiciteSupplementAjouter(ex, { km: +ex.km || 0, heures: 0, mois: +ex.mois || 0, source: ex.source || "", by: ex.by || "" }); o.km = km; o.heures = 0; o.mois = mois; } else { o.km = ex && +ex.km && km ? Math.min(+ex.km, km) : (km || (ex ? +ex.km : 0) || 0); o.heures = 0; o.mois = ex && +ex.mois && mois ? Math.min(+ex.mois, mois) : (mois || (ex ? +ex.mois : 0) || 0); }
     o.confirme = false; o.source = source; o.at = todayISO(); o.by = "lecture automatique";
     if (!ex) DB.a1periodicites.push(o); n++;
@@ -15232,7 +15391,7 @@ async function lectureDonneesConstructeur(cid, v, l) {
   var s = { id: "spec-" + uid(), kind: "fleet", category: "", vehType: v.type || "Voiture / VHL", brand: v.marque, model: v.modele, motorisation: d.motorisation || v.motorisation || "", consoTheo: +d.conso_l_100 || 0, reservoir: +d.reservoir_l || 0, builtin: false, provisional: true, source: "assistant (modèle seul, " + (+d.confiance || 0) + " % de confiance) — à confirmer sur la fiche constructeur", createdAt: todayISO() };
   DB.a1specs = DB.a1specs || []; DB.a1specs.push(s);
   if (!(v.consoTheo > 0) && s.consoTheo) v.consoTheo = s.consoTheo; if (!(v.reservoir > 0) && s.reservoir) v.reservoir = s.reservoir; if (!v.motorisation && s.motorisation) v.motorisation = s.motorisation; v.specsIncertain = true;
-  if (d.entretien) lecturePeriodicites(cid, d.entretien, "constructeur (assistant, " + v.marque + " " + v.modele + ") — à confirmer");
+  if (d.entretien) lecturePeriodicites(cid, d.entretien, "constructeur (assistant, " + v.marque + " " + v.modele + ") — à confirmer", a1ModeleCle(v), a1ModeleLib(v));
   l.constructeur = "assistant"; return true;
 }
 /* Le plan d'entretien dans le texte d'un carnet : par famille, le plus court des pas trouvés près des mots-clés. */
@@ -15259,7 +15418,7 @@ async function carnetLire(cid, l) {
     var sys = "Tu lis un extrait de carnet d'entretien constructeur. Réponds en JSON strict : {\"entretien\": {\"vidange\": {\"km\": n, \"mois\": n}, \"filtres\": {\"km\": n, \"mois\": n}, \"freins\": {\"km\": n}, \"pneus\": {\"km\": n}, \"courroie\": {\"km\": n, \"mois\": n}, \"refroid\": {\"km\": n, \"mois\": n}, \"revision\": {\"km\": n, \"mois\": n}, \"batterie\": {\"mois\": n}, \"suspension\": {\"km\": n}}} — seulement ce que le texte dit, null sinon.";
     try { var d = lecJson(await aiChat(sys, String(l.texte || "").slice(0, 6000), 700, "a1")); if (d && d.entretien) { plan = d.entretien; l.constructeur = "assistant"; } } catch (e) {}
   }
-  l.plan = plan; l.etat = "carnet"; l.familles = lecturePeriodicites(cid, plan, "carnet constructeur déposé par le client — à confirmer");
+  l.plan = plan; l.etat = "carnet"; var vC = l.vehicleId ? (DB.a1vehicles || []).find(function (x) { return x.id === l.vehicleId; }) : null; l.familles = lecturePeriodicites(cid, plan, "carnet constructeur déposé par le client — à confirmer", vC ? a1ModeleCle(vC) : "", vC ? a1ModeleLib(vC) : "");
   return l.familles;
 }
 /* Le mot au client, une fois ses documents lus : ce qui est reconnu, ce qui reste à préciser, la prochaine étape. */
@@ -16290,8 +16449,8 @@ function rechercheAppliquer(cid, v, l, d, sExist) {
   v.specsIncertain = d.confiance !== "haute"; v.specSource = "constructeur"; v.specId = s.id; v.specSources = d.sources.slice(0, 4).map(function (x) { return x.url; }); v.specLe = todayISO(); if (sExist) v.specReutilisee = true;
   var plan = {}; RECHERCHE_FAMILLES.forEach(function (k) { var p = d.entretien && d.entretien[k]; if (p && (+p.km || +p.mois)) plan[k] = { km: +p.km || 0, mois: +p.mois || 0 }; });
   var src = "constructeur — " + (d.sources[0] ? d.sources[0].domaine : "recherche web") + (d.confirmable ? "" : " — à confirmer");
-  var nPer = cid ? lecturePeriodicites(cid, plan, src) : 0;
-  if (cid && d.confirmable) (DB.a1periodicites || []).forEach(function (x) { if (x.clientId === cid && x.kind === "fleet" && plan[x.famille] && !x.confirme && x.source === src) { x.confirme = true; x.by = "recherche constructeur"; x.sourceUrl = d.sources[0] ? d.sources[0].url : ""; } });
+  var nPer = cid ? lecturePeriodicites(cid, plan, src, a1ModeleCle(v), a1ModeleLib(v)) : 0;
+  if (cid && d.confirmable) (DB.a1periodicites || []).forEach(function (x) { if (x.clientId === cid && x.kind === "fleet" && (x.modele || "") === a1ModeleCle(v) && plan[x.famille] && !x.confirme && x.source === src) { x.confirme = true; x.by = "recherche constructeur"; x.sourceUrl = d.sources[0] ? d.sources[0].url : ""; } });
   if (l) { l.constructeur = sExist ? "bibliothèque" : "recherche"; l.sources = d.sources; l.confiance = d.confiance; l.modeleTrouve = d.modele_trouve || ""; }
   return { spec: s, periodicites: nPer, confirmees: d.confirmable ? Object.keys(plan).length : 0, reutilisee: !!sExist };
 }
@@ -16402,15 +16561,18 @@ function rechercheEnginPrompt(g) {
     + "\"sources\": [{\"url\": \"…\", \"titre\": \"…\", \"constructeur\": true|false}]}";
   return { sys: sys, user: user };
 }
-function lecturePeriodicitesGen(cid, plan, source) {
+function lecturePeriodicitesGen(cid, plan, source, modele, modeleLib) {   /* patch 193 D2 */
   var n = 0; DB.a1periodicites = DB.a1periodicites || [];
   Object.keys(plan || {}).forEach(function (fam) {
     var f = A1_FAMILLES.find(function (x) { return x.cle === fam; }); if (!f) return;
     var p = plan[fam] || {}, h = +p.h || 0, mois = +p.mois || 0; if (!h && !mois) return;
-    var ex = DB.a1periodicites.find(function (x) { return x.clientId === cid && x.kind === "gen" && x.famille === fam; });
+    var ex = DB.a1periodicites.find(function (x) { return x.clientId === cid && x.kind === "gen" && x.famille === fam && (x.modele || "") === (modele || ""); });
+    var exG = modele ? DB.a1periodicites.find(function (x) { return x.clientId === cid && x.kind === "gen" && x.famille === fam && !x.modele; }) : null;   // patch 193 D2
+    if (!ex && exG && exG.confirme && !a1SourceConstructeur(source)) return;
     if (ex && a1PeriodiciteEstConstructeur(ex) && !a1SourceConstructeur(source)) { a1PeriodiciteSupplementAjouter(ex, { km: 0, heures: h, mois: mois, source: source, by: "lecture automatique" }); n++; return; }   // patch 120
     if (ex && ex.confirme && !a1SourceConstructeur(source)) return;
     var o = ex || { id: uid(), clientId: cid, kind: "gen", famille: fam };
+    if (modele) { o.modele = modele; o.modeleLib = modeleLib || ""; if (!ex && exG && (+exG.heures || +exG.mois)) a1PeriodiciteSupplementAjouter(o, { km: 0, heures: +exG.heures || 0, mois: +exG.mois || 0, source: "règle générale du client" + (exG.confirme ? " (confirmée)" : ""), by: exG.by || "" }); }   // patch 193 D2
     if (ex && a1SourceConstructeur(source) && !a1PeriodiciteEstConstructeur(ex)) { a1PeriodiciteSupplementAjouter(ex, { km: 0, heures: +ex.heures || 0, mois: +ex.mois || 0, source: ex.source || "", by: ex.by || "" }); o.km = 0; o.heures = h; o.mois = mois; } else { o.km = 0; o.heures = ex && +ex.heures && h ? Math.min(+ex.heures, h) : (h || (ex ? +ex.heures : 0) || 0); o.mois = ex && +ex.mois && mois ? Math.min(+ex.mois, mois) : (mois || (ex ? +ex.mois : 0) || 0); }
     o.confirme = false; o.source = source; o.at = todayISO(); o.by = "recherche constructeur";
     if (!ex) DB.a1periodicites.push(o); n++;
@@ -16437,8 +16599,8 @@ function rechercheEnginAppliquer(cid, g, d, sExist) {
   g.specsIncertain = d.confiance !== "haute"; g.specSource = "constructeur"; g.specId = s.id; g.specSources = (d.sources || []).slice(0, 4).map(function (x) { return x.url; }); g.specLe = todayISO(); if (sExist) g.specReutilisee = true;
   var plan = {}; RECHERCHE_FAMILLES_ENGIN.forEach(function (k) { var p = d.entretien && d.entretien[k]; if (p && (+p.h || +p.mois)) plan[k] = { h: +p.h || 0, mois: +p.mois || 0 }; });
   var src = "constructeur — " + (d.sources[0] ? d.sources[0].domaine : "recherche web") + (d.confirmable ? "" : " — à confirmer");
-  var nPer = cid ? lecturePeriodicitesGen(cid, plan, src) : 0;
-  if (cid && d.confirmable) (DB.a1periodicites || []).forEach(function (x) { if (x.clientId === cid && x.kind === "gen" && plan[x.famille] && !x.confirme && x.source === src) { x.confirme = true; x.by = "recherche constructeur"; x.sourceUrl = d.sources[0] ? d.sources[0].url : ""; } });
+  var nPer = cid ? lecturePeriodicitesGen(cid, plan, src, a1ModeleCle(g), a1ModeleLib(g)) : 0;
+  if (cid && d.confirmable) (DB.a1periodicites || []).forEach(function (x) { if (x.clientId === cid && x.kind === "gen" && (x.modele || "") === a1ModeleCle(g) && plan[x.famille] && !x.confirme && x.source === src) { x.confirme = true; x.by = "recherche constructeur"; x.sourceUrl = d.sources[0] ? d.sources[0].url : ""; } });
   return { spec: s, periodicites: nPer, confirmees: d.confirmable ? Object.keys(plan).length : 0, reutilisee: !!sExist };
 }
 function rechercheEnginDepuisFiche(s) { return { modele_trouve: s.modeleTrouve || "", confiance: s.confiance || "moyenne", officiel: !!s.officiel, confirmable: !!s.confirmable, sources: s.sources || [], fiche: { puissance_kw: s.kw || 0, conso_l_h: s.consoTheoLh || 0, conso_pleine_charge_l_h: s.consoPleineChargeLh || 0, reservoir_l: s.reservoirL || 0, poids_t: s.poidsT || 0, huile_moteur_l: s.huileMoteurL || 0, huile_grade: s.huileGrade || "", hydraulique_l: s.hydrauliqueL || 0 }, entretien: s.entretien || {} }; }
@@ -18896,7 +19058,7 @@ function merSiteEntretienHtml(cid, f) {
   var e = f.entretien || {};
   return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteSelectHtml(cid, "entretien.qui", "Qui entretient", e.qui, [["", "—"], ["interne", "atelier interne"], ["prestataire", "prestataire"]]) + merSiteChampHtml(cid, "entretien.prestataire", "Prestataire", e.prestataire, "", "nom du garage") + '</div>'
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">' + merSiteSelectHtml(cid, "entretien.carnet", "Carnet d’entretien tenu", e.carnet, [["", "—"], ["oui", "oui"], ["non", "non"]]) + merSiteSelectHtml(cid, "entretien.factures12", "Factures des 12 derniers mois", e.factures12, [["", "—"], ["oui", "disponibles"], ["non", "non"]]) + '</div>'
-    + '<div class="hint" style="margin:8px 0 0;font-size:11px">Les périodicités (vidange, filtres, freins, pneus…) se confirment avec le client, marque par marque : <a href="#" onclick="openA1Periodicites(\'' + esc(cid) + '\',\'fleet\');return false">périodicités d’entretien</a>.</div>';
+    + merSitePeriodicitesHtml(cid, f);   /* patch 193 D2 : une carte par modèle, « Confirmer avec le client » */
 }
 function merSiteResumeCarburant(f) { var c = f.carburant || {}, modes = ["station", "bons", "carte", "cuve"].filter(function (k) { return c[k]; }); return (modes.length ? modes.join(", ") : "mode d’achat ?") + " · " + (c.pleins ? "pleins " + c.pleins : "pleins ?") + (c.quiNote ? " · note : " + c.quiNote : ""); }
 function merSiteCarburantHtml(cid, f) {
@@ -18987,7 +19149,7 @@ function a1MerSiteDoc(cid) {
   var body = '<div style="display:flex;gap:16px;font-size:10.5px;flex-wrap:wrap"><div>Date sur site : ' + merSiteDocVal(f.dateSite ? frDate(f.dateSite) : "", 70) + '</div><div>Pour BSM : ' + esc((typeof currentUser !== "undefined" && currentUser && currentUser.name) || "Jean-Baptiste Barthe") + '</div><div>Pour le client : ' + merSiteDocVal(f.presentsClient, 120) + '</div><div>Équipe présente : ' + merSiteDocVal(f.equipe, 120) + '</div></div>'
     + sec("1", "Le parc, machine par machine" + (sp ? " (" + f.lignes.length + " attendue" + (f.lignes.length > 1 ? "s" : "") + " au devis" + (sp.gps ? ", géolocalisation retenue" : "") + ")" : ""))
     + '<table class="tab-bloc" style="width:100%;border-collapse:collapse"><tr>' + th("N°") + th("Immat. / nom") + th("Marque / modèle") + th("Année") + th("Compteur jour J") + th("Carbu.") + th("Rés. (L)") + th("Site / affectation") + th("Chauffeur") + th("Dernière vidange") + th("Charge (t) / kVA") + th("Documents vus") + th("Observations") + '</tr>' + lignes + '</table>'
-    + '<div style="display:flex;gap:22px"><div style="flex:1">' + sec("2", "L’entretien") + grid([["Qui entretient", merSiteDocCase("atelier interne", en.qui === "interne") + merSiteDocCase("prestataire", en.qui === "prestataire") + merSiteDocVal(en.prestataire, 90)], ["Carnet d’entretien tenu", merSiteDocCase("oui", en.carnet === "oui") + merSiteDocCase("non", en.carnet === "non")], ["Factures des 12 derniers mois", merSiteDocCase("disponibles", en.factures12 === "oui") + merSiteDocCase("non", en.factures12 === "non")], ["Périodicités", "confirmées marque par marque dans le Cockpit"]])
+    + '<div style="display:flex;gap:22px"><div style="flex:1">' + sec("2", "L’entretien") + merSitePeriodicitesDocHtml(cid, f) + grid([["Qui entretient", merSiteDocCase("atelier interne", en.qui === "interne") + merSiteDocCase("prestataire", en.qui === "prestataire") + merSiteDocVal(en.prestataire, 90)], ["Carnet d’entretien tenu", merSiteDocCase("oui", en.carnet === "oui") + merSiteDocCase("non", en.carnet === "non")], ["Factures des 12 derniers mois", merSiteDocCase("disponibles", en.factures12 === "oui") + merSiteDocCase("non", en.factures12 === "non")], ["Périodicités", "confirmées marque par marque dans le Cockpit"]])
     + sec("3", "Le carburant") + grid([["Mode d’achat", merSiteDocCase("station", ca.station) + merSiteDocCase("bons", ca.bons) + merSiteDocCase("carte", ca.carte) + merSiteDocCase("cuve interne", ca.cuve)], ["Justificatifs", merSiteDocCase("tickets", ca.tickets) + merSiteDocCase("relevé fournisseur", ca.releveFournisseur) + merSiteDocCase("cahier", ca.cahier)], ["Pleins", merSiteDocCase("complets", ca.pleins === "complets") + merSiteDocCase("partiels", ca.pleins === "partiels") + merSiteDocCase("mixtes", ca.pleins === "mixtes") + " · qui note : " + merSiteDocVal(ca.quiNote, 70)]]) + '</div>'
     + '<div style="flex:1">' + sec("4", "Les équipes et la routine du mois") + grid([["Responsable du relevé", merSiteDocVal(e.respNom, 90) + " · " + merSiteDocVal(e.respFonction, 60)], ["Téléphone · courriel", merSiteDocVal(e.respTel, 70) + " · " + merSiteDocVal(e.respMail, 90)], ["Suppléant", merSiteDocVal(e.suppleant, 90) + (e.suppleantMail ? " · " + esc(e.suppleantMail) : "")], ["Jour du relevé", "le " + merSiteDocVal(e.jour, 22) + " de chaque mois · " + merSiteDocCase("espace des équipes", e.canal === "espace") + merSiteDocCase("fiche papier", e.canal === "papier")], ["Saisi chaque mois", "date, compteur, litres, coût, charge moyenne du mois"], ["Validé par", merSiteDocVal(e.validePar, 90)], ["Dirigeant · facturation", merSiteDocVal(e.dirigeant || c.contactName, 80) + " · " + merSiteDocVal(e.facturation || c.billingEmail, 100)]])
     + sec("5", "Documents remis à BSM") + grid([["", merSiteDocCase("relevés carburant des 3 derniers mois", d.releves3m)], ["", merSiteDocCase("factures d’entretien", d.factures) + merSiteDocCase("cartes grises (photos)", d.cartesGrises)], ["", merSiteDocCase("liste des chauffeurs", d.chauffeurs) + merSiteDocCase("planning d’utilisation", d.planning)]]) + '</div></div>'
@@ -23178,7 +23340,7 @@ function a1MaintStatus(kind, machine){
   const unit=kind==="gen"?"h":"km";
   const due=[], upcoming=[];
   entries.forEach(e=>{
-    var _per=(e.nextDate||+e.nextEvery>0)?null:a1PeriodicitePour(machine.clientId, kind, a1FamilleEntretien(e.type)); if(_per){ e=Object.assign({}, e, { nextEvery:(kind==="gen"?+_per.heures:+_per.km)||0, nextDate:(+_per.mois>0&&e.date)?a1PlusMois(e.date,+_per.mois):"", __perSource:_per.confirme?"confirmee":"a-confirmer" }); } if(!(e.nextDate||+e.nextEvery>0)) return;
+    var _per=(e.nextDate||+e.nextEvery>0)?null:a1PeriodicitePour(machine.clientId, kind, a1FamilleEntretien(e.type), machine); if(_per){ e=Object.assign({}, e, { nextEvery:(kind==="gen"?+_per.heures:+_per.km)||0, nextDate:(+_per.mois>0&&e.date)?a1PlusMois(e.date,+_per.mois):"", __perSource:_per.confirme?"confirmee":"a-confirmer", __perModele:!!_per.modele }); } if(!(e.nextDate||+e.nextEvery>0)) return;
     if(entries.some(o=>o!==e && a1MemeEntretien(o.type, e.type) && String(o.date||"")>String(e.date||""))) return;   // patch 64 : même famille, pas seulement même libellé // remplacée par un entretien plus récent du même type
     const used=+e.nextEvery>0?a1UsageSince(kind, machine.id, e.date):0;
     if(e.nextDate && e.nextDate<=todayISO()) due.push({ e, why:"échéance du "+frDate(e.nextDate)+" atteinte" });
@@ -24822,23 +24984,23 @@ function a1ParcMachinesHtml(E) {
 /* ---- 3 · Entretien (D1 : échéances, interventions du mois, ordres de travail, périodicités par client ; D2 ajoute les périodicités par modèle) ---- */
 function a1ParcEntretienHtml(E) {
   var cid = E.cid, kind = E.kinds[0], T = E.entretien, lib = a1MonthLabel(E.mois), unite = function (x) { return x.unite; };
-  var regle = function (e, x) { return e.nextDate ? "échéance le " + frDate(e.nextDate) : (+e.nextEvery > 0 ? "tous les " + (+e.nextEvery).toLocaleString("fr-FR") + " " + unite(x) + (e.__perSource === "confirmee" ? " (confirmé)" : e.__perSource === "a-confirmer" ? " (à confirmer)" : "") : "—"); };
+  var regle = function (e, x) { var src = e.__perSource ? " (" + (e.__perModele ? "modèle" : "règle du client") + ", " + (e.__perSource === "confirmee" ? "confirmé" : "à confirmer") + ")" : "", parts = []; if (+e.nextEvery > 0) parts.push("tous les " + (+e.nextEvery).toLocaleString("fr-FR") + " " + unite(x)); if (e.nextDate) parts.push("échéance le " + frDate(e.nextDate)); return parts.length ? parts.join(" · ") + src : "—"; };   /* patch 193f */
   var ligne = function (d, etat) { return '<tr id="a1p-machine-' + d.x.m.id + '"><td><b>' + esc(d.x.nom) + '</b>' + (d.x.modele ? '<div style="font-size:11px;color:var(--muted)">' + esc(d.x.modele) + '</div>' : '') + '</td><td>' + esc(d.e.type || "") + '</td><td>' + regle(d.e, d.x) + '</td><td>' + (d.why ? esc(d.why) : (d.used ? Math.round(d.used).toLocaleString("fr-FR") + " " + unite(d.x) + " depuis la dernière" : "—")) + '</td><td>' + etat + '</td><td class="a1-int" style="white-space:nowrap"><button class="cta ghost sm" onclick="openA1MaintForm(\'' + d.x.kind + '\',\'' + d.x.m.id + '\',\'\')">Saisir l’intervention</button></td></tr>'; };
   var rows = T.dues.map(function (d) { return ligne(d, '<span class="badge b-red">due</span>'); }).join("") + T.proches.map(function (d) { return ligne(d, '<span class="badge b-orange">sous 30 jours</span>'); }).join("");
   var aJour = E.machines.filter(function (x) { return x.entretien && x.entretien.entries.length && !x.entretien.due.length && !T.proches.some(function (p) { return p.x === x; }); }), sansCarnet = E.machines.filter(function (x) { return !x.entretien || !x.entretien.entries.length; });
   var mach = '<select id="a1p-mach" style="padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:12px">' + E.machines.map(function (x) { return '<option value="' + x.kind + '|' + x.m.id + '">' + esc(x.nom) + '</option>'; }).join("") + '</select>';
   var interv = T.interventionsMois.length ? '<table><thead><tr><th>Date</th><th>Machine</th><th>Intervention</th><th style="text-align:right">Compteur</th><th style="text-align:right">Coût</th><th class="a1-int"></th></tr></thead><tbody>' + T.interventionsMois.map(function (i) { var x = E.machines.filter(function (y) { return y.m.id === i.machineId; })[0]; return '<tr><td>' + frDate(i.date) + '</td><td><b>' + esc(x ? x.nom : (i.machine || "")) + '</b></td><td>' + esc(i.type || "") + '</td><td style="text-align:right">' + (+i.at > 0 ? (+i.at).toLocaleString("fr-FR") + " " + (x ? x.unite : "") : "—") + '</td><td style="text-align:right">' + (+i.cost > 0 ? fmt(i.cost, i.currency || DB.meta.defaultCurrency) : "—") + '</td><td class="a1-int"><button class="cta ghost sm" onclick="openA1MaintForm(\'' + (i.kind || kind) + '\',\'' + i.machineId + '\',\'' + i.id + '\')">✎</button></td></tr>'; }).join("") + '</tbody></table>' : '<div class="hint">Aucune intervention saisie ce mois.</div>';
   var ot = T.ot.length ? '<table><thead><tr><th>Machine</th><th>Travaux</th><th>État</th><th>Prévu</th><th class="a1-int"></th></tr></thead><tbody>' + T.ot.map(function (o) { return '<tr><td><b>' + esc(o.machine || "") + '</b></td><td>' + esc(o.type || a1FamilleLabel(o.famille)) + '</td><td>' + (o.etat === "programme" ? '<span class="badge b-green">programmé</span>' : '<span class="badge b-orange">à programmer</span>') + '</td><td>' + (o.datePrevue ? frDate(o.datePrevue) + (o.prestataire ? " · " + esc(o.prestataire) : "") : "—") + '</td><td class="a1-int"><button class="cta ghost sm" onclick="openA1OtForm(\'' + o.id + '\')">📅 Programmer</button></td></tr>'; }).join("") + '</tbody></table>' : '<div class="hint">Aucun ordre de travail ouvert : ils naissent des échéances dues (« Rafraîchir »).</div>';
-  var per = E.periodicites.filter(function (p) { return p.familles > 0; }).map(function (p) { var manque = p.familles - p.confirmees; return a1ParcLi(manque ? "att" : (p.familles ? "ok" : ""), (p.kind === "gen" ? "Groupes et engins" : "Véhicules") + " : <b>" + p.confirmees + "</b> / " + p.familles + " famille" + (p.familles > 1 ? "s" : "") + " confirmée" + (p.familles > 1 ? "s" : "") + (p.manquantes && p.manquantes.length ? " · à renseigner : " + p.manquantes.slice(0, 5).map(esc).join(", ") : "") + ' <button class="cta ghost sm a1-int" style="margin-left:6px" onclick="openA1Periodicites(\'' + cid + '\',\'' + p.kind + '\')">🔧 Renseigner</button>'); }).join("") || a1ParcLi("", "Aucune intervention au carnet : les périodicités se renseignent dès la première.");
+  /* patch 193 D2 : la carte des périodicités vit dans a1ParcPeriodicitesCardHtml (une règle par modèle). */
   var pannes = T.pannes.length ? T.pannes.map(function (p) { return a1ParcLi("ko", "<b>" + esc(p.machine || "") + "</b> · depuis le " + frDate(p.date) + (p.detail ? " · " + esc(p.detail) : "")); }).join("") : "";
   return '<div class="card" id="a1p-dues"><h2>🛠️ Échéances — ' + T.dues.length + ' due' + (T.dues.length > 1 ? 's' : '') + ', ' + T.proches.length + ' sous 30 jours</h2><div class="hint">Les règles viennent du carnet et des périodicités ; une règle « à confirmer » reste interne tant que le client ne l’a pas confirmée.</div>'
     + (rows ? '<div style="overflow-x:auto"><table class="clickrows"><thead><tr><th>Machine</th><th>Intervention</th><th>Règle</th><th>Depuis la dernière</th><th>État</th><th class="a1-int"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="hint" style="margin-top:6px">Rien de dû ni de proche.</div>')
     + '<div id="a1p-proches" style="margin-top:8px;font-size:12.5px;color:var(--muted)">À jour : <b>' + aJour.length + '</b> machine' + (aJour.length > 1 ? 's' : '') + (sansCarnet.length ? ' · sans carnet : <b>' + sansCarnet.length + '</b> (' + sansCarnet.slice(0, 5).map(function (x) { return esc(x.nom); }).join(", ") + (sansCarnet.length > 5 ? "…" : "") + ')' : '') + '</div></div>'
     + '<div class="card" id="a1p-interventions"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 style="margin:0">Interventions de ' + esc(lib) + ' — ' + T.interventionsMois.length + '</h2><span class="a1-int" style="display:inline-flex;gap:6px;align-items:center">' + mach + '<button class="cta gold sm" onclick="a1ParcIntervention()">+ Intervention</button></span></div><div style="margin-top:8px">' + interv + '</div></div>'
     + '<div class="card" id="a1p-ot"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 style="margin:0">Ordres de travail — ' + T.ot.length + ' ouvert' + (T.ot.length > 1 ? 's' : '') + '</h2><span class="a1-int"><button class="cta ghost sm" onclick="a1OtRafraichir(\'' + cid + '\');renderA1Parc()" title="Crée un ordre par échéance due, clôt ceux dont l’intervention est saisie">↻ Rafraîchir</button></span></div><div style="margin-top:8px">' + ot + '</div></div>'
-    + '<div class="card" id="a1p-periodicites"><h2>🔧 Périodicités d’entretien</h2><div class="hint">Par famille d’intervention, pour ce client. Les périodicités par modèle arrivent avec la prochaine livraison.</div>' + per + '</div>'
+    + a1ParcPeriodicitesCardHtml(E)
     + (pannes ? '<div class="card" id="a1p-pannes" style="border-left:3px solid var(--red)"><h2>Pannes en cours — ' + T.pannes.length + '</h2>' + pannes + '</div>' : '')
-    + a1ParcGestes([["🖨 Feuilles de passage à l’atelier", "a1FichePassage('" + kind + "')", "", "Tout ce qui est dû par machine, pour une seule immobilisation"], ["🔧 Périodicités", "openA1Periodicites('" + cid + "','" + kind + "')"], ["📎 Documents du client", "openA1Docs('" + kind + "')", "", "Factures d’atelier, carnets, constats"]]);
+    + a1ParcGestes([["🖨 Feuilles de passage à l’atelier", "a1FichePassage('" + kind + "')", "", "Tout ce qui est dû par machine, pour une seule immobilisation"], ["🔧 Périodicités par modèle", "openA1PeriodicitesModeles('" + cid + "','" + kind + "')"], ["📎 Documents du client", "openA1Docs('" + kind + "')", "", "Factures d’atelier, carnets, constats"]]);
 }
 function a1ParcIntervention() {
   var v = (typeof val === "function" ? val("a1p-mach") : "") || "", p = String(v).split("|");
@@ -24893,7 +25055,7 @@ function a1ParcFichesHtml(E) {
     + liste("manquantes", "Fiches à intégrer — " + manquantes.length, manquantes, "Chaque modèle a sa fiche.")
     + (incert.length ? liste("incertaines", "Repères indicatifs à confirmer — " + incert.length, incert, "") : '<div id="a1p-incertaines"></div>')
     + liste("completes", "Fiches complètes — " + modeles.filter(function (g) { return g.etat === "complete"; }).length, modeles.filter(function (g) { return g.etat === "complete"; }), "Aucune fiche complète pour l’instant.")
-    + a1ParcGestes([["+ Fiche", "openA1SpecLibrary('" + kind + "')", "gold", "Ajouter une fiche à la bibliothèque, ou importer un PDF ou un Excel"], ["📘 Poser les fiches connues", "a1AppliquerFichesGo('" + kind + "')"], ["🔧 Périodicités d’entretien", "openA1Periodicites('" + cid + "','" + kind + "')"]]);
+    + a1ParcGestes([["+ Fiche", "openA1SpecLibrary('" + kind + "')", "gold", "Ajouter une fiche à la bibliothèque, ou importer un PDF ou un Excel"], ["📘 Poser les fiches connues", "a1AppliquerFichesGo('" + kind + "')"], ["🔧 Périodicités par modèle", "openA1PeriodicitesModeles('" + cid + "','" + kind + "')"]]);
 }
 /* ---- 6 · Documents ---- */
 function a1ParcDocumentsHtml(E) {
@@ -29485,7 +29647,7 @@ function saveA1Offer(clientId, product){
   a1OfferGpsChoixEnregistrer(clientId);   // patch 130 : les cases cochées deviennent les véhicules à équiper
   { var oo=a1Offer(clientId,product); if(typeof docRetoucheOublier==="function" && oo) docRetoucheOublier("devis:"+oo.id, "proposition:"+oo.id); }   /* patch 167 */ save(); closeModal(); a1RefreshCurrent(); toast("Devis enregistré — facturation liée mise à jour."); try{ a1FichesPreparerServeur(); }catch(e){}
 }
-function a1RefreshCurrent(){ if(currentScreen==="a1genset") renderA1Genset(); else renderA1Fleet(); }
+function a1RefreshCurrent(){ if(currentScreen==="a1parc" && typeof renderA1Parc==="function") renderA1Parc(); else if(currentScreen==="a1genset") renderA1Genset(); else renderA1Fleet(); }
 function syncA1OfferRecurring(o){
   let rc=DB.recurring.find(r=>r.a1OfferId===o.id);
   if(o.monthlyFee>0){
