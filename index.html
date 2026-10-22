@@ -842,7 +842,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.2";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.3";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
@@ -13186,6 +13186,114 @@ function a1DisponibiliteStripHtml(clientId) {
   return ' · <b>disponibilité du mois : ' + d.taux + ' %</b>' + (d.joursImmobilises ? ' (' + d.joursImmobilises + ' j d\'immobilisation sur ' + d.parMachine.length + ' machine(s))' : '');
 }
 /* Dans le rapport du mois : la section, machines nommées, aucune personne. */
+/* ================== RAPPORT D'ANALYSE COMPLET (patch 196, v6.100.3, 22/10/2026) ==================
+   JB : « un seul bouton Rapport d'analyse qui recoupe tout pour chaque client : entretien, analyse, conso, fiche, manque… complet,
+   que je lis avec les recos que je modifie si besoin pour relecture dans l'onglet Rapports et envoi au client ».
+   Le rapport exécutif portait déjà la consommation, les écarts, la disponibilité, les pannes, les contrôles, le budget
+   d'entretien et « À confirmer avec le client ». Trois sections s'ajoutent, et deux recommandations d'entretien :
+   1. « Entretien de la période » : interventions enregistrées, échéances dues et à venir (règles confirmées ou du carnet,
+      jamais une règle « à confirmer »), ordres de travail programmés.
+   2. « Données reçues sur la période » : relevés par machine, machines sans relevé, pièces reçues, fiche des équipes, et en une
+      ligne ce qui manque encore.
+   3. « Références constructeur utilisées » : par modèle, la fiche et sa source, la consommation de référence, les périodicités
+      confirmées. Doctrine : factuel, aucune imputation, rien qui ne soit confirmé par le client. */
+var RAP_TH = function (t, r) { return '<th style="text-align:' + (r ? 'right' : 'left') + ';padding:6px 10px;font-size:11px;color:#6B7280">' + t + '</th>'; };
+var RAP_TD = function (h, r, opt) { return '<td style="padding:6px 10px;border-bottom:1px solid #F3F4F6' + (r ? ';text-align:right;white-space:nowrap' : '') + (opt || '') + '">' + h + '</td>'; };
+function rapMachinesDe(clientId, kind) { return ((kind === "gen" ? DB.a1gensets : DB.a1vehicles) || []).filter(function (m) { return m.clientId === clientId && (typeof a1MachineActive !== "function" || a1MachineActive(m)) && m.statut !== "cede"; }); }
+function rapNomMachine(m) { return esc(m.plate || m.name || "") + ((m.marque || m.modele) ? ' <span style="color:#6B7280">' + esc([m.marque, m.modele].filter(Boolean).join(" ")) + '</span>' : ''); }
+/* 1 · Entretien de la période */
+function a1EntretienPeriodeDonnees(clientId, kind, du, au) {
+  var M = rapMachinesDe(clientId, kind), unite = kind === "gen" ? "h" : "km", auj = todayISO(), dans30 = a1DateDecalee(auj, 30);
+  var ids = {}; M.forEach(function (m) { ids[m.id] = 1; });
+  var interv = (DB.a1maint || []).filter(function (e) { return ids[e.machineId] && String(e.date || "").slice(0, 10) >= du && String(e.date || "").slice(0, 10) <= au; }).sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+  var dues = [], proches = [];
+  M.forEach(function (m) {
+    var st = null; try { st = a1MaintStatus(kind, m); } catch (e) { st = null; } if (!st) return;
+    st.due.forEach(function (d) { if (d.e.__perSource === "a-confirmer") return; dues.push({ m: m, e: d.e, why: d.why }); });   // une règle non confirmée reste interne
+    st.upcoming.forEach(function (u) { if (u.e.__perSource === "a-confirmer") return; var proche = (u.e.nextDate && u.e.nextDate > auj && u.e.nextDate <= dans30) || (+u.e.nextEvery > 0 && u.used >= 0.9 * (+u.e.nextEvery)); if (proche) proches.push({ m: m, e: u.e, used: u.used }); });
+  });
+  var ot = (DB.a1ot || []).filter(function (o) { return ids[o.machineId] && o.etat === "programme"; });
+  var sansCarnet = M.filter(function (m) { return !(DB.a1maint || []).some(function (e) { return e.machineId === m.id; }); });
+  return { machines: M, unite: unite, interventions: interv, dues: dues, proches: proches, ot: ot, sansCarnet: sansCarnet, cout: interv.reduce(function (s, e) { return s + (+e.cost || 0); }, 0) };
+}
+function a1EntretienPeriodeSectionHtml(clientId, kind, du, au) {
+  if (!clientId) return "";
+  var d = a1EntretienPeriodeDonnees(clientId, kind, du, au); if (!d.machines.length) return "";
+  if (!d.interventions.length && !d.dues.length && !d.proches.length && !d.ot.length) return "";
+  var u = d.unite;
+  var regle = function (e, m) { var parts = []; if (+e.nextEvery > 0) parts.push("tous les " + (+e.nextEvery).toLocaleString("fr-FR") + " " + u); if (e.nextDate) parts.push("au " + frDate(e.nextDate)); return parts.join(" · ") + (e.__perSource === "confirmee" ? (e.__perModele ? " (règle du modèle, confirmée)" : " (règle confirmée)") : ""); };
+  var p = '<p style="font-size:13px;line-height:1.7">Entre le ' + frDate(du) + ' et le ' + frDate(au) + ', <b>' + d.interventions.length + ' intervention' + (d.interventions.length > 1 ? 's' : '') + '</b> ' + (d.interventions.length > 1 ? 'ont été enregistrées' : 'a été enregistrée') + ' au carnet du parc' + (d.cout ? ', pour <b>' + fmtD(d.cout) + '</b>' : '') + '. '
+    + 'Au jour du rapport, <b>' + d.dues.length + ' échéance' + (d.dues.length > 1 ? 's sont dues' : ' est due') + '</b>' + (d.proches.length ? ' et <b>' + d.proches.length + '</b> ' + (d.proches.length > 1 ? 'arrivent' : 'arrive') + ' dans les trente jours' : '') + (d.ot.length ? ' ; <b>' + d.ot.length + '</b> ' + (d.ot.length > 1 ? 'sont programmées' : 'est programmée') + ' à l’atelier' : '') + '.'
+    + (d.sansCarnet.length ? ' ' + d.sansCarnet.length + ' machine' + (d.sansCarnet.length > 1 ? 's n’ont' : ' n’a') + ' aucun historique d’entretien connu : ' + d.sansCarnet.slice(0, 6).map(function (m) { return esc(m.plate || m.name || ""); }).join(", ") + (d.sansCarnet.length > 6 ? "…" : "") + '.' : '') + '</p>';
+  var tInt = d.interventions.length ? '<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;font-size:12px;page-break-inside:avoid;margin-bottom:8px"><thead><tr style="background:#F9FAFB">' + RAP_TH("Date") + RAP_TH("Machine") + RAP_TH("Intervention") + RAP_TH("Compteur", 1) + RAP_TH("Coût", 1) + '</tr></thead><tbody>'
+    + d.interventions.map(function (e) { var m = d.machines.filter(function (x) { return x.id === e.machineId; })[0] || {}; return '<tr>' + RAP_TD(frDate(e.date), 0, ';white-space:nowrap') + RAP_TD('<b>' + rapNomMachine(m) + '</b>') + RAP_TD(esc(e.type || "") + (e.by === "espace client" ? ' <span style="color:#6B7280;font-size:11px">(déclarée par vos équipes)</span>' : '')) + RAP_TD(+e.at > 0 ? (+e.at).toLocaleString("fr-FR") + ' ' + u : '—', 1) + RAP_TD(+e.cost > 0 ? fmtD(e.cost) : '—', 1) + '</tr>'; }).join("")
+    + '</tbody></table><p style="font-size:11.5px;color:#6B7280;margin:0 0 10px">Interventions enregistrées au carnet sur la période, telles que transmises ou déclarées par le Client.</p>' : '';
+  var ech = d.dues.map(function (x) { return { m: x.m, e: x.e, etat: '<b style="color:#C0392B">due</b>', depuis: x.why }; }).concat(d.proches.map(function (x) { return { m: x.m, e: x.e, etat: 'à venir', depuis: x.e.nextDate ? 'échéance le ' + frDate(x.e.nextDate) : (x.used ? Math.round(x.used).toLocaleString("fr-FR") + ' ' + u + ' depuis la dernière' : '') }; }));
+  var tEch = ech.length ? '<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;font-size:12px;page-break-inside:avoid;margin-bottom:8px"><thead><tr style="background:#F9FAFB">' + RAP_TH("Machine") + RAP_TH("Intervention") + RAP_TH("Règle") + RAP_TH("Où en est-on") + RAP_TH("État", 1) + '</tr></thead><tbody>'
+    + ech.map(function (x) { return '<tr>' + RAP_TD('<b>' + rapNomMachine(x.m) + '</b>') + RAP_TD(esc(x.e.type || "")) + RAP_TD(esc(regle(x.e, x.m))) + RAP_TD(esc(x.depuis || "")) + RAP_TD(x.etat, 1) + '</tr>'; }).join("")
+    + '</tbody></table><p style="font-size:11.5px;color:#6B7280;margin:0 0 10px">Échéances calculées sur le carnet et sur les périodicités que vous avez confirmées ; une périodicité non confirmée n’entre pas ici.</p>' : '';
+  var tOt = d.ot.length ? '<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;font-size:12px;page-break-inside:avoid"><thead><tr style="background:#F9FAFB">' + RAP_TH("Machine") + RAP_TH("Travaux") + RAP_TH("Prévu le") + RAP_TH("Atelier") + '</tr></thead><tbody>'
+    + d.ot.map(function (o) { return '<tr>' + RAP_TD('<b>' + esc(o.machine || "") + '</b>') + RAP_TD(esc(o.type || a1FamilleLabel(o.famille))) + RAP_TD(o.datePrevue ? frDate(o.datePrevue) : '—') + RAP_TD(esc(o.prestataire || "—")) + '</tr>'; }).join("")
+    + '</tbody></table><p style="font-size:11.5px;color:#6B7280;margin:0 0 4px">Ordres de travail programmés au jour du rapport.</p>' : '';
+  return p + tInt + tEch + tOt;
+}
+/* 2 · Données reçues sur la période */
+var RAP_DEPOT_LIB = { contrat: ["contrat signé", "contrats signés"], "carte-grise": ["carte grise", "cartes grises"], carnet: ["carnet d’entretien", "carnets d’entretien"], ticket: ["ticket ou facture", "tickets ou factures"], "releve-carburant": ["relevé du fournisseur de carburant", "relevés du fournisseur de carburant"], "export-gps": ["export GPS", "exports GPS"], autre: ["autre document", "autres documents"] };   /* patch 196c */
+function a1DonneesRecuesDonnees(clientId, kind, du, au) {
+  var M = rapMachinesDe(clientId, kind), isGen = kind === "gen";
+  var logsDe = function (m) { return (isGen ? (DB.a1genlogs || []).filter(function (l) { return l.gensetId === m.id; }) : (DB.a1logs || []).filter(function (l) { return l.vehicleId === m.id; })).filter(function (l) { var dd = String(l.date || "").slice(0, 10); return dd >= du && dd <= au; }); };
+  var par = M.map(function (m) { var L = logsDe(m); return { m: m, n: L.length, dernier: L.reduce(function (a, l) { return String(l.date || "") > a ? String(l.date || "").slice(0, 10) : a; }, ""), equipe: L.filter(function (l) { return l.source === "espace équipe"; }).length }; });
+  var total = par.reduce(function (s, x) { return s + x.n; }, 0), sans = par.filter(function (x) { return !x.n; }), equipe = par.reduce(function (s, x) { return s + x.equipe; }, 0);
+  var dep = (typeof depotsDe === "function" ? depotsDe(clientId) : []).filter(function (d) { var dd = String(d.ts || "").slice(0, 10); return dd >= du && dd <= au; });
+  var parType = {}; dep.forEach(function (d) { var t = RAP_DEPOT_LIB[d.type] ? d.type : "autre"; parType[t] = (parType[t] || 0) + 1; });
+  var lectures = (typeof lecturesDe === "function" ? lecturesDe(clientId) : []).filter(function (l) { var dd = String(l.ts || "").slice(0, 10); return dd >= du && dd <= au; });
+  var besoins = []; try { (a1BesoinsDonnees(kind, clientId) || []).forEach(function (b) { if (b.etat === "absent") besoins.push(b.titre); }); } catch (e) { }
+  return { machines: M, par: par, total: total, sans: sans, equipe: equipe, depots: dep, parType: parType, lectures: lectures, besoins: besoins };
+}
+function a1DonneesRecuesSectionHtml(clientId, kind, du, au) {
+  if (!clientId) return "";
+  var d = a1DonneesRecuesDonnees(clientId, kind, du, au); if (!d.machines.length || (!d.total && !d.depots.length)) return "";
+  var p = '<p style="font-size:13px;line-height:1.7">Entre le ' + frDate(du) + ' et le ' + frDate(au) + ', <b>' + d.total + ' relevé' + (d.total > 1 ? 's' : '') + '</b> ' + (d.total > 1 ? 'ont été reçus' : 'a été reçu') + ' pour <b>' + (d.machines.length - d.sans.length) + ' machine' + (d.machines.length - d.sans.length > 1 ? 's' : '') + '</b> sur ' + d.machines.length
+    + (d.equipe ? ', dont ' + d.equipe + ' saisi' + (d.equipe > 1 ? 's' : '') + ' par vos équipes dans leur espace' : '') + '.'
+    + (d.sans.length ? ' <b>' + d.sans.length + ' machine' + (d.sans.length > 1 ? 's' : '') + ' sans relevé</b> sur la période : ' + d.sans.slice(0, 8).map(function (x) { return esc(x.m.plate || x.m.name || ""); }).join(", ") + (d.sans.length > 8 ? "…" : "") + ' — elles n’entrent pas dans l’analyse de la période.' : '')
+    + (d.depots.length ? ' Pièces reçues dans l’espace : ' + Object.keys(d.parType).map(function (t) { var n = d.parType[t]; return n + ' ' + esc((RAP_DEPOT_LIB[t] || RAP_DEPOT_LIB.autre)[n > 1 ? 1 : 0]); }).join(", ") + (d.lectures.length ? ' (' + d.lectures.length + ' lue' + (d.lectures.length > 1 ? 's' : '') + ' automatiquement)' : '') + '.' : '') + '</p>';
+  var rows = d.par.slice().sort(function (a, b) { return b.n - a.n || String(a.m.plate || a.m.name || "").localeCompare(String(b.m.plate || b.m.name || ""), "fr"); });
+  var t = '<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;font-size:12px;page-break-inside:avoid;margin-bottom:8px"><thead><tr style="background:#F9FAFB">' + RAP_TH("Machine") + RAP_TH("Relevés reçus", 1) + RAP_TH("Dernier relevé", 1) + RAP_TH("Par vos équipes", 1) + '</tr></thead><tbody>'
+    + rows.map(function (x) { return '<tr>' + RAP_TD('<b>' + rapNomMachine(x.m) + '</b>') + RAP_TD(x.n ? String(x.n) : '<b style="color:#C0392B">aucun</b>', 1) + RAP_TD(x.dernier ? frDate(x.dernier) : '—', 1) + RAP_TD(x.equipe ? String(x.equipe) : '—', 1) + '</tr>'; }).join("")
+    + '</tbody></table><p style="font-size:11.5px;color:#6B7280;margin:0 0 6px">Relevés carburant et compteur reçus sur la période, par machine ; la colonne « Par vos équipes » compte ceux saisis dans leur espace.</p>';
+  var manque = d.besoins.length ? '<p style="font-size:12px;line-height:1.7;color:#374151"><b>Ce qui manque encore pour aller plus loin :</b> ' + d.besoins.map(function (b) { return esc(String(b).toLowerCase()); }).join(" ; ") + '.</p>' : '';
+  return p + t + manque;
+}
+/* 3 · Références constructeur utilisées */
+function a1ReferencesSectionHtml(clientId, kind) {
+  if (!clientId || typeof a1ModelesDe !== "function") return "";
+  var modeles = a1ModelesDe(clientId, kind).filter(function (g) { return g.machines.length; }); if (!modeles.length) return "";
+  var isGen = kind === "gen", lignes = modeles.map(function (g) {
+    var s = null; g.machines.forEach(function (m) { if (!s) s = a1SpecDeMachine(kind, m); });
+    var m0 = g.machines[0], ref = isGen ? (a1EstEngin(m0) ? (+m0.consoTheoLh > 0 ? (+m0.consoTheoLh).toFixed(1) + " L/h" : "") : (+m0.kwNominal > 0 ? (+m0.kwNominal) + " kW" : (+m0.puissanceKva > 0 ? (+m0.puissanceKva) + " kVA" : ""))) : (+m0.consoTheo > 0 ? (+m0.consoTheo).toFixed(1) + " L/100 km" : "");
+    var incert = !isGen && g.machines.some(function (m) { return m.specsIncertain || /indicatif/i.test(String(m.specsSource || "")); });
+    var source = s ? (s.builtin ? "bibliothèque BSM" : (s.sources && s.sources.length ? "documentation constructeur (" + s.sources.length + " source" + (s.sources.length > 1 ? "s" : "") + ")" : "fiche constructeur")) : (ref ? "référence renseignée" : "aucune référence");
+    if (incert) source += " — repère indicatif, à confirmer";
+    var per = a1PeriodicitesDe(clientId).filter(function (p) { return (!p.kind || p.kind === kind) && p.modele === g.cle && p.confirme; }).map(function (p) { return a1FamilleLabel(p.famille).toLowerCase() + " " + a1PeriodiciteTexte(p, kind); });
+    return '<tr>' + RAP_TD('<b>' + esc(g.lib) + '</b> <span style="color:#6B7280">' + g.machines.length + ' machine' + (g.machines.length > 1 ? 's' : '') + '</span>') + RAP_TD(ref ? esc(ref) : '<span style="color:#C0392B">à définir</span>', 1) + RAP_TD(esc(source)) + RAP_TD(per.length ? esc(per.join(" · ")) : '<span style="color:#6B7280">aucune confirmée</span>') + '</tr>';
+  }).join("");
+  return '<p style="font-size:13px;line-height:1.7">Chaque machine est jugée face à la référence de son modèle : la consommation attendue, et les périodicités d’entretien que vous avez confirmées. Une référence « à définir » ou un repère « à confirmer » limite ce que l’analyse peut affirmer sur ce modèle.</p>'
+    + '<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;font-size:12px;page-break-inside:avoid"><thead><tr style="background:#F9FAFB">' + RAP_TH("Modèle") + RAP_TH("Référence", 1) + RAP_TH("Source") + RAP_TH("Périodicités confirmées") + '</tr></thead><tbody>' + lignes + '</tbody></table>'
+    + '<p style="font-size:11.5px;color:#6B7280;margin-top:6px">Les fiches et leurs sources restent consultables dans le Cockpit BSM sur simple demande.</p>';
+}
+/* Les recommandations d'entretien, ajoutées aux recommandations de la période (relues et modifiables avant l'envoi). */
+function a1RecosEntretien(clientId, kind) {
+  if (!clientId) return [];
+  var out = [], fen = (typeof a1FenetreCourante === "function" ? a1FenetreCourante() : null), auj = todayISO();
+  var d = a1EntretienPeriodeDonnees(clientId, kind, fen ? fen.du : auj.slice(0, 7) + "-01", fen ? fen.au : auj);
+  if (d.dues.length) out.push({ titre: "Programmer " + (d.dues.length > 1 ? "les " + d.dues.length + " entretiens dus" : "l’entretien dû"),
+    detail: d.dues.slice(0, 6).map(function (x) { return (x.m.plate || x.m.name || "") + " : " + (x.e.type || "entretien") + " (" + x.why + ")"; }).join(" ; ") + (d.dues.length > 6 ? " ; …" : "") + ". Grouper ce qui est dû sur une même machine en une seule immobilisation.",
+    impact: "Une échéance tenue coûte moins qu’une panne : disponibilité préservée, consommation tenue" });
+  if (d.sansCarnet.length >= 2 && d.sansCarnet.length < d.machines.length) out.push({ titre: "Reconstituer l’historique d’entretien de " + d.sansCarnet.length + " machines",
+    detail: d.sansCarnet.slice(0, 6).map(function (m) { return m.plate || m.name || ""; }).join(", ") + (d.sansCarnet.length > 6 ? "…" : "") + " : dernière vidange, freins, pneus — à déclarer depuis l’espace des équipes ou sur facture d’atelier.",
+    impact: "Sans historique, aucune échéance n’est calculable : le suivi démarre dès la première saisie" });
+  return out.slice(0, 2);
+}
 function a1DisponibiliteSectionHtml(clientId, kind, du, au) {
   var d = a1Disponibilite(clientId, du, au, kind);
   if (!d.declare || !d.machines) return "";
@@ -17404,11 +17512,11 @@ function a1RapportVisuel(rec) {
 }
 function a1RapportRecos(rec, doc) {
   if (rec && rec.recos && rec.recos.length) return rec.recos;
-  var out = [], s = String(doc || ""), i = s.indexOf("Recommandations prioritaires");
-  if (i < 0) return out;
+  var out = [], s = String(doc || ""), i = s.search(/<h2 class="docsec"[^>]*>\d+\. Recommandations prioritaires/);   /* patch 196e : le titre de la section, pas le sommaire de couverture */
+  if (i < 0) i = s.indexOf("Recommandations prioritaires"); if (i < 0) return out;
   var des = function (t) { return String(t || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim(); };
   var re = /<b>(\d+)\. ([^<]*)<\/b><div[^>]*>([^<]*)<\/div>(?:\s*<div[^>]*><b>Impact attendu :<\/b> ([^<]*)<\/div>)?/g, m;
-  var zone = s.slice(i, i + 30000);
+  var fin = s.indexOf('<h2 class="docsec"', i + 40), zone = s.slice(i, fin > 0 ? fin : i + 60000);   /* patch 196e : jusqu'au titre suivant */
   while ((m = re.exec(zone)) && out.length < 8) out.push({ titre: des(m[2]), detail: des(m[3]), impact: des(m[4] || "") });
   return out;
 }
@@ -24519,6 +24627,7 @@ async function a1ExecReport(kind, opts){
     return out.slice(0,4);
   })();
   let recos=(ia.recos&&ia.recos.length)?ia.recos:fallbackRecos;
+  { const _re=a1RecosEntretien(clientId, kind); if(_re.length) recos=recos.concat(_re.filter(r=>!recos.some(x=>x.titre===r.titre)).slice(0,1)).slice(0,5); }   /* patch 196 : les recommandations d'entretien, relues et modifiables comme les autres */
   if(!(ia.recos&&ia.recos.length)) iaSource="calcul";
   // Un rapport archivé n'est plus modifiable : la relecture se fait ici, avant qu'il soit figé.
   // Deux chemins archivaient sans relecture. Ils le peuvent encore — génération en lot,
@@ -24640,7 +24749,7 @@ async function a1ExecReport(kind, opts){
   secs.push(["Indicateurs clés de la période", `<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;page-break-inside:avoid"><tbody>${kpis.map(k=>kpiRow(k[0],k[1])).join("")}</tbody></table>`]);
   { const _fen=a1FenetreCourante(), _mois=todayISO().slice(0,7);   // patch 70 : disponibilité, sur la fenêtre du rapport ou le mois en cours
     const _du=_fen?_fen.du:_mois+"-01", _au=_fen?_fen.au:todayISO();
-    const _dispo=a1DisponibiliteSectionHtml(clientId, kind, _du, _au); if(_dispo) secs.push(["Disponibilité du parc", _dispo]); const _pan=a1PannesSectionHtml(clientId, kind, _du, _au); if(_pan) secs.push(["Pannes déclarées", _pan]); const _ctl=a1ControlesSectionHtml(clientId, kind, _du, _au); if(_ctl) secs.push(["Contrôles du mois par vos équipes", _ctl]); const _bud=a1BudgetSectionHtml(clientId, kind); if(_bud) secs.push(["Budget d'entretien — réalisé et prévu", _bud]); const _sil=a1SilencesSectionHtml(clientId, kind, _du, _au); if(_sil) secs.push(["À confirmer avec le client", _sil]); }   // patch 71, 73
+    const _dispo=a1DisponibiliteSectionHtml(clientId, kind, _du, _au); if(_dispo) secs.push(["Disponibilité du parc", _dispo]); const _pan=a1PannesSectionHtml(clientId, kind, _du, _au); if(_pan) secs.push(["Pannes déclarées", _pan]); const _ctl=a1ControlesSectionHtml(clientId, kind, _du, _au); if(_ctl) secs.push(["Contrôles du mois par vos équipes", _ctl]); const _ent=a1EntretienPeriodeSectionHtml(clientId, kind, _du, _au); if(_ent) secs.push(["Entretien de la période", _ent]); /* patch 196 */ const _bud=a1BudgetSectionHtml(clientId, kind); if(_bud) secs.push(["Budget d'entretien — réalisé et prévu", _bud]); const _don=a1DonneesRecuesSectionHtml(clientId, kind, _du, _au); if(_don) secs.push(["Données reçues sur la période", _don]); /* patch 196 */ const _sil=a1SilencesSectionHtml(clientId, kind, _du, _au); if(_sil) secs.push(["À confirmer avec le client", _sil]); }   // patch 71, 73
   // Le classement NOMINATIF ne part pas dans le document remis (doctrine : aucune
   // imputation contre une personne). On remet l'ecart mesure, sans nom ; le detail
   // nominatif reste a l'ecran et dans l'archive interne.
@@ -24755,6 +24864,7 @@ async function a1ExecReport(kind, opts){
   // Le registre brut des relevés NE figure PAS dans le rapport client (données que le client connaît) :
   // la traçabilité complète reste dans le Cockpit, mentionnée en méthodologie et consultable sur demande.
   { const _ret=rapportSectionsRetirees(); for(let _i=secs.length-1;_i>=0;_i--) if(_ret.some(p=>String(secs[_i][0]).indexOf(p)===0)) secs.splice(_i,1); }   // patch 136 : sections retirées du document client (demande ALTHEA, réglable)
+  { const _refs=a1ReferencesSectionHtml(clientId, kind); if(_refs) secs.push(["Références constructeur utilisées", _refs]); }   /* patch 196 : après toutes les sections ; le lexique se replace ensuite derrière les recommandations */
   { const _il=secs.findIndex(s=>/^Lexique/.test(String(s[0]))), _ir=secs.findIndex(s=>/^Recommandations/.test(String(s[0]))); if(_ir>=0&&_il>_ir+1){ const _lx=secs.splice(_il,1)[0]; secs.splice(_ir+1,0,_lx); } }   // patch 136 : le lexique suit les recommandations, sur la même page
   const isFirst=(DB.a1execreports||[]).filter(x=>x.clientId===(clientId||"")&&x.kind===kind).length===0;
   const body=`
