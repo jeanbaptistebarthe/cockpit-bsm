@@ -691,8 +691,6 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
     <div class="navgroup">PROGRAMME DE PARC</div>
     <div class="navitem" data-scr="a1parc" onclick="setScreen('a1parc')"><span class="ic">🚗</span><span class="lbl">Parc</span></div>
     <div class="navitem" data-scr="a1suivi" onclick="setScreen('a1suivi')"><span class="ic">📬</span><span class="lbl">Suivi du mois</span></div>
-    <div class="navitem" data-scr="a1fleet" onclick="setScreen('a1fleet')"><span class="ic">🚗</span><span class="lbl">Véhicules</span></div>
-    <div class="navitem" data-scr="a1genset" onclick="setScreen('a1genset')"><span class="ic">🔌</span><span class="lbl">Groupes et engins</span></div>
     <div class="navitem" data-scr="gpspresta" onclick="setScreen('gpspresta')"><span class="ic">📡</span><span class="lbl">Prestataire GPS</span></div>
     <div class="navitem" data-scr="a1aero" onclick="setScreen('a1aero')"><span class="ic">✈️</span><span class="lbl">Flotte aérienne</span><span class="badge-nav" style="background:var(--muted)">à venir</span></div>
     <div class="navgroup">MÉTHODE R5®</div>
@@ -844,7 +842,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.1";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.2";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
@@ -12136,6 +12134,147 @@ function merSitePeriodicitesDocHtml(cid, f) {
   var mods = merSiteModeles(f); if (!mods.length) return "";
   return '<div style="font-size:10.5px;margin:2px 0 6px"><b>Périodicités, marque par marque :</b> ' + mods.map(function (m) { var mach = a1ModeleMachines(cid, m.kind, m.cle), e = a1ModelePeriodicitesEtat(cid, m.kind, m.cle, mach.length ? mach : [{ marque: m.marque, modele: m.modele }]); return esc(m.lib) + ' (' + e.libelle + ') : ' + esc(a1ModelePeriodicitesResume(cid, m.kind, m.cle, mach.length ? mach : [{ marque: m.marque, modele: m.modele }])); }).join(" ; ") + '</div>';
 }
+/* ================== PARC D3 (patch 193g, v6.100.2, 22/10/2026) ==================
+   1. La fiche constructeur est rattachée à chaque machine (specId) : une fiche par modèle, partagée par ses machines, ouverte
+      depuis la ligne de la machine ou du modèle ; « Rattacher aux n machines » quand il en manque.
+   2. Une pièce déposée ou ajoutée se rattache à une machine ; une facture d'atelier devient une intervention d'un clic, et la
+      pièce est alors intégrée. Le Cockpit ne lit pas les factures : il lit les cartes grises et les pages de carnet.
+   3. Le Cockpit applique ce que le client déclare et signale ce qui ne colle pas (date à venir, compteur en recul, même
+      entretien deux fois, déclaration refusée faute de machine reconnue) : il ne corrige jamais seul, JB tranche d'un clic. */
+var _a1MaintDepot = "";
+function a1SpecDeMachine(kind, m) {
+  if (!m) return null;
+  var s = null;
+  if (m.specId) s = (DB.a1specs || []).find(function (x) { return x.id === m.specId; }) || null;
+  if (!s && a1ModeleLib(m)) {
+    if (kind !== "gen") { try { s = (typeof rechercheFicheConnue === "function") ? rechercheFicheConnue(m) : null; } catch (e) { s = null; } }
+    if (!s) { try { s = a1SpecLookup(kind, m) || null; } catch (e) { s = null; } }
+  }
+  return s || null;
+}
+/* Pose specId sur chaque machine dont le modèle a une fiche connue ; rien d'autre n'est touché (la référence reste celle de la machine). */
+function a1SpecsRattacher(cid, kind) {
+  var n = 0, kinds = kind ? [kind] : ["fleet", "gen"];
+  kinds.forEach(function (k) {
+    (DB[k === "gen" ? "a1gensets" : "a1vehicles"] || []).forEach(function (m) {
+      if ((cid && m.clientId !== cid) || m.statut === "cede") return;
+      if (m.specId && (DB.a1specs || []).some(function (x) { return x.id === m.specId; })) return;
+      var s = a1SpecDeMachine(k, m); if (!s || !s.id) return;
+      m.specId = s.id; n++;
+    });
+  });
+  return n;
+}
+/* La fiche du modèle, posée sur toutes ses machines : specId partout, la référence là où elle manque. */
+function a1FicheRattacherModele(cid, kind, cle) {
+  var M = a1ModeleMachines(cid, kind, cle), s = null, n = 0;
+  M.forEach(function (m) { if (!s) s = a1SpecDeMachine(kind, m); });
+  if (!s) { toast("Aucune fiche connue pour ce modèle : ajoute-la, ou lance la recherche."); return 0; }
+  M.forEach(function (m) {
+    m.specId = s.id;
+    if (kind === "gen") { if (!(+m.consoTheoLh > 0) && s.consoTheoLh) m.consoTheoLh = s.consoTheoLh; if (!(+m.puissanceKva > 0) && s.kva) m.puissanceKva = s.kva; if (!(+m.puissanceKw > 0) && s.kw) m.puissanceKw = s.kw; if (!(+m.reservoirL > 0) && s.reservoirL) m.reservoirL = s.reservoirL; }
+    else { if (!(+m.consoTheo > 0) && s.consoTheo) { m.consoTheo = s.consoTheo; m.specsIncertain = !!s.provisional; } if (!(+m.reservoir > 0) && s.reservoir) m.reservoir = s.reservoir; if (!m.motorisation && s.motorisation) m.motorisation = s.motorisation; }
+    if (!m.specSource) m.specSource = s.builtin ? "bibliothèque" : "constructeur";
+    m.specsSource = "Fiche technique : " + a1SpecLabel(s); n++;
+  });
+  save(); if (typeof renderA1Parc === "function") renderA1Parc();
+  toast("📘 " + a1SpecLabel(s) + " : fiche rattachée à " + n + " machine" + (n > 1 ? "s" : "") + ".");
+  return n;
+}
+function a1ParcFicheModeleLigne(E, g) {
+  var cid = E.cid, kind = g.kind, x0 = g.machines[0], s = null; g.machines.forEach(function (x) { if (!s) s = a1SpecDeMachine(kind, x.m); });
+  var n = g.machines.length, ratt = s ? g.machines.filter(function (x) { return x.m.specId === s.id; }).length : 0, sansRef = g.machines.filter(function (x) { return a1ParcFicheEtat(x) !== "complete"; }).length;   /* patch 193h */
+  var plan = s && s.entretien ? Object.keys(s.entretien).filter(function (k) { var p = s.entretien[k]; return p && (+p.km || +p.h || +p.heures || +p.mois); }).length : 0;
+  var badge = g.etat === "complete" ? '<span class="badge b-green">fiche complète</span>' : g.etat === "indicative" ? '<span class="badge b-orange">repère indicatif, à confirmer</span>' : g.etat === "partielle" ? '<span class="badge b-orange">fiche partielle</span>' : '<span class="badge b-red">fiche manquante</span>';
+  var ficheTxt = s ? '📘 Fiche : <b>' + esc(a1SpecLabel(s)) + '</b>' + (s.builtin ? ' (bibliothèque BSM)' : (s.sources && s.sources.length ? ' (recherche, ' + s.sources.length + ' source' + (s.sources.length > 1 ? 's' : '') + ')' : '')) + (plan ? ' · plan d’entretien : ' + plan + ' famille' + (plan > 1 ? 's' : '') : ' · sans plan d’entretien') + ' · rattachée à <b>' + ratt + '</b> / ' + n : 'aucune fiche connue pour ce modèle';
+  var gestes = s
+    ? '<button class="cta ghost sm" onclick="openA1SpecForm(\'' + s.id + '\',\'' + kind + '\')" title="La fiche du modèle : référence, sources, plan d’entretien">Ouvrir la fiche</button>' + (sansRef ? ' <button class="cta gold sm" onclick="a1FicheRattacherModele(\'' + cid + '\',\'' + kind + '\',\'' + g.cle + '\')" title="La référence de la fiche posée sur les machines qui n’en ont pas">Poser la référence sur ' + sansRef + ' machine' + (sansRef > 1 ? 's' : '') + '</button>' : '')
+    : '<button class="cta gold sm" onclick="openA1SpecFormPrefilled({kind:\'' + kind + '\',brand:\'' + esc(x0.m.marque || "") + '\',model:\'' + esc(x0.m.modele || "") + '\'})">+ Fiche pour ce modèle</button>' + (typeof rechercheToutesManquantesLancer === "function" && kind !== "gen" ? ' <button class="cta ghost sm" onclick="rechercheToutesManquantesLancer(\'' + cid + '\')">🔎 Chercher</button>' : '');
+  return '<div id="a1p-modele-' + g.cle + '" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid var(--line)"><div style="min-width:0"><b>' + (g.modele ? esc(g.modele) : "Modèle non renseigné") + '</b> <span style="color:var(--muted)">' + n + ' ' + (kind === "gen" ? (g.engin ? "engin" : "groupe") : "véhicule") + (n > 1 ? "s" : "") + '</span><div style="font-size:12px;color:var(--muted)">' + (g.reference ? esc(g.reference) : "consommation de référence à définir") + ' · ' + g.machines.slice(0, 4).map(function (x) { return esc(x.nom); }).join(", ") + (n > 4 ? "…" : "") + '</div><div style="font-size:12px;margin-top:2px">' + ficheTxt + '</div></div><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' + badge + '<span class="a1-int" style="display:inline-flex;gap:6px">' + gestes + '</span></div></div>';
+}
+/* ---- pièces par machine ---- */
+function a1PiecesDeMachine(cid, machineId) {
+  return { depots: (DB.a1depots || []).filter(function (d) { return d.clientId === cid && d.machineId === machineId; }),
+    docs: (DB.a1docs || []).filter(function (d) { return d.clientId === cid && d.machineId === machineId; }),
+    lectures: (DB.a1lectures || []).filter(function (l) { return l.clientId === cid && l.vehicleId === machineId; }) };
+}
+function a1MachinesOptionsHtml(cid, choisi) { return '<option value="">— tout le parc</option>' + a1ParcMachines(cid).map(function (x) { return '<option value="' + x.m.id + '"' + (x.m.id === choisi ? ' selected' : '') + '>' + esc(x.nom) + '</option>'; }).join(""); }
+function a1DepotRattacher(id, machineId) {
+  var d = (DB.a1depots || []).find(function (x) { return x.id === id; }); if (!d) return false;
+  var x = machineId ? a1MachineParId(machineId) : null;
+  d.machineId = x ? x.m.id : ""; d.machine = x ? (x.m.plate || x.m.name || "") : "";
+  save(); if (typeof renderA1Parc === "function") renderA1Parc(); return true;
+}
+function a1DocRattacher(id, machineId) {
+  var d = (DB.a1docs || []).find(function (x) { return x.id === id; }); if (!d) return false;
+  var x = machineId ? a1MachineParId(machineId) : null;
+  d.machineId = x ? x.m.id : ""; d.machine = x ? (x.m.plate || x.m.name || "") : "";
+  save(); if (typeof renderA1Parc === "function") renderA1Parc(); return true;
+}
+/* Une facture ou un ticket d'atelier atteste une intervention : on la saisit, la pièce est intégrée et reste liée (depotId). */
+function a1DepotVersIntervention(id) {
+  var d = (DB.a1depots || []).find(function (x) { return x.id === id; }); if (!d) return;
+  if (!d.machineId) { toast("Rattache d’abord la pièce à une machine (colonne Machine)."); return; }
+  var x = a1MachineParId(d.machineId); if (!x) { toast("Machine introuvable."); return; }
+  _a1MaintDepot = d.id; openA1MaintForm(x.kind, x.m.id, "");
+}
+function a1ParcDepotsTableHtml(E) {
+  var cid = E.cid, L = E.depots.liste;
+  if (!L.length) return '<div class="hint">Aucun dépôt : le client dépose ses pièces dans son espace (cartes grises, carnet, relevés carburant, tickets). Le Cockpit lit les cartes grises et les pages de carnet ; une autre pièce se rattache ici à sa machine, et une facture d’atelier devient une intervention d’un clic.</div>';
+  var rows = L.slice(0, 12).map(function (d) {
+    var lu = (DB.a1lectures || []).some(function (l) { return (l.depotId && l.depotId === d.id) || (l.fileId && l.fileId === d.fileId); });
+    var sel = '<select onchange="a1DepotRattacher(\'' + d.id + '\', this.value)" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;font-size:12px;max-width:150px">' + a1MachinesOptionsHtml(cid, d.machineId) + '</select>';
+    var interv = (d.machineId && !d.traite && /ticket|carnet|autre|facture/.test(String(d.type || ""))) ? ' <button class="cta ghost sm" onclick="a1DepotVersIntervention(\'' + d.id + '\')" title="Saisir l’intervention que cette pièce atteste : la pièce est alors intégrée et reste liée">✎ Intervention</button>' : '';
+    return '<tr><td>' + frDate(String(d.ts || "").slice(0, 10)) + '</td><td>' + esc((typeof MER_TYPES_DEPOT !== "undefined" && MER_TYPES_DEPOT[d.type]) || d.type || "") + (lu ? '<div style="font-size:10.5px;color:var(--green)">lu par le Cockpit</div>' : '') + '</td><td>' + (d.lien ? '<a href="' + esc(d.lien) + '" target="_blank" rel="noopener">' + esc(d.nom || "ouvrir") + '</a>' : esc(d.nom || "—")) + '</td><td class="a1-int">' + sel + '</td><td>' + esc(d.auteur || "") + '</td><td>' + (d.traite ? '<span class="badge b-green">intégré le ' + frDate(String(d.traiteLe || "").slice(0, 10)) + '</span>' : '<span class="badge b-orange">à intégrer</span>') + '</td><td class="a1-int" style="white-space:nowrap">' + (d.traite ? '' : '<button class="cta ghost sm" onclick="depotMarquerTraite(\'' + d.id + '\');renderA1Parc()">✓ Intégré</button>') + interv + '</td></tr>';
+  }).join("");
+  return '<table><thead><tr><th>Date</th><th>Dépôt</th><th>Pièce</th><th class="a1-int">Machine</th><th>Par</th><th>État</th><th class="a1-int"></th></tr></thead><tbody>' + rows + '</tbody></table>' + (L.length > 12 ? '<div class="hint">' + (L.length - 12) + ' dépôt(s) plus ancien(s) dans la fiche du client.</div>' : '');
+}
+function a1ParcPiecesTableHtml(E, pieces) {
+  var cid = E.cid;
+  if (!pieces.length) return '<div class="hint">Aucune pièce : factures d’atelier, constats, photos, carnets — tout ce qui enrichit l’analyse. Chaque pièce peut se rattacher à une machine.</div>';
+  return '<table><thead><tr><th>Pièce</th><th>Catégorie</th><th class="a1-int">Machine</th><th>Ajoutée le</th><th class="a1-int"></th></tr></thead><tbody>' + pieces.slice(0, 10).map(function (d) { return '<tr><td><b>' + esc(d.title || "—") + '</b>' + (d.note ? '<div style="font-size:11px;color:var(--muted)">' + esc(String(d.note).slice(0, 90)) + '</div>' : '') + '</td><td>' + esc(d.category || "") + '</td><td class="a1-int"><select onchange="a1DocRattacher(\'' + d.id + '\', this.value)" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;font-size:12px;max-width:150px">' + a1MachinesOptionsHtml(cid, d.machineId) + '</select></td><td>' + frDate(d.createdAt) + '</td><td class="a1-int">' + (d.hasFile ? '<button class="cta ghost sm" onclick="a1FileOpen(\'' + d.id + '\')">📎 Ouvrir</button>' : '') + '</td></tr>'; }).join("") + '</tbody></table>';
+}
+/* ---- ce que le client a déclaré et qui ne colle pas ---- */
+function a1DeclarationsAVerifier(cid, machines) {
+  var out = [], auj = todayISO(), M = {};
+  (machines || a1ParcMachines(cid)).forEach(function (x) { M[x.m.id] = x; });
+  var maint = (DB.a1maint || []).filter(function (e) { return e.clientId === cid && M[e.machineId]; });
+  maint.forEach(function (e) {
+    if (e.by !== "espace client" || e.verifie) return;
+    var x = M[e.machineId], motifs = [];
+    if (String(e.date || "").slice(0, 10) > auj) motifs.push("date à venir (" + frDate(e.date) + ")");
+    if (+e.at > 0) {
+      var avant = maint.filter(function (o) { return o !== e && o.machineId === e.machineId && +o.at > 0 && String(o.date || "") < String(e.date || ""); }).reduce(function (a, o) { return Math.max(a, +o.at); }, 0);
+      if (avant && +e.at < avant) motifs.push("compteur en recul : " + (+e.at).toLocaleString("fr-FR") + " " + x.unite + " après " + avant.toLocaleString("fr-FR") + " " + x.unite);
+      /* patch 193h : pas de comparaison à un relevé, qui porte une distance et non l'odomètre */
+    }
+    var fam = a1FamilleEntretien(e.type);
+    if (fam !== "autre" && maint.some(function (o) { var j = a1JoursEntre(o.date, e.date); return o !== e && o.machineId === e.machineId && a1FamilleEntretien(o.type) === fam && j !== null && Math.abs(j) <= 7; })) motifs.push("même entretien déclaré deux fois à moins de 7 jours");
+    if (motifs.length) out.push({ type: "entretien", id: e.id, e: e, x: x, motifs: motifs });
+  });
+  var depuis = a1DateDecalee(auj, -60);
+  (DB.a1parcEvenements || []).forEach(function (j) { if (j.clientId !== cid || j.applique !== false || j.rejoue || String(j.recu || "").slice(0, 10) < depuis) return; out.push({ type: "refus", id: j.id, j: j, motifs: [j.motif || "non appliquée"] }); });
+  return out;
+}
+function a1DeclarationValider(id) { var e = (DB.a1maint || []).find(function (x) { return x.id === id; }); if (!e) return false; e.verifie = true; e.verifieLe = todayISO(); save(); if (typeof renderA1Parc === "function") renderA1Parc(); return true; }
+function a1DeclarationRejouer(journalId, machineId) {
+  var j = (DB.a1parcEvenements || []).find(function (x) { return x.id === journalId; }); if (!j) return false;
+  if (!machineId) { toast("Choisis la machine concernée."); return false; }
+  var r = a1ParcAppliquerEvenement({ clientId: j.clientId, machineId: machineId, machine: "", evenement: j.evenement, date: j.date, detail: j.detail, compteur: j.compteur, cout: j.cout, famille: j.famille, quand: j.recu, auteur: j.auteur, auteurEmail: j.auteurEmail }, "espace client (rattachée par BSM)");
+  if (r.ok) { j.rejoue = true; j.rejoueLe = todayISO(); j.rejoueMachineId = machineId; save(); if (typeof renderA1Parc === "function") renderA1Parc(); toast("Déclaration appliquée à la machine choisie."); }
+  else toast("Toujours refusée : " + r.motif);
+  return !!r.ok;
+}
+function a1ParcVerifierCardHtml(E) {
+  var L = E.declarations || []; if (!L.length) return '<div id="a1p-verifier"></div>';
+  var cid = E.cid;
+  var rows = L.map(function (d) {
+    if (d.type === "refus") { var j = d.j; return '<tr><td><b>' + esc(j.machine || "machine non reconnue") + '</b><div style="font-size:11px;color:var(--muted)">' + esc(a1EvenementLabel(j.evenement)) + ' · ' + frDate(j.date) + (+j.compteur > 0 ? ' · ' + (+j.compteur).toLocaleString("fr-FR") : '') + (j.auteur ? ' · ' + esc(j.auteur) : '') + '</div></td><td>' + esc(d.motifs.join(" · ")) + '</td><td class="a1-int" style="white-space:nowrap"><select id="a1p-rej-' + j.id + '" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;font-size:12px;max-width:150px">' + a1MachinesOptionsHtml(cid) + '</select> <button class="cta ghost sm" onclick="a1DeclarationRejouer(\'' + j.id + '\', (document.getElementById(\'a1p-rej-' + j.id + '\')||{}).value)">Rattacher et appliquer</button></td></tr>'; }
+    var e = d.e, x = d.x;
+    return '<tr><td><b>' + esc(x.nom) + '</b><div style="font-size:11px;color:var(--muted)">' + esc(e.type || "") + ' · ' + frDate(e.date) + (+e.at > 0 ? ' · ' + (+e.at).toLocaleString("fr-FR") + ' ' + x.unite : '') + '</div></td><td>' + esc(d.motifs.join(" · ")) + '</td><td class="a1-int" style="white-space:nowrap"><button class="cta ghost sm" onclick="openA1MaintForm(\'' + x.kind + '\',\'' + x.m.id + '\',\'' + e.id + '\')">✎ Corriger</button> <button class="cta ghost sm" onclick="a1DeclarationValider(\'' + e.id + '\')">✓ C’est juste</button></td></tr>';
+  }).join("");
+  return '<div class="card" id="a1p-verifier" style="border-left:3px solid var(--orange)"><h2>👀 Déclarations du client à vérifier — ' + L.length + '</h2><div class="hint">Le Cockpit applique ce que le client déclare, puis signale ce qui ne colle pas : il ne corrige jamais seul. Une déclaration refusée faute de machine reconnue se rattache ici.</div><div style="overflow-x:auto"><table><thead><tr><th>Déclaration</th><th>Ce qui ne colle pas</th><th class="a1-int"></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+}
 function a1PeriodicitesDe(clientId) {
   return (DB.a1periodicites || []).filter(function (p) { return (p.clientId || "") === (clientId || ""); });
 }
@@ -23382,10 +23521,10 @@ function saveA1Maint(kind, machineId, id){
   const m=(kind==="gen"?DB.a1gensets:DB.a1vehicles).find(x=>x.id===machineId);
   const obj={ kind, machineId, clientId:(m&&m.clientId)||"", date:val("mt-date")||todayISO(), type:val("mt-type")||"Autre",
     at:+val("mt-at")||0, cost:+val("mt-cost")||0, currency:DB.meta.defaultCurrency||"MGA",
-    nextDate:val("mt-next")||"", nextEvery:+val("mt-every")||0, notes:(val("mt-notes")||"").trim(), by:(currentUser&&currentUser.login)||"" };
+    nextDate:val("mt-next")||"", nextEvery:+val("mt-every")||0, notes:(val("mt-notes")||"").trim(), by:(currentUser&&currentUser.login)||"" }; if(typeof _a1MaintDepot!=="undefined"&&_a1MaintDepot) obj.depotId=_a1MaintDepot;   /* patch 193 D3 */
   const ex=id?(DB.a1maint||[]).find(x=>x.id===id):null;
   const _jum=ex?null:a1EntretienExiste(obj, id);
-  const _ecrire=function(){ if(ex){ Object.assign(ex,obj); } else { obj.id=uid(); obj.createdAt=todayISO(); DB.a1maint.push(obj); }
+  const _ecrire=function(){ if(ex){ Object.assign(ex,obj); } else { obj.id=uid(); obj.createdAt=todayISO(); DB.a1maint.push(obj); } if(obj.depotId){ var _dp=(DB.a1depots||[]).find(x=>x.id===obj.depotId); if(_dp&&!_dp.traite){ _dp.traite=true; _dp.traiteLe=new Date().toISOString(); _dp.traitePar="intervention saisie"; } } _a1MaintDepot="";
     save(); toast("🛠️ Carnet d'entretien mis à jour."); openA1Diag(kind, machineId); };
   if(!_jum){ _ecrire(); return; }
   // Deux interventions identiques, c'est aussi deux échéances : le carnet réclame deux fois
@@ -24822,9 +24961,7 @@ function a1ParcEtat(cid, mois) {
     var L = a1ParcLogsDe(x), Lm = L.filter(function (l) { return String(l.date || "").slice(0, 7) === mois; });
     x.releves = L.length; x.relevesMois = Lm.length;
     x.dernier = L.reduce(function (a, l) { return l.date && String(l.date) > a ? String(l.date) : a; }, "");
-    x.compteur = L.reduce(function (a, l) { var v = x.kind === "gen" ? +l.hours : +l.km; return v > a ? v : a; }, 0);
-    if (x.kind === "gen" && +x.m.heuresCompteur > x.compteur) x.compteur = +x.m.heuresCompteur;
-    if (x.kind === "fleet" && +x.m.kmActuel > x.compteur) x.compteur = +x.m.kmActuel;
+    x.compteur = x.kind === "gen" ? (+x.m.heuresCompteur || 0) : (+x.m.kmActuel || 0);   /* patch 193h : le compteur déclaré à la mise en route ; un relevé porte la distance du plein, pas l'odomètre */
     x.sources = {}; Lm.forEach(function (l) { var s = l.source || "saisie"; x.sources[s] = (x.sources[s] || 0) + 1; });
     nRel += Lm.length; if (Lm.length) avec.push(x); else sans.push(x);
     if (x.dernier > dernier) dernier = x.dernier;
@@ -24859,12 +24996,14 @@ function a1ParcEtat(cid, mois) {
   E.rapport = E.rapports.filter(function (r) { return r.rep; })[0] || E.rapports[0] || null;
   E.qualite = kinds.map(function (k) { var q = null; try { q = a1DataQuality(k, cid); } catch (e) { q = null; } return q ? { kind: k, pct: q.pct, checks: q.checks } : null; }).filter(Boolean);
   E.besoins = []; kinds.forEach(function (k) { try { (a1BesoinsDonnees(k, cid) || []).forEach(function (b) { if (b.etat !== "ok") E.besoins.push(Object.assign({ kind: k }, b)); }); } catch (e) { } });
+  a1SpecsRattacher(cid); M.forEach(function (x) { x.spec = a1SpecDeMachine(x.kind, x.m); var pc = a1PiecesDeMachine(cid, x.m.id); x.pieces = pc.depots.length + pc.docs.length + pc.lectures.length; }); E.declarations = a1DeclarationsAVerifier(cid, M);   /* patch 193 D3 : la fiche et les pièces de chaque machine, les déclarations à vérifier */
   E.manques = a1ParcManques(E);
   return E;
 }
 /* Ce qui manque pour l'analyse : une ligne par manque, chacune menant à l'endroit où le combler. */
 function a1ParcManques(E) {
   var out = [], n;
+  n = (E.declarations || []).length; if (n) out.push({ ton: "att", n: n, txt: n + " déclaration" + (n > 1 ? "s" : "") + " du client à vérifier", onglet: "entretien", cible: "verifier" });   /* patch 193 D3 */
   n = E.releves.sans.length; if (n) out.push({ ton: "ko", n: n, txt: n + " machine" + (n > 1 ? "s" : "") + " sans relevé ce mois : " + E.releves.sans.slice(0, 4).map(function (x) { return esc(x.nom); }).join(", ") + (n > 4 ? "…" : ""), onglet: "donnees", cible: "sans" });
   n = E.fiches.sans; if (n) out.push({ ton: "ko", n: n, txt: n + " fiche" + (n > 1 ? "s" : "") + " constructeur à intégrer" + (E.fiches.connues ? " (dont " + E.fiches.connues + " connue" + (E.fiches.connues > 1 ? "s" : "") + " de BSM, à poser d’un clic)" : ""), onglet: "fiches", cible: "manquantes" });
   n = E.fiches.incertaines.length; if (n) out.push({ ton: "att", n: n, txt: n + " référence" + (n > 1 ? "s" : "") + " indicative" + (n > 1 ? "s" : "") + " à confirmer sur la fiche : " + E.fiches.incertaines.slice(0, 3).map(function (x) { return esc(x.modele || x.nom); }).join(", "), onglet: "fiches", cible: "incertaines" });
@@ -24973,13 +25112,13 @@ function a1ParcMachinesHtml(E) {
       + '<td>' + (x.modele ? a1ParcLien("fiches", "modele-" + a1NameKey(x.modele), esc(x.modele), "La fiche constructeur de ce modèle") : '<span style="color:var(--muted)">modèle non renseigné</span>') + '</td>'
       + '<td style="text-align:right">' + (x.compteur ? x.compteur.toLocaleString("fr-FR") + " " + x.unite : "—") + '</td>'
       + '<td style="text-align:right">' + a1ParcLien("donnees", "releves", "<b>" + x.relevesMois + "</b> ce mois · " + x.releves, "Les relevés reçus") + (x.dernier ? '<div style="font-size:10.5px;color:var(--muted)">dernier : ' + frDate(x.dernier) + '</div>' : '') + '</td>'
-      + '<td>' + a1ParcLien("fiches", f === "complete" ? "modele-" + a1NameKey(x.modele) : "manquantes", fiche, "Aller aux fiches constructeur") + '</td>'
+      + '<td>' + (x.spec ? '<a href="#" class="a1p-lien" title="Ouvrir la fiche constructeur : ' + esc(a1SpecLabel(x.spec)) + '" onclick="event.preventDefault();openA1SpecForm(\'' + x.spec.id + '\',\'' + x.kind + '\')">' + fiche + '</a>' : a1ParcLien("fiches", f === "complete" ? "modele-" + a1NameKey(x.modele) : "manquantes", fiche, "Aller aux fiches constructeur")) + '</td>' + '<td>' + (x.pieces ? a1ParcLien("documents", "pieces", "📎 " + x.pieces, "Les pièces rattachées à cette machine") : '<span style="color:var(--muted)">—</span>') + '</td>'
       + '<td>' + a1ParcLien("entretien", nd ? "dues" : "machine-" + x.m.id, ent, "Aller à l’entretien de cette machine") + '</td>'
       + '<td class="a1-int"><div class="rowact"><button class="iconbtn" title="Diagnostic" onclick="openA1Diag(\'' + x.kind + '\',\'' + x.m.id + '\')">🔬</button><button class="iconbtn" title="Relevés" onclick="' + logs + '">📄</button><button class="iconbtn" title="Fiche de la machine" onclick="' + edit + '">✎</button></div></td></tr>';
   }).join("");
   return '<div class="card" id="a1p-machines"><h2>' + E.nMachines + ' machine' + (E.nMachines > 1 ? 's' : '') + ' suivie' + (E.nMachines > 1 ? 's' : '') + '</h2><div class="hint">Un clic sur la machine ouvre son diagnostic ; sur le modèle, sa fiche constructeur ; sur l’entretien, son carnet.</div>'
-    + (E.nMachines ? '<div style="overflow-x:auto"><table class="clickrows"><thead><tr><th>Machine</th><th>Modèle</th><th style="text-align:right">Compteur</th><th style="text-align:right">Relevés</th><th>Fiche</th><th>Entretien</th><th class="a1-int"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="empty">Aucune machine : ajoute-la ci-dessous, ou remplis la fiche de mise en route sur site.</div>') + '</div>'
-    + a1ParcGestes([["+ Véhicule", "openA1Vehicle()", "gold"], ["+ Groupe ou engin", "openA1Genset()"], ["⇊ Importer des relevés", kind === "gen" ? "openA1GenImport()" : "openA1Import()"], ["📋 Coller un tableau", "openA1Paste('" + kind + "')"], ["📋 Parc complet", "openA1Roster('" + kind + "')", "", "Toutes les machines, actives et cédées"], ["🖨 Fiche de relevé à imprimer", "printA1CollectSheetFor('" + kind + "','" + cid + "')"], ["📱 Mise en route sur site", "openMerSite('" + cid + "')"]]);
+    + (E.nMachines ? '<div style="overflow-x:auto"><table class="clickrows"><thead><tr><th>Machine</th><th>Modèle</th><th style="text-align:right">Compteur</th><th style="text-align:right">Relevés</th><th>Fiche</th><th>Pièces</th><th>Entretien</th><th class="a1-int"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="empty">Aucune machine : ajoute-la ci-dessous, ou remplis la fiche de mise en route sur site.</div>') + '</div>'
+    + a1ParcGestes([["+ Véhicule", "openA1Vehicle()", "gold"], ["+ Groupe ou engin", "openA1Genset()"], ["⇊ Importer des relevés", kind === "gen" ? "openA1GenImport()" : "openA1Import()"], ["📋 Coller un tableau", "openA1Paste('" + kind + "')"], ["📋 Parc complet", "openA1Roster('" + kind + "')", "", "Toutes les machines, actives et cédées"], ["🖨 Fiche de relevé à imprimer", "printA1CollectSheetFor('" + kind + "','" + cid + "')"], ["📱 Mise en route sur site", "openMerSite('" + cid + "')"], ["🚗 Vue classique des véhicules", "setScreen('a1fleet')", "", "L’ancien écran Véhicules, avec ses cartes d’analyse"], ["🔌 Vue classique des groupes", "setScreen('a1genset')", "", "L’ancien écran Groupes et engins"]]);
 }
 /* ---- 3 · Entretien (D1 : échéances, interventions du mois, ordres de travail, périodicités par client ; D2 ajoute les périodicités par modèle) ---- */
 function a1ParcEntretienHtml(E) {
@@ -24993,7 +25132,7 @@ function a1ParcEntretienHtml(E) {
   var ot = T.ot.length ? '<table><thead><tr><th>Machine</th><th>Travaux</th><th>État</th><th>Prévu</th><th class="a1-int"></th></tr></thead><tbody>' + T.ot.map(function (o) { return '<tr><td><b>' + esc(o.machine || "") + '</b></td><td>' + esc(o.type || a1FamilleLabel(o.famille)) + '</td><td>' + (o.etat === "programme" ? '<span class="badge b-green">programmé</span>' : '<span class="badge b-orange">à programmer</span>') + '</td><td>' + (o.datePrevue ? frDate(o.datePrevue) + (o.prestataire ? " · " + esc(o.prestataire) : "") : "—") + '</td><td class="a1-int"><button class="cta ghost sm" onclick="openA1OtForm(\'' + o.id + '\')">📅 Programmer</button></td></tr>'; }).join("") + '</tbody></table>' : '<div class="hint">Aucun ordre de travail ouvert : ils naissent des échéances dues (« Rafraîchir »).</div>';
   /* patch 193 D2 : la carte des périodicités vit dans a1ParcPeriodicitesCardHtml (une règle par modèle). */
   var pannes = T.pannes.length ? T.pannes.map(function (p) { return a1ParcLi("ko", "<b>" + esc(p.machine || "") + "</b> · depuis le " + frDate(p.date) + (p.detail ? " · " + esc(p.detail) : "")); }).join("") : "";
-  return '<div class="card" id="a1p-dues"><h2>🛠️ Échéances — ' + T.dues.length + ' due' + (T.dues.length > 1 ? 's' : '') + ', ' + T.proches.length + ' sous 30 jours</h2><div class="hint">Les règles viennent du carnet et des périodicités ; une règle « à confirmer » reste interne tant que le client ne l’a pas confirmée.</div>'
+  return a1ParcVerifierCardHtml(E) + '<div class="card" id="a1p-dues"><h2>🛠️ Échéances — ' + T.dues.length + ' due' + (T.dues.length > 1 ? 's' : '') + ', ' + T.proches.length + ' sous 30 jours</h2><div class="hint">Les règles viennent du carnet et des périodicités ; une règle « à confirmer » reste interne tant que le client ne l’a pas confirmée.</div>'
     + (rows ? '<div style="overflow-x:auto"><table class="clickrows"><thead><tr><th>Machine</th><th>Intervention</th><th>Règle</th><th>Depuis la dernière</th><th>État</th><th class="a1-int"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="hint" style="margin-top:6px">Rien de dû ni de proche.</div>')
     + '<div id="a1p-proches" style="margin-top:8px;font-size:12.5px;color:var(--muted)">À jour : <b>' + aJour.length + '</b> machine' + (aJour.length > 1 ? 's' : '') + (sansCarnet.length ? ' · sans carnet : <b>' + sansCarnet.length + '</b> (' + sansCarnet.slice(0, 5).map(function (x) { return esc(x.nom); }).join(", ") + (sansCarnet.length > 5 ? "…" : "") + ')' : '') + '</div></div>'
     + '<div class="card" id="a1p-interventions"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 style="margin:0">Interventions de ' + esc(lib) + ' — ' + T.interventionsMois.length + '</h2><span class="a1-int" style="display:inline-flex;gap:6px;align-items:center">' + mach + '<button class="cta gold sm" onclick="a1ParcIntervention()">+ Intervention</button></span></div><div style="margin-top:8px">' + interv + '</div></div>'
@@ -25013,7 +25152,7 @@ function a1ParcDonneesHtml(E) {
   var src = function (x) { var k = Object.keys(x.sources || {}); return k.length ? k.map(function (s) { return esc(s) + (x.sources[s] > 1 ? " ×" + x.sources[s] : ""); }).join(", ") : "—"; };
   var rows = E.machines.slice().sort(function (a, b) { return (b.relevesMois - a.relevesMois) || a.nom.localeCompare(b.nom, "fr"); }).map(function (x) { return '<tr' + (x.relevesMois ? '' : ' style="color:var(--red)"') + '><td><b>' + esc(x.nom) + '</b></td><td style="text-align:right">' + (x.relevesMois ? '<b>' + x.relevesMois + '</b>' : 'aucun') + '</td><td>' + (x.dernier ? frDate(x.dernier) : "—") + '</td><td>' + src(x) + '</td><td class="a1-int"><button class="iconbtn" title="Relevés" onclick="' + (x.kind === "gen" ? "openA1GenLogList('" + x.m.id + "')" : "openA1LogList('" + x.m.id + "')") + '">📄</button></td></tr>'; }).join("");
   var sans = R.sans.length ? '<div id="a1p-sans" style="margin-top:8px;padding:8px 10px;border-left:3px solid var(--red);background:var(--cream);border-radius:8px;font-size:12.5px"><b>' + R.sans.length + ' machine' + (R.sans.length > 1 ? 's' : '') + ' sans relevé en ' + esc(lib) + '</b> : ' + R.sans.map(function (x) { return esc(x.nom); }).join(", ") + '. <span class="a1-int"><button class="cta ghost sm" onclick="openA1Relance(\'' + cid + '\',\'' + kind + '\')">📨 Relancer</button></span></div>' : '<div id="a1p-sans" class="hint" style="margin-top:6px">Toutes les machines ont au moins un relevé ce mois.</div>';
-  var dep = E.depots.liste.length ? '<table><thead><tr><th>Date</th><th>Dépôt</th><th>Pièce</th><th>Par</th><th>État</th><th class="a1-int"></th></tr></thead><tbody>' + E.depots.liste.slice(0, 12).map(function (d) { return '<tr><td>' + frDate(String(d.ts || "").slice(0, 10)) + '</td><td>' + esc((typeof MER_TYPES_DEPOT !== "undefined" && MER_TYPES_DEPOT[d.type]) || d.type || "") + '</td><td>' + (d.lien ? '<a href="' + esc(d.lien) + '" target="_blank" rel="noopener">' + esc(d.nom || "ouvrir") + '</a>' : esc(d.nom || "—")) + '</td><td>' + esc(d.auteur || "") + '</td><td>' + (d.traite ? '<span class="badge b-green">intégré le ' + frDate(String(d.traiteLe || "").slice(0, 10)) + '</span>' : '<span class="badge b-orange">à intégrer</span>') + '</td><td class="a1-int">' + (d.traite ? '' : '<button class="cta ghost sm" onclick="depotMarquerTraite(\'' + d.id + '\');renderA1Parc()">✓ Intégré</button>') + '</td></tr>'; }).join("") + '</tbody></table>' + (E.depots.liste.length > 12 ? '<div class="hint">' + (E.depots.liste.length - 12) + ' dépôt(s) plus ancien(s) dans la fiche du client.</div>' : '') : '<div class="hint">Aucun dépôt : le client dépose ses pièces dans son espace (cartes grises, carnet, relevés carburant, tickets).</div>';
+  var dep = a1ParcDepotsTableHtml(E);   /* patch 193 D3 : machine, intervention d'un clic */
   var lect = E.lectures.length ? a1ParcLi(E.lecturesAPreciser.length ? "att" : "ok", lecturesResumeHtml(cid)) + E.lecturesAPreciser.slice(0, 6).map(function (l) { return a1ParcLi("att", "À préciser par le client : <b>" + esc(l.nom || (l.champs && l.champs.plaque) || "document") + "</b>"); }).join("") : '<div class="hint">Aucun document lu automatiquement pour l’instant.</div>';
   var gps = (typeof gpsLigneHtml === "function") ? gpsLigneHtml(cid) : "";
   var besoins = E.besoins.length ? E.besoins.map(function (b) { return a1ParcLi(b.etat === "absent" ? "ko" : "att", "<b>" + esc(b.titre) + "</b> — " + (b.etat === "absent" ? "absent" : "partiel") + (b.demande ? '<div style="font-size:12px;color:var(--muted)">À demander : ' + esc(b.demande) + '</div>' : '')); }).join("") : a1ParcLi("ok", "Le client a transmis tout ce que l’analyse attend.");
@@ -25041,10 +25180,7 @@ function a1ParcFichesHtml(E) {
   var cid = E.cid, kind = E.kinds[0], modeles = a1ParcModeles(E);
   var manquantes = modeles.filter(function (g) { return g.etat === "manquante" || g.etat === "partielle"; }), incert = modeles.filter(function (g) { return g.etat === "indicative"; });
   var badge = function (g) { return g.etat === "complete" ? '<span class="badge b-green">fiche complète</span>' : g.etat === "indicative" ? '<span class="badge b-orange">repère indicatif, à confirmer</span>' : g.etat === "partielle" ? '<span class="badge b-orange">fiche partielle</span>' : '<span class="badge b-red">fiche manquante</span>'; };
-  var ligne = function (g) {
-    var x0 = g.machines[0], ouvrir = x0.kind === "gen" ? "openA1Genset('" + x0.m.id + "')" : "openA1Vehicle('" + x0.m.id + "')";
-    return '<div id="a1p-modele-' + g.cle + '" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid var(--line)"><div><b>' + (g.modele ? esc(g.modele) : "Modèle non renseigné") + '</b> <span style="color:var(--muted)">' + g.machines.length + ' ' + (g.kind === "gen" ? (g.engin ? "engin" : "groupe") : "véhicule") + (g.machines.length > 1 ? "s" : "") + '</span><div style="font-size:12px;color:var(--muted)">' + (g.reference ? esc(g.reference) : "consommation de référence à définir") + (g.connues ? ' · <b style="color:var(--navy)">fiche connue de BSM, à poser d’un clic</b>' : '') + ' · ' + g.machines.slice(0, 4).map(function (x) { return esc(x.nom); }).join(", ") + (g.machines.length > 4 ? "…" : "") + '</div></div><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' + badge(g) + '<span class="a1-int"><button class="cta ghost sm" onclick="' + ouvrir + '" title="La fiche de la première machine de ce modèle : référence, source, incertitude">Ouvrir</button></span></div></div>';
-  };
+  var ligne = function (g) { return a1ParcFicheModeleLigne(E, g); };   /* patch 193 D3 : la fiche rattachée au modèle */
   var liste = function (id, titre, arr, vide) { return '<div class="card" id="a1p-' + id + '"><h2>' + titre + '</h2>' + (arr.length ? arr.map(ligne).join("") : '<div class="hint">' + vide + '</div>') + '</div>'; };
   var connues = E.fiches.connues;
   return '<div class="card"><h2>📘 ' + modeles.length + ' modèle' + (modeles.length > 1 ? 's' : '') + ' · ' + E.fiches.sans + ' fiche' + (E.fiches.sans > 1 ? 's' : '') + ' manquante' + (E.fiches.sans > 1 ? 's' : '') + '</h2><div class="hint">La fiche constructeur fixe la consommation de référence et le plan d’entretien du modèle ; sans elle on mesure, on ne juge pas.</div>'
@@ -25063,7 +25199,7 @@ function a1ParcDocumentsHtml(E) {
   var reps = (DB.a1execreports || []).filter(function (r) { return r.clientId === cid; }).sort(function (a, b) { return String(b.ts || "").localeCompare(String(a.ts || "")); });
   var rap = reps.length ? '<table class="clickrows"><thead><tr><th>Rapport</th><th>Périmètre</th><th>Produit le</th><th>État</th><th>Envoyé</th><th class="a1-int"></th></tr></thead><tbody>' + reps.slice(0, 12).map(function (r) { var et = a1ExecStatus(r); return '<tr><td><b>' + esc(r.ref || "rapport") + '</b></td><td>' + (r.kind === "gen" ? "groupes et engins" : "véhicules") + (r.periodeLibelle ? ' · ' + esc(r.periodeLibelle) : '') + '</td><td>' + frDate(r.ts) + '</td><td>' + a1ExecStatusBadge(r) + '</td><td>' + (r.sentAt ? frDate(r.sentAt) + (r.sentTo ? '<div style="font-size:10.5px;color:var(--muted)">' + esc(r.sentTo) + '</div>' : '') : "—") + '</td><td class="a1-int" style="white-space:nowrap">' + (r.onServer ? '<button class="iconbtn" title="Relire" onclick="a1ViewExecReport(\'' + r.id + '\')">👁</button>' : '') + (et === "brouillon" ? '<button class="iconbtn" title="Valider après relecture" onclick="a1ExecValidate(\'' + r.id + '\',\'\')">✅</button>' : '<button class="iconbtn" title="' + (r.sentAt ? "Renvoyer" : "Envoyer") + ' au client" onclick="openA1ExecSend(\'' + r.id + '\')">✉️</button>') + '</td></tr>'; }).join("") + '</tbody></table>' : '<div class="hint">Aucun rapport produit pour ce client : « 📕 Rapport d’analyse » en haut de l’écran.</div>';
   var pieces = (DB.a1docs || []).filter(function (d) { return d.clientId === cid; }).sort(function (a, b) { return String(b.createdAt || "").localeCompare(String(a.createdAt || "")); });
-  var pie = pieces.length ? '<table><thead><tr><th>Pièce</th><th>Catégorie</th><th>Ajoutée le</th><th class="a1-int"></th></tr></thead><tbody>' + pieces.slice(0, 10).map(function (d) { return '<tr><td><b>' + esc(d.title || "—") + '</b>' + (d.note ? '<div style="font-size:11px;color:var(--muted)">' + esc(String(d.note).slice(0, 90)) + '</div>' : '') + '</td><td>' + esc(d.category || "") + '</td><td>' + frDate(d.createdAt) + '</td><td class="a1-int">' + (d.hasFile ? '<button class="cta ghost sm" onclick="a1FileOpen(\'' + d.id + '\')">📎 Ouvrir</button>' : '') + '</td></tr>'; }).join("") + '</tbody></table>' : '<div class="hint">Aucune pièce : factures d’atelier, constats, photos, carnets — tout ce qui enrichit l’analyse.</div>';
+  var pie = a1ParcPiecesTableHtml(E, pieces);   /* patch 193 D3 */
   return '<div class="card" id="a1p-rapport"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 style="margin:0">📕 Rapports d’analyse — ' + reps.length + '</h2><span class="a1-int"><button class="cta gold sm" onclick="a1ParcRapport()">📕 Nouveau rapport</button> <button class="cta ghost sm" onclick="openA1ExecHistory(\'' + kind + '\')">📚 Historique</button></span></div><div class="hint">Relire dans l’onglet Rapports, modifier les recommandations, valider, puis envoyer.</div>' + rap + '</div>'
     + '<div id="a1p-contrats">' + (typeof clientDocumentsCardHtml === "function" ? clientDocumentsCardHtml(c) : "") + '</div>'
     + '<div class="card" id="a1p-pieces"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 style="margin:0">📎 Pièces du client — ' + pieces.length + '</h2><span class="a1-int"><button class="cta ghost sm" onclick="openA1Docs(\'' + kind + '\')">+ Ajouter</button></span></div>' + pie + '</div>'
@@ -29017,7 +29153,7 @@ function openA1Docs(kind){ const isGen=kind==="gen"; const client=(isGen?a1genCl
     <div class="msub">Base documentaire <b>cloisonnée par client</b> : ajoute tout ce qui enrichit l'analyse (maintenance, contrats, constats, photos…). La <b>note</b> est lue par l'IA ; le fichier reste une pièce jointe (preuve), sur cet appareil.</div>
     <div class="card" style="background:var(--cream)">
       <div class="field row2"><label>Titre & catégorie</label>
-        <input id="ad-title" placeholder="Ex : Révision injecteurs SDMO"><select id="ad-cat">${a1DocCats().map(c=>`<option>${c}</option>`).join("")}</select></div>
+        <input id="ad-title" placeholder="Ex : Révision injecteurs SDMO"><select id="ad-cat">${a1DocCats().map(c=>`<option>${c}</option>`).join("")}</select></div><div class="field"><label>Machine concernée (option)</label><select id="ad-machine">${a1MachinesOptionsHtml(client)}</select></div>
       <div class="field"><label>Note / informations (lue par l'IA)</label><textarea id="ad-note" rows="2" placeholder="Ex : injecteurs remplacés le 12/06, dernier entretien à 1200 h…" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px"></textarea></div>
       <div class="field"><label>Fichier (PDF / image / Excel — option)</label><input type="file" id="ad-file" accept=".pdf,image/*,.xlsx,.csv" onchange="a1DocFilePick()"><div id="ad-fstatus" class="hint"></div></div>
       <div style="text-align:right"><button class="cta" onclick="saveA1Doc('${kind}')">+ Ajouter</button></div>
@@ -29030,7 +29166,7 @@ function openA1Docs(kind){ const isGen=kind==="gen"; const client=(isGen?a1genCl
 function a1DocFilePick(){ const f=(document.getElementById("ad-file").files||[])[0]; _a1DocFile=f||null; const st=document.getElementById("ad-fstatus"); if(st) st.textContent=f?("📎 "+f.name+" ("+(f.size/1048576).toFixed(1)+" Mo)"):""; }
 async function saveA1Doc(kind){ const isGen=kind==="gen"; const client=(isGen?a1genClient:a1Client); const title=(val("ad-title")||"").trim(); const note=(val("ad-note")||"").trim();
   if(!title && !note && !_a1DocFile){ toast("Renseigne au moins un titre, une note ou un fichier."); return; }
-  const doc={ id:uid(), clientId:client, kind, title, category:val("ad-cat")||"Autre", note, createdAt:todayISO(), by:(currentUser&&currentUser.login)||"" };
+  const doc={ id:uid(), clientId:client, kind, title, category:val("ad-cat")||"Autre", note, machineId:(val("ad-machine")||""), createdAt:todayISO(), by:(currentUser&&currentUser.login)||"" };
   const f=_a1DocFile;
   if(f){ try{ await a1FilePut(doc.id, f); doc.hasFile=true; doc.fileName=f.name; doc.fileType=f.type; doc.fileSize=f.size; }catch(e){ doc.hasFile=false; toast("⚠️ Pièce non stockée ("+(e.message||e)+")"); } }
   DB.a1docs.push(doc); save(); toast("Document ajouté."); openA1Docs(kind);
