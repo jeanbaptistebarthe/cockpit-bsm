@@ -834,11 +834,11 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.99.97";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.99.98";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
-const APP_VERSION_DATE = "21 octobre 2026";
+const APP_VERSION_DATE = "22 octobre 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* ===================== STOCKAGE COMPRESSÉ (patch 62, 23/09/2026) =====================
    Le navigateur n'accorde qu'environ 5 Mo à l'application ; la base réelle en pesait 2,5 le 23/09/2026, et un
@@ -10002,11 +10002,12 @@ async function autoRelanceTick(){
     for(const t of due){
       const c=DB.clients.find(x=>x.id===t.clientId)||{};
       const r=relanceRecipient(t,c);   // compta d'abord ; dirigeant AJOUTÉ à partir de la 3ᵉ relance (décision JB)
+      if((await serveurJetonVoir("relance-"+t.id+"-"+day)).deja){ t.lastRelanceAt=day; continue; }   /* patch 194 : une autre fenêtre l'a déjà relancée aujourd'hui */
       try{
         await bsmClientMail({ to:r.to,
           subject:(r.n>=3?"Relance n°"+r.n+" — ":"Rappel d'échéance — ")+(t.invoiceNo?("facture "+t.invoiceNo):(t.label||"")),
           html:relanceMailHtml(t, c, "", r.n), pdfHtml:invoiceDocRetouche(t, invoiceData(t)), pdfName:(t.invoiceNo||"facture")+"-relance" });
-        t.lastRelanceAt=day; t.relanceCount=r.n; ok++;
+        try { await serveurJetonPrendre("relance-"+t.id+"-"+day); } catch(_e){} t.lastRelanceAt=day; t.relanceCount=r.n; ok++;
         names.push((c.company||"?")+" ("+fmt(t.amount,t.currency)+(r.escalated?", ⬆ dirigeant":"")+")");
       }catch(e){ ko++; }
     }
@@ -10021,8 +10022,8 @@ async function autoRelanceTick(){
     }
   }catch(e){ /* jamais bloquant */ }
 }
-setTimeout(autoRelanceTick, 25000);            // après le boot, la connexion et la synchro
-setInterval(autoRelanceTick, 10*60*1000);      // re-tentative si le serveur ou la session arrivent plus tard
+servicesMinuterie(autoRelanceTick, 25000, false);   /* patch 194 */            // après le boot, la connexion et la synchro
+servicesMinuterie(autoRelanceTick, 10*60*1000, true);   /* patch 194 */      // re-tentative si le serveur ou la session arrivent plus tard
 function openInvoiceSend(txId, mode){
   const t=DB.transactions.find(x=>x.id===txId); if(!t) return;
   window.__invTx=t.id; window.__invMode=mode||"";
@@ -13668,8 +13669,36 @@ function secureAllClientLinks() {
 var _servicesDemarres = false;
 var _serveurPerime = "";   // vide = le serveur exécute la version installée
 /* Une minuterie qui ne retient pas un processus Node (banc) ; dans le navigateur, unref n'existe pas. */
+/* patch 194 (22/10/2026) : une seule fenêtre fait tourner les automatismes, et un envoi ne part qu'une fois. Chaque fenêtre porte
+   un identifiant de session ; le serveur du poste accorde le verrou de service à la première qui se présente, renouvelé par un
+   battement ; une autre fenêtre saute ses automatismes tant que le verrou tient. Les jetons du jour disent, pour un envoi donné,
+   s'il est déjà parti d'une fenêtre : « voir » avant, « prendre » après l'envoi réussi. Sans serveur, ou avec un serveur d'avant
+   ces routes, rien ne change : titulaire et jeton libre. serviceAppel est le seul point réseau (remplacé au banc). */
+var _serviceTab = "";
+var _serviceEtat = null;
+function serviceTabId() { if (_serviceTab) return _serviceTab; try { _serviceTab = sessionStorage.getItem("bsm_service_tab") || ""; } catch (e) { } if (!_serviceTab) { _serviceTab = "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); try { sessionStorage.setItem("bsm_service_tab", _serviceTab); } catch (e) { } } return _serviceTab; }
+async function serviceAppel(url, corps) { return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corps || {}) }); }
+async function serviceTitulaire(force, tab) {
+  if (typeof serverEnabled !== "undefined" && !serverEnabled) return true;
+  if (!tab && !force && _serviceEtat && (Date.now() - _serviceEtat.a) < 45000) return _serviceEtat.titulaire;
+  try {
+    var r = await serviceAppel("/api/service", { tab: tab || serviceTabId() });
+    if (!r || r.status === 404) { if (!tab) _serviceEtat = { titulaire: true, a: Date.now() }; return true; }
+    var d = await r.json(); var ok = !(d && d.ok && d.titulaire === false); if (!tab) _serviceEtat = { titulaire: ok, a: Date.now() }; return ok;
+  } catch (e) { if (!tab) _serviceEtat = { titulaire: true, a: Date.now() }; return true; }
+}
+async function serveurJeton(cle, mode) {
+  if (typeof serverEnabled !== "undefined" && !serverEnabled) return { deja: false, sans: true };
+  try {
+    var r = await serviceAppel("/api/jeton", { cle: String(cle || ""), mode: mode || "prendre" });
+    if (!r || r.status === 404) return { deja: false, sans: true };
+    var d = await r.json(); return { deja: !!(d && d.ok && d.deja), le: (d && d.le) || "" };
+  } catch (e) { return { deja: false, sans: true }; }
+}
+async function serveurJetonVoir(cle) { return serveurJeton(cle, "voir"); }
+async function serveurJetonPrendre(cle) { return serveurJeton(cle, "prendre"); }
 function servicesMinuterie(fn, delai, repete) {
-  var h = function () { try { fn(); } catch (e) { } };
+  var h = function () { if (_serviceEtat && (Date.now() - _serviceEtat.a) >= 45000) { try { serviceTitulaire(true); } catch (e) { } } if (_serviceEtat && !_serviceEtat.titulaire) return; try { fn(); } catch (e) { } };   /* patch 194 : une autre fenêtre tient le service, la tâche attend ; l'état se rafraîchit en arrière-plan */
   var t = repete ? setInterval(h, delai) : setTimeout(h, delai);
   try { if (t && typeof t.unref === "function") t.unref(); } catch (e) { }
   return t;
@@ -13677,6 +13706,7 @@ function servicesMinuterie(fn, delai, repete) {
 function serveurServicesDemarrer(origine) {
   if (_servicesDemarres || !serverEnabled) return false;
   _servicesDemarres = true;
+  try { serviceTitulaire(true); } catch (e) { } try { var _bat = setInterval(function () { serviceTitulaire(true); }, 30000); if (_bat && typeof _bat.unref === "function") _bat.unref(); } catch (e) { }   /* patch 194 : le battement du verrou de service */
   servicesMinuterie(function () { aiServerInit(); docsMigrateToServer(); kbOffloadBig(); serveurVersionVerifier(); }, 1500, false);
   // 📥 Décisions, 🚨 incidents, 📈 avancement, 🧭 attributions, 🚦 déclarations de parc : au démarrage puis toutes les 15 min
   servicesMinuterie(function () { syncDecisionsFromSheet(true); }, 6000, false);
@@ -14966,12 +14996,13 @@ function miseEnRouteSuiteHtml(lien) {
 }
 async function miseEnRouteFacturer(m, t, c, o) {
   var A = 'font-family:Arial,sans-serif;font-size:14px;line-height:1.7', regl = +((typeof BAREME_PARC !== "undefined" && BAREME_PARC.reglementMiseEnRoute != null) ? BAREME_PARC.reglementMiseEnRoute : 0);   // patch 93 : la mise en route se règle à la signature
+  if ((await serveurJetonVoir("facture-mer-" + t.id)).deja) { t.emailedAt = t.emailedAt || todayISO(); return; }   /* patch 194 : une autre fenêtre l'a déjà envoyée */
   t.invoiceDate = todayISO(); t.dueDate = regl > 0 ? agendaJourPlus(todayISO(), regl) : todayISO(); assignInvoiceNo(t);
   var d = invoiceData(t), html = invoiceDocRetouche(t, d), to = String(c.billingEmail || c.contactEmail || "").trim();   /* patch 164 */
   if (!to) throw new Error("adresse de facturation manquante");
   var corps = '<div style="' + A + '"><p>Bonjour,</p><p>Nous avons bien reçu votre contrat signé : <b>bienvenue dans le programme de suivi de parc</b>.</p><p>Veuillez trouver ci-joint la facture de mise en route <b>' + esc(t.invoiceNo) + '</b> (' + esc(fmt(t.amount, t.currency)) + ' HT, ' + (regl > 0 ? 'règlement sous ' + regl + ' jours' : 'réglée à la signature, payable à réception') + '). Les mensualités suivront au rythme du contrat' + (m.abonnementDebut ? ', à compter du ' + esc(frDate(m.abonnementDebut)) : '') + '.</p>' + miseEnRouteSuiteHtml(miseEnRouteLienEspace(m.clientId)) + '<p>Bien cordialement,<br>' + esc((DB.meta && DB.meta.cabinetName) || "BSM Advisory & Consulting") + '</p></div>';
   await bsmClientMail({ to: to, subject: "[BSM] Facture " + t.invoiceNo + " — mise en route du suivi de parc", html: corps, pdfHtml: html, pdfName: t.invoiceNo, client: c.company || "", clientId: m.clientId, categorie: "facture", miseEnRouteId: m.id });
-  t.emailedAt = todayISO(); t.emailedTo = to; m.factureTxId = t.id; m.factureNo = t.invoiceNo; m.factureEnvoyeeLe = new Date().toISOString();
+  t.emailedAt = todayISO(); t.emailedTo = to; m.factureTxId = t.id; m.factureNo = t.invoiceNo; m.factureEnvoyeeLe = new Date().toISOString(); try { await serveurJetonPrendre("facture-mer-" + t.id); } catch (e) {}   /* patch 194 */
 }
 async function miseEnRouteBienvenue(m, c) {
   var A = 'font-family:Arial,sans-serif;font-size:14px;line-height:1.7', to = String(c.contactEmail || "").trim(); if (!to) throw new Error("adresse manquante");
@@ -16638,12 +16669,13 @@ async function facturesMensuellesEnvoyer(auto) {
   var dues = facturesMensuellesDues(), A = 'font-family:Arial,sans-serif;font-size:14px;line-height:1.7', regl = +((typeof BAREME_PARC !== "undefined" && BAREME_PARC.reglementJours) || 30);
   for (var i = 0; i < dues.length; i++) {
     var d = dues[i], t = d.t, c = d.client; if (!d.to) { bilan.sansAdresse++; continue; }
+    if ((await serveurJetonVoir("facture-" + t.id)).deja) { t.emailedAt = t.emailedAt || todayISO(); t.auto = true; continue; }   /* patch 194 : une autre fenêtre l'a déjà envoyée */
     t.invoiceDate = todayISO(); t.dueDate = agendaJourPlus(todayISO(), regl); assignInvoiceNo(t);
     var mois = a1MonthLabel(t.period), html = invoiceDocRetouche(t, invoiceData(t));   /* patch 164 */
     var corps = '<div style="' + A + '"><p>Bonjour,</p><p>Veuillez trouver ci-joint la facture <b>' + esc(t.invoiceNo) + '</b> de votre abonnement de suivi de parc pour <b>' + esc(mois) + '</b> (' + esc(fmt(t.amount, t.currency)) + ' HT), payable sous ' + regl + ' jours, avant le ' + esc(frDate(t.dueDate)) + '. Les coordonnées bancaires figurent sur la facture.</p><p>Bien cordialement,<br>' + esc(facturationCabinet()) + '</p></div>';
     try {
       await bsmClientMail({ to: d.to, subject: "[BSM] Facture " + t.invoiceNo + " — abonnement " + mois, html: corps, pdfHtml: html, pdfName: t.invoiceNo, client: c.company || "", clientId: c.id, categorie: "facture", auto: !!auto });
-      t.emailedAt = todayISO(); t.emailedTo = d.to; t.auto = true; t.factureErreur = ""; bilan.envoyees++;
+      t.emailedAt = todayISO(); t.emailedTo = d.to; t.auto = true; t.factureErreur = ""; bilan.envoyees++; try { await serveurJetonPrendre("facture-" + t.id); } catch (e) {}
     } catch (e) { t.factureErreur = String((e && e.message) || e); bilan.echecs++; }
   }
   if (bilan.envoyees || bilan.echecs) { try { save(); } catch (e) {} if (typeof notify === "function") notify("client", "🧾 " + bilan.envoyees + " facture(s) d'abonnement envoyée(s)" + (bilan.echecs ? " · " + bilan.echecs + " en échec" : ""), "mensualités échues, règlement à " + regl + " jours" + (bilan.sansAdresse ? " · " + bilan.sansAdresse + " client(s) sans adresse" : ""), {}); }
@@ -18557,8 +18589,10 @@ async function jbMailDecisionsEnvoyer(silent) {
   var r = jbReglages(); if (!r.mailDecisions || !r.mail) return 0;
   if (typeof serverEnabled !== "undefined" && !serverEnabled) return 0;
   var items = (DB.jbFile || []).filter(function (x) { return x.nature === "decision" && !x.mail; }); if (!items.length) return 0;
+  var _libres = []; for (var _i = 0; _i < items.length; _i++) { if ((await serveurJetonVoir("decision-" + items[_i].id)).deja) items[_i].mail = true; else _libres.push(items[_i]); } items = _libres; if (!items.length) return 0;   /* patch 194 */
   var html = jbMailHtml(items.length + " décision" + (items.length > 1 ? "s" : "") + " à prendre", "Ce qui attend ton geste dans le Cockpit, à " + new Date().toTimeString().slice(0, 5) + ".", [{ titre: "À décider", items: items }]);
   try { var res = await googleCall("mail", { to: r.mail, subject: "[Cockpit] " + items.length + " décision" + (items.length > 1 ? "s" : "") + " — " + items[0].titre.slice(0, 70), html: html }); if (res && res.ok === false) return 0; } catch (e) { return 0; }
+  for (var _k = 0; _k < items.length; _k++) { try { await serveurJetonPrendre("decision-" + items[_k].id); } catch (e) {} }   /* patch 194 */
   var now = new Date().toISOString(); items.forEach(function (x) { x.mail = true; x.mailLe = now; }); DB.meta.jbMailLe = now;
   try { save(); } catch (e) {}
   return items.length;
@@ -18569,6 +18603,7 @@ async function jbRecapEnvoyer(force) {
   if (typeof serverEnabled !== "undefined" && !serverEnabled) return 0;
   var auj = todayISO(); if (!force && DB.meta.jbRecapLe === auj) return 0;
   if (!force && jbHeureLocale() < r.heure) return 0;
+  if (!force && (await serveurJetonVoir("recap-" + auj)).deja) { DB.meta.jbRecapLe = auj; try { save(); } catch (e) {} return 0; }   /* patch 194 : une autre fenêtre l'a déjà envoyé */
   var ag = []; try { ag = (typeof courrierAGerer === "function") ? courrierAGerer() : []; } catch (e) { ag = []; }
   var decisions = ag.filter(function (a) { return a.nature === "a-traiter" || a.nature === "alerte"; }).map(function (a) { return { titre: a.libelle, detail: a.detail }; });
   var rappels = ag.filter(function (a) { return a.nature !== "a-traiter" && a.nature !== "alerte"; }).map(function (a) { return { titre: a.libelle, detail: a.detail }; });
@@ -18580,6 +18615,7 @@ async function jbRecapEnvoyer(force) {
     { titre: "Depuis le dernier récapitulatif", items: infos.map(function (x) { return { titre: x.titre, detail: x.detail }; }), vide: "rien de nouveau" }]);
   var sujet = "[Cockpit] " + frDate(auj) + " — " + (decisions.length ? decisions.length + " à décider" : "rien à décider") + (infos.length ? ", " + infos.length + " nouveauté" + (infos.length > 1 ? "s" : "") : "");
   try { var res = await googleCall("mail", { to: r.mail, subject: sujet, html: html }); if (res && res.ok === false) return 0; } catch (e) { return 0; }
+  try { await serveurJetonPrendre("recap-" + auj); } catch (e) {}   /* patch 194 */
   var now = new Date().toISOString(); infos.forEach(function (x) { x.recap = true; x.recapLe = now; }); DB.meta.jbRecapLe = auj; DB.meta.jbRecapTs = now;
   DB.jbFile = (DB.jbFile || []).filter(function (x) { return (Date.now() - new Date(x.ts).getTime()) < 14 * 86400000; });
   try { save(); } catch (e) {}
@@ -21937,6 +21973,7 @@ async function jbRecapEnvoyer(force) {
   if (typeof serverEnabled !== "undefined" && !serverEnabled) return 0;
   var auj = todayISO(); if (!force && DB.meta.jbRecapLe === auj) return 0;
   if (!force && jbHeureLocale() < r.heure) return 0;
+  if (!force && (await serveurJetonVoir("recap-" + auj)).deja) { DB.meta.jbRecapLe = auj; try { save(); } catch (e) {} return 0; }   /* patch 194 : une autre fenêtre l'a déjà envoyé */
   var ag = []; try { ag = (typeof courrierAGerer === "function") ? courrierAGerer() : []; } catch (e) { ag = []; }
   var decisions = ag.filter(function (a) { return a.nature === "a-traiter" || a.nature === "alerte"; });
   var rappels = ag.filter(function (a) { return a.nature !== "a-traiter" && a.nature !== "alerte"; });
@@ -21948,6 +21985,7 @@ async function jbRecapEnvoyer(force) {
   var html = jbMailHtml("Récapitulatif du " + frDate(auj), sous, jbRecapSections(decisions, rappels, infos.map(function (x) { return { titre: x.titre, detail: x.detail, clientId: x.clientId, picto: x.picto }; }), aVenir));
   var sujet = "[Cockpit] " + frDate(auj) + " — " + (decisions.length ? decisions.length + " à décider" : "rien à décider") + (nF ? " · " + nF + " facture" + (nF > 1 ? "s" : "") + " suivie" + (nF > 1 ? "s" : "") : "") + (infos.length ? " · " + infos.length + " nouveauté" + (infos.length > 1 ? "s" : "") : "");
   try { var res = await googleCall("mail", { to: r.mail, subject: sujet, html: html }); if (res && res.ok === false) return 0; } catch (e) { return 0; }
+  try { await serveurJetonPrendre("recap-" + auj); } catch (e) {}   /* patch 194 */
   var now = new Date().toISOString(); infos.forEach(function (x) { x.recap = true; x.recapLe = now; }); DB.meta.jbRecapLe = auj; DB.meta.jbRecapTs = now;
   DB.jbFile = (DB.jbFile || []).filter(function (x) { return (Date.now() - new Date(x.ts).getTime()) < 14 * 86400000; });
   try { save(); } catch (e) {}
@@ -21957,9 +21995,11 @@ async function jbMailDecisionsEnvoyer(silent) {
   var r = jbReglages(); if (!r.mailDecisions || !r.mail) return 0;
   if (typeof serverEnabled !== "undefined" && !serverEnabled) return 0;
   var items = (DB.jbFile || []).filter(function (x) { return x.nature === "decision" && !x.mail; }); if (!items.length) return 0;
+  var _libres = []; for (var _i = 0; _i < items.length; _i++) { if ((await serveurJetonVoir("decision-" + items[_i].id)).deja) items[_i].mail = true; else _libres.push(items[_i]); } items = _libres; if (!items.length) return 0;   /* patch 194 */
   try { await pictosMailDisponibles(); } catch (e) {}
   var html = jbMailHtml(items.length + " décision" + (items.length > 1 ? "s" : "") + " à prendre", "Ce qui attend ton geste dans le Cockpit, à " + jbHeureLocale() + ".", [{ titre: "À décider", picto: "bell", items: items.map(function (x) { return { titre: x.titre, detail: x.detail, clientId: x.clientId, picto: x.picto || "bell" }; }) }]);
   try { var res = await googleCall("mail", { to: r.mail, subject: "[Cockpit] " + items.length + " décision" + (items.length > 1 ? "s" : "") + " — " + items[0].titre.slice(0, 70), html: html }); if (res && res.ok === false) return 0; } catch (e) { return 0; }
+  for (var _k = 0; _k < items.length; _k++) { try { await serveurJetonPrendre("decision-" + items[_k].id); } catch (e) {} }   /* patch 194 */
   var now = new Date().toISOString(); items.forEach(function (x) { x.mail = true; x.mailLe = now; }); DB.meta.jbMailLe = now;
   try { save(); } catch (e) {}
   return items.length;
