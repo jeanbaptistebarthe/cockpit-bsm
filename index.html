@@ -846,7 +846,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.4";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.5";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
@@ -14698,7 +14698,7 @@ function envoiEtat(e) {
   et.niveau = et.nonRemisAt ? "non_remis" : et.reponduAt ? "repondu" : et.reaction ? "reaction" : et.cliqueAt ? "clique" : et.ouvertN ? "ouvert" : et.remis ? "remis" : "envoye";
   et.sansSignal = !signal && !et.nonRemisAt;
   var actif = c && c.status !== "archive" && !(typeof clientRelancesOff === "function" && clientRelancesOff(c));
-  et.aRelancer = !!(actif && et.attente > 0 && !et.clos && !signal && !et.nonRemisAt && et.jours >= et.attente && et.nRelances < ENVOI_MAX_RELANCES && (!et.derniereRelanceAt || envoiJours(et.derniereRelanceAt) >= et.attente));
+  et.aRelancer = !!(actif && envoiRelanceAutorisee(e) && et.attente > 0 && !et.clos && !signal && !et.nonRemisAt && et.jours >= et.attente && et.nRelances < ENVOI_MAX_RELANCES && (!et.derniereRelanceAt || envoiJours(et.derniereRelanceAt) >= et.attente));
   et.epuise = !!(actif && et.attente > 0 && !et.clos && !signal && !et.nonRemisAt && et.nRelances >= ENVOI_MAX_RELANCES);
   return et;
 }
@@ -14733,6 +14733,7 @@ function envoiRelanceTexte(e, n) {
 /* La relance part par la porte normale : journal, copie, image de suivi. Elle se rattache à l'envoi d'origine. */
 async function envoiRelancer(id, auto) {
   var e = (DB.courrier || []).find(function (x) { return x.id === id; }); if (!e) return null;
+  if (!envoiRelanceAutorisee(e)) { if (!auto) toast("🔒 Relance bloquée : aucun contrat signé pour " + clientName(e.clientId) + ". Le contrat fait foi."); return null; }   /* patch 198 */
   if (typeof serverEnabled !== "undefined" && !serverEnabled) { if (!auto) toast("Envoi indisponible ici — ouvre le Cockpit local."); return null; }
   var et = envoiEtat(e); if (et.nRelances >= ENVOI_MAX_RELANCES) { if (!auto) toast("Deux relances sont déjà parties : il est temps d’appeler."); return null; }
   var t = envoiRelanceTexte(e, et.nRelances + 1); if (!t.to) { if (!auto) toast("Adresse du client manquante."); return null; }
@@ -19094,6 +19095,7 @@ function rapportPretAEnvoyer(r) {
   var c = (DB.clients || []).find(function (x) { return x.id === r.clientId; }); if (!c) return { ok: false, raison: "client inconnu", to: "" };
   var to = String(c.contactEmail || "").trim(); if (!to) return { ok: false, raison: "aucune adresse de courriel sur la fiche du client", to: "" };
   var raisons = [], seuil = jbReglages().seuil;
+  try { var _cf = a1ContratFaitFoi(r.clientId); if (!_cf.ok) raisons.push("aucun contrat signé (" + _cf.raison + ") : le contrat fait foi"); } catch (e9) {}   /* patch 198 */
   try { var b = a1BesoinsDonnees(r.kind, r.clientId) || {}, manques = (b.familles || []).filter(function (f) { return f.etat !== "ok"; }); if (manques.length) { var q = null; try { q = a1DataQuality(r.kind, r.clientId); } catch (e0) {} if (!(q && +q.pct >= seuil)) raisons.push("données incomplètes (" + manques.map(function (f) { return f.titre; }).slice(0, 3).join(", ") + (manques.length > 3 ? "…" : "") + ")"); } } catch (e1) {}
   try { var f = a1SilencesFenetre(), s = a1Silences(r.clientId, f.du, f.au); if (s && s.length) raisons.push(s.length + " question" + (s.length > 1 ? "s" : "") + " ouverte" + (s.length > 1 ? "s" : "") + " au client"); } catch (e2) {}
   try { var sy = (typeof analyseDe === "function") ? analyseDe(r.clientId) : null; if (sy && sy.nPrio) raisons.push(sy.nPrio + " écart" + (sy.nPrio > 1 ? "s" : "") + " prioritaire" + (sy.nPrio > 1 ? "s" : "") + " à examiner"); } catch (e3) {}
@@ -26178,6 +26180,7 @@ function openA1ExecSend(id){
   const c=DB.clients.find(x=>x.id===r.clientId)||{};
   const to=(c.contactEmail||"").trim();
   const defMsg=a1ExecMessageDefaut(r);   // patch 132 : le même texte quand le Cockpit envoie seul
+  const _cf=r.clientId?a1ContratFaitFoi(r.clientId):{ ok:true };   /* patch 198 */
   openModal(`<span class="close" onclick="closeModal()">✕</span>
     <h2>✉️ Envoyer au client — ${esc(r.ref||"rapport")}</h2>
     <div class="msub">Contrôle du destinataire et du message : c'est l'étape de <b>validation</b> avant l'envoi réel. Le rapport part en <b>version interactive</b> (bouton doré du courriel ; « Imprimer / PDF » dans la page pour l'archiver) ; le PDF n'est joint que si la mise en ligne échoue. L'envoi est tracé.</div>
@@ -26188,6 +26191,7 @@ function openA1ExecSend(id){
       ${r.sentAt?`<div class="li"><span>Déjà envoyé</span><b>le ${frDate(r.sentAt)} à ${esc(r.sentTo||"")}</b></div>`:""}
     </div>
     ${st==="brouillon"?`<div class="hint" style="color:#A6641A;background:#FDF1E3;border:1px solid #F3D8B4;border-radius:8px;padding:9px;margin-bottom:8px">🔒 <b>Mesure de sécurité :</b> ce rapport est en <b>brouillon</b>. Relis-le (👁) puis <b>valide-le</b> — l'envoi client se débloque après validation. S'il est erroné : 🗑 dans 📚 Historique, puis regénère.</div>`:""}
+    ${_cf.ok?"":a1ContratFaitFoiHtml(r.clientId)}
     <div class="field"><label>Destinataire (e-mail client)</label><input id="xs-to" value="${esc(to)}" placeholder="client@exemple.com"></div>
     <div class="field"><label>Objet</label><input id="xs-subject" value="[BSM] Rapport de suivi ${esc(r.ref||"")}${r.clientId?" — "+esc(clientName(r.clientId)):""}"></div>
     <div class="field"><label>Message d'accompagnement</label><textarea id="xs-msg" rows="7" style="width:100%;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px">${esc(defMsg)}</textarea></div>
@@ -26195,7 +26199,7 @@ function openA1ExecSend(id){
     ${r.onServer?"":'<div class="hint" style="color:var(--orange)">⚠ Le contenu de ce rapport n’est pas archivé sur le serveur — regénère-le (📕) pour pouvoir l’envoyer.</div>'}
     ${recosParc().some(x=>x.clientId===r.clientId&&x.status!=="fait"&&x.clientDecision!=="refuse")?`<div class="hint">🗳 Les <b>recommandations ouvertes</b> du registre (mêmes références que la fiche 360) partent automatiquement dans le corps du mail, avec le mode de réponse décision (VALIDER / DIFFÉRER / REFUSER par simple réponse).</div>`:''}
     ${!serverEnabled?`<div class="hint" style="color:#A6641A;background:#FDF1E3;border:1px solid #F3D8B4;border-radius:8px;padding:9px;margin-top:6px">🖥️ L'<b>envoi e-mail</b> se fait depuis le <b>Cockpit local</b> (serveur). Bascule en local pour envoyer.</div>`:''}
-    <div class="modal-actions">${r.onServer&&serverEnabled?`<button class="cta ghost" onclick="a1ViewExecReport('${r.id}')">👁 Relire</button>`:""}<button class="cta ghost" onclick="closeModal()">Annuler</button>${st==="brouillon"?`<button class="cta gold" onclick="a1ExecValidate('${r.id}','send')">✅ Valider (puis envoyer)</button>`:(serverEnabled&&r.onServer?`<button class="cta" onclick="a1ExecSendGo('${r.id}')">${r.sentAt?"Renvoyer":"Envoyer"} au client</button>`:'')}</div>`);
+    <div class="modal-actions">${r.onServer&&serverEnabled?`<button class="cta ghost" onclick="a1ViewExecReport('${r.id}')">👁 Relire</button>`:""}<button class="cta ghost" onclick="closeModal()">Annuler</button>${st==="brouillon"?`<button class="cta gold" onclick="a1ExecValidate('${r.id}','send')">✅ Valider (puis envoyer)</button>`:(serverEnabled&&r.onServer?`${_cf.ok?`<button class="cta" onclick="a1ExecSendGo('${r.id}')">${r.sentAt?"Renvoyer":"Envoyer"} au client</button>`:`<span class="badge" style="background:#FEF2F2;color:#991B1B">🔒 envoi bloqué : contrat non signé</span>`}`:'')}</div>`);
 }
 /* URL de la page de décision EN LIGNE (servie par le récepteur Apps Script, doGet?d=…) : le client
    coche Valider/Différer/Refuser et envoie — réponse formatée dans la boîte BSM + archive « DECISIONS
@@ -26400,9 +26404,31 @@ function recoDecisionMailBlockHtml(clientId, prog){
       <div style="font-size:11.5px;color:#6B7280;margin-top:6px">Le bouton ouvre votre messagerie avec l'e-mail pré-rempli — complétez chaque ligne puis envoyez. Vous pouvez aussi répondre directement à ce message.</div></div>`:""}
     <p style="font-size:11.5px;color:#6B7280">Vos réponses sont intégrées à votre dossier de suivi R5 ; BSM assure ensuite la mise en œuvre et le suivi.</p></div>`;
 }
+/* ================== LE CONTRAT FAIT FOI (patch 198, v6.100.5, 23/10/2026) ==================
+   JB : « j'aimerais que les rapports soient envoyés quand le client a un contrat signé chez nous, après validation du
+   périmètre et mise en route ; pour les mises en route offertes, le contrat fait foi ». Une relance automatique du rapport
+   ALTHEA (envoyé le 16/10 en essai, à l'adresse de JB) était partie alors que rien n'était signé.
+   Règle : un rapport de parc ne part vers un client, et aucune relance de rapport ne part, sans contrat signé (contrat de
+   suivi marqué signé ou déposé dans l'espace, ou mise en route signée). Le rapport s'écrit, se relit et se valide comme
+   avant ; seul l'envoi attend la signature. Les relances de collecte (fiches, questions, entretien) ne sont pas concernées. */
+function a1ContratFaitFoi(cid) {
+  if (!cid) return { ok: false, le: "", source: "", raison: "aucun client" };
+  var ks = (DB.a1contrats || []).filter(function (k) { return k.clientId === cid && k.signeLe && (!k.type || k.type === "suivi" || /parc|suivi/i.test(String(k.type))); }).sort(function (a, b) { return String(b.signeLe).localeCompare(String(a.signeLe)); });
+  if (ks.length) return { ok: true, le: String(ks[0].signeLe).slice(0, 10), source: "contrat " + (ks[0].ref || "de suivi") + " signé le " + frDate(ks[0].signeLe), raison: "" };
+  var m = (typeof miseEnRouteDe === "function") ? miseEnRouteDe(cid) : null;
+  if (m && m.contratSigneLe) return { ok: true, le: String(m.contratSigneLe).slice(0, 10), source: "mise en route : contrat signé le " + frDate(m.contratSigneLe) + (m.signatureSource === "depot" ? " (déposé dans l’espace)" : ""), raison: "" };
+  var etat = m ? String((typeof MER_STATUTS !== "undefined" && MER_STATUTS[m.statut]) || m.statut || "en cours") : "";
+  return { ok: false, le: "", source: "", raison: m ? "mise en route : " + etat.charAt(0).toLowerCase() + etat.slice(1) : "aucune mise en route, aucun contrat" };
+}
+function a1ContratFaitFoiHtml(cid) {
+  var cf = a1ContratFaitFoi(cid); if (cf.ok) return "";
+  return '<div class="hint" style="color:#991B1B;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:9px;margin-bottom:8px">🔒 <b>Envoi bloqué : aucun contrat signé</b> pour ' + esc(clientName(cid)) + ' (' + esc(cf.raison) + '). Le contrat fait foi, même pour une mise en route offerte : le rapport se relit et se valide, il partira dès la signature (dépôt dans l’espace du client, ou « marqué signé » sur sa fiche).</div>';
+}
+function envoiRelanceAutorisee(e) { if (!e || e.categorie !== "parc-rapport" || !e.clientId) return true; return a1ContratFaitFoi(e.clientId).ok; }
 async function a1ExecSendGo(id, opt){ opt = opt || {};   // patch 132 : opt = { to, subject, msg, auto } quand le Cockpit l'envoie seul
   const r=(DB.a1execreports||[]).find(x=>x.id===id); if(!r) return;
   if(a1ExecStatus(r)==="brouillon"){ toast("🔒 Sécurité : valide d'abord le rapport (relecture direction) avant l'envoi client."); return; }
+  { const _cf=r.clientId?a1ContratFaitFoi(r.clientId):{ ok:true }; if(!_cf.ok){ const _m="🔒 Envoi bloqué : aucun contrat signé pour "+clientName(r.clientId)+" ("+_cf.raison+"). Le contrat fait foi, même pour une mise en route offerte."; if(opt.auto) throw new Error(_m); toast(_m); return; } }   /* patch 198 : le contrat fait foi */
   if(!serverEnabled){ toast("Envoi indisponible ici — ouvre le Cockpit local."); return; }
   const to=(opt.to||val("xs-to")||"").trim(); if(!to){ if(!opt.auto) toast("Renseigne l'adresse e-mail du client."); else throw new Error("adresse du client manquante"); return; }
   const subject=(opt.subject||val("xs-subject")||("[BSM] Rapport "+(r.ref||""))).trim();
