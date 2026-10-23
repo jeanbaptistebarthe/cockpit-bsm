@@ -332,6 +332,10 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
   .a1p-vise{outline:2px solid var(--gold);outline-offset:4px;border-radius:12px;}
   .a1p-kpi{cursor:pointer;} .a1p-kpi:hover{border-color:var(--gold);}
   .a1p-gestes{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 18px;} .a1p-gestes-titre{font-size:11px;color:var(--muted);letter-spacing:.05em;font-weight:600;margin:6px 0 6px;}
+  /* patch 197 : la rangée des périmètres, la fenêtre d'étude (large), la lecture du Cockpit */
+  .a1p-perim{display:flex;gap:6px;align-items:center;margin:2px 0 8px;flex-wrap:wrap;} .a1p-perim .lib{font-size:11px;color:var(--muted);letter-spacing:.05em;font-weight:600;margin-right:4px;}
+  .modal.etude{width:1080px;} .etu-lect{background:var(--cream);border-radius:10px;padding:10px 14px;font-size:13px;line-height:1.65;} .etu-th{font-size:10.5px;color:var(--muted);letter-spacing:.04em;font-weight:600;margin:14px 0 6px;}
+  body.dark .etu-lect{background:#1d2735;}
   .a1p-li{display:flex;gap:8px;align-items:flex-start;padding:5px 0;font-size:13px;line-height:1.45;} .a1p-li .pt{width:8px;height:8px;border-radius:50%;flex:0 0 auto;margin-top:7px;background:var(--line);} .a1p-li.ok .pt{background:var(--green);} .a1p-li.att .pt{background:var(--orange);} .a1p-li.ko .pt{background:var(--red);}
   body.dark .a1p-li .pt{background:#3a4a5e;}
   @media(max-width:820px){.a1p-onglets{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;} .a1p-onglets .subtab{white-space:nowrap;padding:9px 12px;}}
@@ -842,11 +846,11 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.3";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.4";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
-const APP_VERSION_DATE = "22 octobre 2026";
+const APP_VERSION_DATE = "23 octobre 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* ===================== STOCKAGE COMPRESSÉ (patch 62, 23/09/2026) =====================
    Le navigateur n'accorde qu'environ 5 Mo à l'application ; la base réelle en pesait 2,5 le 23/09/2026, et un
@@ -1044,7 +1048,7 @@ function load(){
   DB.r5reports=DB.r5reports||[]; // rapports d'audit R5 (brouillon / édité / envoyé), archivés par client
   DB.solutionsLib=DB.solutionsLib||[]; // bibliothèque de solutions chiffrées (texte + investissement + gain, par secteur) — s'enrichit à chaque reco chiffrée
   DB.a1gpslogs=DB.a1gpslogs||[]; DB.a1invoices=DB.a1invoices||[]; DB.a1specs=DB.a1specs||[]; DB.a1docs=DB.a1docs||[];
-  DB.a1explications=DB.a1explications||[]; DB.a1maint=DB.a1maint||[]; DB.a1peaks=DB.a1peaks||[]; DB.a1ot=DB.a1ot||[]; DB.a1parcEvenements=DB.a1parcEvenements||[]; DB.a1ouvertures=DB.a1ouvertures||[]; DB.a1demandes=DB.a1demandes||[]; DB.a1miseEnRoute=DB.a1miseEnRoute||[]; DB.a1depots=DB.a1depots||[]; DB.a1lectures=DB.a1lectures||[]; DB.a1gpsPreparations=DB.a1gpsPreparations||[]; DB.a1pannes=DB.a1pannes||[]; DB.a1avenants=DB.a1avenants||[]; DB.a1merSite=DB.a1merSite||[]; /* patch 192 */ // chantiers A1 B (carnet d'entretien) et A (mesure de pointe) — 21/08
+  DB.a1explications=DB.a1explications||[]; DB.a1maint=DB.a1maint||[]; DB.a1peaks=DB.a1peaks||[]; DB.a1etudes=DB.a1etudes||[]; DB.a1ot=DB.a1ot||[]; DB.a1parcEvenements=DB.a1parcEvenements||[]; DB.a1ouvertures=DB.a1ouvertures||[]; DB.a1demandes=DB.a1demandes||[]; DB.a1miseEnRoute=DB.a1miseEnRoute||[]; DB.a1depots=DB.a1depots||[]; DB.a1lectures=DB.a1lectures||[]; DB.a1gpsPreparations=DB.a1gpsPreparations||[]; DB.a1pannes=DB.a1pannes||[]; DB.a1avenants=DB.a1avenants||[]; DB.a1merSite=DB.a1merSite||[]; /* patch 192 */ // chantiers A1 B (carnet d'entretien) et A (mesure de pointe) — 21/08
   // Références lues dans un fichier client mais rattachées à aucune machine. Sans trace,
   // elles disparaissaient avec le message d'import : du volume et du coût hors de toute analyse.
   DB.a1orphans=DB.a1orphans||[];
@@ -8906,7 +8910,7 @@ function openModal(html, size){
   // Format « page » automatique (P3) : les grands contenus (imports, analyses, paramètres…) s'ouvrent quasi plein écran ;
   // les confirmations et petits formulaires restent en fenêtre compacte. Forçable via size="sheet" | "compact".
   const sheet = size==="sheet" || (size!=="compact" && String(html).length>4500);
-  mc.classList.toggle("sheet", sheet);
+  mc.classList.remove("etude"); mc.classList.toggle("sheet", sheet);   /* patch 197 */
   __modalBackBtn(mc);
   document.getElementById("overlay").classList.add("show");
 }
@@ -16329,7 +16333,7 @@ var NAV_AIDE = {
   courrier: "Tout ce qui est parti et arrivé, avec l’état de chaque envoi ; « À gérer » liste ce qui attend une réponse.",
   reports: "Les rapports produits : relire, valider, envoyer. Un brouillon né seul attend ta relecture.",
   monitoring: "La santé du système : services, serveur, envois. Vert : rien à faire.",
-  a1parc: "Le parc d’un client en six volets, du tableau de bord aux documents ; chaque chiffre mène à l’endroit où agir.",
+  a1parc: "Le parc d’un client en sept volets, du tableau de bord aux documents ; chaque chiffre mène à l’endroit où agir.",
   a1suivi: "Le mois de chaque client suivi : relevés reçus, écarts à examiner, rapport à produire.",
   a1fleet: "Les véhicules suivis et leurs relevés : importe un relevé, corrige une fiche machine.",
   a1genset: "Les groupes électrogènes et les engins de chantier, jugés à l’heure de marche ; même logique que la flotte.",
@@ -24627,6 +24631,7 @@ async function a1ExecReport(kind, opts){
     return out.slice(0,4);
   })();
   let recos=(ia.recos&&ia.recos.length)?ia.recos:fallbackRecos;
+  { const _rs=a1RecosEtudes(clientId, kind); if(_rs.length) recos=_rs.concat(recos.filter(r=>!_rs.some(x=>x.titre===r.titre))).slice(0,5); }   /* patch 197 : les études de BSM en tête des recommandations */
   { const _re=a1RecosEntretien(clientId, kind); if(_re.length) recos=recos.concat(_re.filter(r=>!recos.some(x=>x.titre===r.titre)).slice(0,1)).slice(0,5); }   /* patch 196 : les recommandations d'entretien, relues et modifiables comme les autres */
   if(!(ia.recos&&ia.recos.length)) iaSource="calcul";
   // Un rapport archivé n'est plus modifiable : la relecture se fait ici, avant qu'il soit figé.
@@ -24755,6 +24760,7 @@ async function a1ExecReport(kind, opts){
   // nominatif reste a l'ecran et dans l'archive interne.
   { const _ec=a1EcartConduiteHtml(drvStats); if(_ec) secs.push(["Écarts de conduite", _ec]); }
   secs.push(["Analyse détaillée", `<div class="ai-md">${(typeof a1SynthesesAligner==="function")?a1SynthesesAligner(mdToHtml((season?synthReport.replace(/^\*\*Saisonnalité délestages\*\* : [^\n]*\n\n?/m,""):synthReport).replace(/^# .*\n/,""))):mdToHtml((season?synthReport.replace(/^\*\*Saisonnalité délestages\*\* : [^\n]*\n\n?/m,""):synthReport).replace(/^# .*\n/,""))}</div>`]);   // patch 145
+  { const _et=a1EtudesSectionHtml(clientId, kind); if(_et) secs.push(["Études d’optimisation", _et]); }   /* patch 197 : les études de BSM que JB a cochées « dans le rapport » */
   secs.push(["Recommandations prioritaires", recos.map((r,i)=>`
       <div style="border:1px solid #E5E7EB;border-left:3px solid #B5923A;padding:11px 14px;margin:9px 0;page-break-inside:avoid;background:#FDFCFA">
         <b>${i+1}. ${esc(r.titre||"")}</b><div style="font-size:12.5px;margin-top:4px;line-height:1.6">${esc(r.detail||"")}</div>
@@ -24996,7 +25002,7 @@ var a1ParcOnglet = "bord";
 var a1ParcClient = "";
 var a1ParcCible = "";
 var a1ParcMoisVu = "";
-var A1_PARC_ONGLETS = [["bord", "Tableau de bord"], ["machines", "Machines"], ["entretien", "Entretien"], ["donnees", "Données reçues"], ["fiches", "Fiches constructeur"], ["documents", "Documents"]];
+var A1_PARC_ONGLETS = [["bord", "Tableau de bord"], ["machines", "Machines"], ["analyse", "Analyse"], ["entretien", "Entretien"], ["donnees", "Données reçues"], ["fiches", "Fiches constructeur"], ["documents", "Documents"]];
 function a1ParcMois() { return a1ParcMoisVu || todayISO().slice(0, 7); }
 function a1ParcMoisShift(d) { var p = a1ParcMois().split("-"), dt = new Date(Date.UTC(+p[0], +p[1] - 1 + d, 1)); a1ParcMoisVu = dt.toISOString().slice(0, 7); renderA1Parc(); }
 function a1ParcClientCourant() {
@@ -25013,7 +25019,7 @@ function a1ParcChoisir(cid, onglet) {
   if (typeof a1genClient !== "undefined") a1genClient = a1ParcClient;
   if (typeof focusClient !== "undefined") focusClient = a1ParcClient;
   if (onglet) a1ParcOnglet = onglet;
-  a1ParcCible = "";
+  a1ParcCible = ""; a1ParcPerimetre = "tout";   /* patch 197 */
   renderA1Parc();
 }
 function a1ParcOuvrir(cid, onglet, cible) { a1ParcChoisir(cid, onglet || "bord"); if (typeof setScreen === "function" && (typeof currentScreen === "undefined" || currentScreen !== "a1parc")) setScreen("a1parc"); if (cible) a1ParcAller(onglet || "bord", cible); }
@@ -25065,7 +25071,9 @@ function a1ParcReference(x) {
 function a1ParcEtat(cid, mois) {
   mois = mois || a1ParcMois();
   var M = a1ParcMachines(cid), kinds = a1ParcKinds(cid), auj = todayISO(), dans30 = a1DateDecalee(auj, 30);
-  var E = { cid: cid, mois: mois, kinds: kinds, machines: M, nMachines: M.length };
+  var perim = a1ParcPerimetreEffectif(cid), kindsClient = kinds;   /* patch 197 : le périmètre choisi filtre les volets */
+  if (perim !== "tout") { M = M.filter(function (x) { return x.kind === perim; }); kinds = [perim]; }
+  var E = { cid: cid, mois: mois, kinds: kinds, machines: M, nMachines: M.length, perimetre: perim, kindsClient: kindsClient };
   var avec = [], sans = [], nRel = 0, dernier = "", equipe = 0, equipeDernier = "", charge = 0;
   M.forEach(function (x) {
     var L = a1ParcLogsDe(x), Lm = L.filter(function (l) { return String(l.date || "").slice(0, 7) === mois; });
@@ -25130,6 +25138,7 @@ function a1ParcGestes(items) { return '<div class="a1-int"><div class="a1p-geste
 function a1ParcOngletBadge(E, cle) {
   var n = 0, cls = "b-grey";
   if (cle === "machines") { n = E.nMachines; cls = "b-grey"; }
+  else if (cle === "analyse") { n = a1ParcAnalyseCompte(E); cls = "b-red"; }   /* patch 197 : anomalies et sous-charges */
   else if (cle === "entretien") { n = E.entretien.dues.length; cls = "b-red"; }
   else if (cle === "donnees") { n = E.releves.sans.length + E.depots.aIntegrer.length; cls = "b-orange"; }
   else if (cle === "fiches") { n = E.fiches.sans; cls = "b-orange"; }
@@ -25141,7 +25150,7 @@ function renderA1Parc() {
   var host = document.getElementById("scr-a1parc"); if (!host) return;
   var cid = a1ParcClientCourant(), clients = a1SuiviClientsParc();
   if (!cid) {
-    host.innerHTML = a1ModuleTabs('parc') + '<div class="pagetitle"><div><h1>🚗 Parc</h1><div class="sub">Le parc d’un client, en six volets.</div></div></div>'
+    host.innerHTML = a1ModuleTabs('parc') + '<div class="pagetitle"><div><h1>🚗 Parc</h1><div class="sub">Le parc d’un client, en sept volets.</div></div></div>'
       + '<div class="empty">Aucun parc suivi pour l’instant : un parc naît d’un devis accepté (mise en route) ou d’une machine ajoutée dans Véhicules ou Groupes.</div>';
     return;
   }
@@ -25149,14 +25158,14 @@ function renderA1Parc() {
   var sel = '<select onchange="a1ParcChoisir(this.value)" title="Le client dont on regarde le parc" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-family:inherit;background:var(--navy);color:#fff;font-weight:600;font-size:13px">'
     + clients.map(function (k) { var p = a1ParcCompte(k.id); return '<option value="' + k.id + '"' + (k.id === cid ? ' selected' : '') + '>' + esc(k.company) + ' · ' + p.total + ' machine' + (p.total > 1 ? 's' : '') + '</option>'; }).join("") + '</select>';
   var onglets = '<div class="subtabs a1p-onglets" style="margin-top:4px">' + A1_PARC_ONGLETS.map(function (o) { return '<div class="subtab' + (a1ParcOnglet === o[0] ? ' active' : '') + '" onclick="a1ParcAller(\'' + o[0] + '\')">' + o[1] + a1ParcOngletBadge(E, o[0]) + '</div>'; }).join("") + '</div>';
-  var corps = { bord: a1ParcBordHtml, machines: a1ParcMachinesHtml, entretien: a1ParcEntretienHtml, donnees: a1ParcDonneesHtml, fiches: a1ParcFichesHtml, documents: a1ParcDocumentsHtml }[a1ParcOnglet] || a1ParcBordHtml;
+  var corps = { bord: a1ParcBordHtml, machines: a1ParcMachinesHtml, analyse: a1ParcAnalyseHtml, entretien: a1ParcEntretienHtml, donnees: a1ParcDonneesHtml, fiches: a1ParcFichesHtml, documents: a1ParcDocumentsHtml }[a1ParcOnglet] || a1ParcBordHtml;
   host.innerHTML = a1ModuleTabs('parc')
-    + '<div class="pagetitle" style="margin-bottom:10px"><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><h1 style="margin:0">🚗 Parc</h1>' + sel + a1ParcMoisNav(E.mois) + '</div>'
+    + '<div class="pagetitle" style="margin-bottom:10px"><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><h1 style="margin:0">' + a1ParcIcone(E) + ' Parc</h1>' + sel + a1ParcMoisNav(E.mois) + '</div>'
     + '<div class="a1-int" style="display:flex;gap:8px;flex-wrap:wrap">'
-    + '<button class="cta gold" onclick="a1ParcRapport()" title="Le rapport d’analyse complet du client : consommation et écarts, entretien, données reçues et manques, recommandations — à relire dans Rapports avant l’envoi">📕 Rapport d’analyse</button>'
+    + '<button class="cta gold" onclick="a1ParcRapport()" title="Le rapport d’analyse complet du client : consommation et écarts, entretien, données reçues et manques, recommandations — à relire dans Rapports avant l’envoi">📕 Rapport d’analyse' + (E.perimetre === "gen" ? " — groupes et engins" : (E.perimetre === "fleet" ? " — véhicules" : "")) + '</button>'
     + '<button class="cta ghost" onclick="a1Presenter(\'' + kind + '\')" title="Un seul client à l’écran, rien d’interne">👔 Présenter</button>'
     + '<button class="cta ghost" onclick="openA1ParcReglages()" title="Prix carburant, seuils, objectif, sauvegarde, journaux, remise à zéro">⚙ Réglages</button></div></div>'
-    + onglets + corps(E);
+    + a1ParcPerimetreHtml(E) + onglets + corps(E);
 }
 /* ---- 1 · Tableau de bord ---- */
 function a1ParcBordHtml(E) {
@@ -25173,7 +25182,7 @@ function a1ParcBordHtml(E) {
     + '</div>';
   var L = a1ParcLien;
   var donnees = [];
-  donnees.push(a1ParcLi(nM && R.avec.length === nM ? "ok" : (R.avec.length ? "att" : "ko"), L("donnees", "releves", "Relevés carburant et compteur : <b>" + R.n + "</b> pour " + R.avec.length + " machine" + (R.avec.length > 1 ? "s" : "") + (R.dernier ? ", le " + frDate(R.dernier) : "")) + (E.equipe.n ? " <span style=\"color:var(--muted)\">(espace des équipes)</span>" : "")));
+  donnees.push(a1ParcLi(nM && R.avec.length === nM ? "ok" : (R.avec.length ? "att" : "ko"), L("donnees", "releves", a1ParcRelevesLib(E) + " : <b>" + R.n + "</b> pour " + R.avec.length + " machine" + (R.avec.length > 1 ? "s" : "") + (R.dernier ? ", le " + frDate(R.dernier) : "")) + (E.equipe.n ? " <span style=\"color:var(--muted)\">(espace des équipes)</span>" : "")));
   if (E.kinds.indexOf("fleet") >= 0) donnees.push(a1ParcLi(E.equipe.charge ? "ok" : "att", L("donnees", "equipe", "Charge moyenne du mois : " + (E.equipe.charge ? "saisie pour <b>" + E.equipe.charge + "</b> relevé" + (E.equipe.charge > 1 ? "s" : "") : "non saisie"))));
   donnees.push(a1ParcLi(E.depots.aIntegrer.length ? "att" : (E.depots.total ? "ok" : ""), L("donnees", "depots", "Dépôts dans l’espace : <b>" + E.depots.mois + "</b> ce mois" + (E.depots.aIntegrer.length ? ", <b>" + E.depots.aIntegrer.length + "</b> à intégrer" : "") + (E.depots.dernier ? " · dernier : " + esc((typeof MER_TYPES_DEPOT !== "undefined" && MER_TYPES_DEPOT[E.depots.dernier.type]) || E.depots.dernier.type) + " le " + frDate(String(E.depots.dernier.ts || "").slice(0, 10)) : ""))));
   if (E.lectures.length) donnees.push(a1ParcLi(E.lecturesAPreciser.length ? "att" : "ok", L("donnees", "lectures", "Lectures automatiques : " + lecturesResumeHtml(cid))));
@@ -25207,7 +25216,7 @@ function a1ParcBordHtml(E) {
     + carte("Entretien", ent.join(""), '<button class="cta ghost sm" onclick="a1ParcAller(\'entretien\')">Voir l’entretien ▸</button>')
     + carte("Rapport d’analyse de " + esc(lib), rap.join(""), rapBtn, "rapport-mois")
     + '</div>'
-    + a1ParcGestes([["📨 Relancer la collecte", "openA1Relance('" + cid + "','" + kind + "')"], ["📱 Mise en route sur site", "openMerSite('" + cid + "')", "", "La fiche de points, à remplir sur place avec les équipes"], ["🧭 Nouvelle analyse guidée", "openA1Wizard('" + kind + "')"], ["💬 Assistant", "openA1Chat('" + kind + "')"], ["📬 Suivi du mois, tous clients", "setScreen('a1suivi')"]]);
+    + a1ParcGestes(a1ParcGestesRelance(E, "").concat([["📱 Mise en route sur site", "openMerSite('" + cid + "')", "", "La fiche de points, à remplir sur place avec les équipes"], ["🧭 Nouvelle analyse guidée", "openA1Wizard('" + kind + "')"], ["💬 Assistant", "openA1Chat('" + kind + "')"], ["📬 Suivi du mois, tous clients", "setScreen('a1suivi')"]]));
 }
 /* ---- 2 · Machines ---- */
 function a1ParcMachinesHtml(E) {
@@ -25224,11 +25233,11 @@ function a1ParcMachinesHtml(E) {
       + '<td style="text-align:right">' + a1ParcLien("donnees", "releves", "<b>" + x.relevesMois + "</b> ce mois · " + x.releves, "Les relevés reçus") + (x.dernier ? '<div style="font-size:10.5px;color:var(--muted)">dernier : ' + frDate(x.dernier) + '</div>' : '') + '</td>'
       + '<td>' + (x.spec ? '<a href="#" class="a1p-lien" title="Ouvrir la fiche constructeur : ' + esc(a1SpecLabel(x.spec)) + '" onclick="event.preventDefault();openA1SpecForm(\'' + x.spec.id + '\',\'' + x.kind + '\')">' + fiche + '</a>' : a1ParcLien("fiches", f === "complete" ? "modele-" + a1NameKey(x.modele) : "manquantes", fiche, "Aller aux fiches constructeur")) + '</td>' + '<td>' + (x.pieces ? a1ParcLien("documents", "pieces", "📎 " + x.pieces, "Les pièces rattachées à cette machine") : '<span style="color:var(--muted)">—</span>') + '</td>'
       + '<td>' + a1ParcLien("entretien", nd ? "dues" : "machine-" + x.m.id, ent, "Aller à l’entretien de cette machine") + '</td>'
-      + '<td class="a1-int"><div class="rowact"><button class="iconbtn" title="Diagnostic" onclick="openA1Diag(\'' + x.kind + '\',\'' + x.m.id + '\')">🔬</button><button class="iconbtn" title="Relevés" onclick="' + logs + '">📄</button><button class="iconbtn" title="Fiche de la machine" onclick="' + edit + '">✎</button></div></td></tr>';
+      + '<td class="a1-int"><div class="rowact"><button class="iconbtn" title="Diagnostic" onclick="openA1Diag(\'' + x.kind + '\',\'' + x.m.id + '\')">🔬</button><button class="iconbtn" title="Relevés" onclick="' + logs + '">📄</button><button class="iconbtn" title="Fiche de la machine" onclick="' + edit + '">✎</button><button class="iconbtn" title="Étudier cette machine" onclick="a1EtudeDepuisMachine(\'' + x.kind + '\',\'' + x.m.id + '\')">🧪</button></div></td></tr>';
   }).join("");
   return '<div class="card" id="a1p-machines"><h2>' + E.nMachines + ' machine' + (E.nMachines > 1 ? 's' : '') + ' suivie' + (E.nMachines > 1 ? 's' : '') + '</h2><div class="hint">Un clic sur la machine ouvre son diagnostic ; sur le modèle, sa fiche constructeur ; sur l’entretien, son carnet.</div>'
     + (E.nMachines ? '<div style="overflow-x:auto"><table class="clickrows"><thead><tr><th>Machine</th><th>Modèle</th><th style="text-align:right">Compteur</th><th style="text-align:right">Relevés</th><th>Fiche</th><th>Pièces</th><th>Entretien</th><th class="a1-int"></th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="empty">Aucune machine : ajoute-la ci-dessous, ou remplis la fiche de mise en route sur site.</div>') + '</div>'
-    + a1ParcGestes([["+ Véhicule", "openA1Vehicle()", "gold"], ["+ Groupe ou engin", "openA1Genset()"], ["⇊ Importer des relevés", kind === "gen" ? "openA1GenImport()" : "openA1Import()"], ["📋 Coller un tableau", "openA1Paste('" + kind + "')"], ["📋 Parc complet", "openA1Roster('" + kind + "')", "", "Toutes les machines, actives et cédées"], ["🖨 Fiche de relevé à imprimer", "printA1CollectSheetFor('" + kind + "','" + cid + "')"], ["📱 Mise en route sur site", "openMerSite('" + cid + "')"], ["🚗 Vue classique des véhicules", "setScreen('a1fleet')", "", "L’ancien écran Véhicules, avec ses cartes d’analyse"], ["🔌 Vue classique des groupes", "setScreen('a1genset')", "", "L’ancien écran Groupes et engins"]]);
+    + a1ParcGestes([["+ Véhicule", "openA1Vehicle()", kind === "gen" ? "" : "gold"], ["+ Groupe ou engin", "openA1Genset()", kind === "gen" ? "gold" : ""]].concat(a1ParcGestesImport(E), [["📋 Coller un tableau", "openA1Paste('" + kind + "')"], ["📋 Parc complet", "openA1Roster('" + kind + "')", "", "Toutes les machines, actives et cédées"], ["🖨 Fiche de relevé à imprimer", "printA1CollectSheetFor('" + kind + "','" + cid + "')"], ["📱 Mise en route sur site", "openMerSite('" + cid + "')"], ["🚗 Vue classique des véhicules", "setScreen('a1fleet')", "", "L’ancien écran Véhicules, avec ses cartes d’analyse"], ["🔌 Vue classique des groupes", "setScreen('a1genset')", "", "L’ancien écran Groupes et engins"]]));
 }
 /* ---- 3 · Entretien (D1 : échéances, interventions du mois, ordres de travail, périodicités par client ; D2 ajoute les périodicités par modèle) ---- */
 function a1ParcEntretienHtml(E) {
@@ -25273,7 +25282,7 @@ function a1ParcDonneesHtml(E) {
     + '<div class="card" id="a1p-lectures"><h2>Lectures automatiques</h2>' + lect + '</div>'
     + '<div class="card" id="a1p-gps"><h2>GPS</h2>' + (gps || '<div class="hint">Option non retenue.</div>') + '<div class="a1-int" style="margin-top:8px"><button class="cta ghost sm" onclick="openA1GpsImport()">📍 Importer un export GPS</button></div></div>'
     + '<div class="card" id="a1p-besoins"><h2>À demander au client</h2><div class="hint">Ce qui manque encore pour juger, et la question exacte à poser.</div>' + besoins + '</div>'
-    + a1ParcGestes([["📨 Relancer la collecte", "openA1Relance('" + cid + "','" + kind + "')", "gold"], ["⇊ Importer des relevés", kind === "gen" ? "openA1GenImport()" : "openA1Import()"], ["📋 Coller un tableau", "openA1Paste('" + kind + "')"], ["🖨 Fiche de relevé", "printA1CollectSheetFor('" + kind + "','" + cid + "')"], ["📥 Classeur de collecte", "a1ClasseurCollecte('" + kind + "')", "", "Le classeur Excel à remettre au client"], ["📋 Ce qu’il nous faut", "a1DemandeDonnees('" + kind + "')", "", "Le document qui liste les données attendues"]]);
+    + a1ParcGestes(a1ParcGestesCollecte(E).concat([["📋 Coller un tableau", "openA1Paste('" + kind + "')"], ["🖨 Fiche de relevé", "printA1CollectSheetFor('" + kind + "','" + cid + "')"], ["📥 Classeur de collecte", "a1ClasseurCollecte('" + kind + "')", "", "Le classeur Excel à remettre au client"], ["📋 Ce qu’il nous faut", "a1DemandeDonnees('" + kind + "')", "", "Le document qui liste les données attendues"]]));
 }
 /* ---- 5 · Fiches constructeur ---- */
 function a1ParcModeles(E) {
@@ -25316,26 +25325,510 @@ function a1ParcDocumentsHtml(E) {
     + '<div class="card a1-int" id="a1p-export"><h2>📦 Export du mois</h2><div class="hint">Relevés, interventions, échéances et rapport de ' + esc(a1MonthLabel(E.mois)) + ', sur le serveur du poste et dans le dossier Drive du client.</div><button class="cta ghost sm" onclick="a1ExportMensuel(\'' + cid + '\',\'' + E.mois + '\')">📦 Exporter ' + esc(a1MonthLabel(E.mois)) + '</button></div>'
     + a1ParcGestes([["📕 Rapport d’analyse", "a1ParcRapport()", "gold"], ["📚 Historique des rapports", "openA1ExecHistory('" + kind + "')"], ["📎 Documents du client", "openA1Docs('" + kind + "')"], ["📋 Ce qu’il nous faut", "a1DemandeDonnees('" + kind + "')"], ["🖨 Fiche de mise en route", "openMerSiteDoc('" + cid + "')"]]);
 }
+/* ================== LE PARC, PAREIL POUR LES GROUPES ; LES ÉTUDES D'OPTIMISATION (patch 197, v6.100.4, 22/10/2026) ==================
+   JB : « tout le cockpit refait pour les VHL je veux le même avec les groupes (onglets, sous onglets, permutation, simulation…) »,
+   puis : « utiliser le volet Analyse pour affiner mes recommandations, pour les vhl et les groupes, avec des études internes de
+   kWh ou conso, avec une option de mise dans le rapport pour le client ». Maquettes validées (maquette_197_*.png, maquette_197b_*.png).
+   1. La rangée PÉRIMÈTRE (Tout le parc / Véhicules / Groupes et engins) quand le client a les deux : les volets ne montrent que
+      ce périmètre, le rapport est le sien sans fenêtre de choix, les gestes et réglages suivent.
+   2. Le volet ANALYSE, septième volet, reprend par périmètre les cartes des anciens écrans : coup d'œil, anomalies, écart valorisé,
+      évolution, comparer deux mois ; véhicules : recoupement GPS, conducteurs ; groupes : JIRAMA, coupures, saisonnalité,
+      permutation épinglée (carte permanente), simulation, mesures de pointe.
+   3. Les ÉTUDES D'OPTIMISATION : une étude = périmètre, machines, période, mesures, regroupement, comparaison ; le Cockpit
+      calcule, lit et propose une recommandation par règles (l'assistant peut en proposer une autre, sur données pseudonymisées) ;
+      « Dans le rapport » l'ajoute en section « Études d'optimisation » et porte sa recommandation en tête des recommandations
+      prioritaires, à la relecture habituelle. Un regroupement par chauffeur reste interne : jamais une personne dans un document.
+   Deux rapports distincts demeurent (véhicules, groupes et engins). */
+var a1ParcPerimetre = "tout";
+function a1ParcPerimetreEffectif(cid) { var k = a1ParcKinds(cid); if (k.length < 2) return "tout"; return (a1ParcPerimetre === "fleet" || a1ParcPerimetre === "gen") ? a1ParcPerimetre : "tout"; }
+function a1ParcPerimetreKinds(cid) { var p = a1ParcPerimetreEffectif(cid); return p === "tout" ? a1ParcKinds(cid) : [p]; }
+function a1ParcPerimetreChoisir(p) { a1ParcPerimetre = (p === "fleet" || p === "gen") ? p : "tout"; a1ParcCible = ""; renderA1Parc(); }
+function a1ParcKindLib(k, pluriel) { return k === "gen" ? "groupes et engins" : "véhicules"; }
+function a1ParcIcone(E) { return (E.kinds.length === 1 && E.kinds[0] === "gen") ? "🔌" : "🚗"; }
+function a1ParcRelevesLib(E) { return E.kinds.indexOf("fleet") < 0 ? "Relevés carburant et heures de marche" : (E.kinds.indexOf("gen") < 0 ? "Relevés carburant et compteur" : "Relevés carburant, compteur et heures"); }
+/* La rangée des périmètres : seulement quand le client a des véhicules et des groupes ou engins. */
+function a1ParcPerimetreHtml(E) {
+  var tous = E.kindsClient || E.kinds; if (tous.length < 2) return "";
+  var c = a1ParcCompte(E.cid), p = E.perimetre || "tout";
+  var b = function (cle, lib) { return '<button class="cta ' + (p === cle ? "gold" : "ghost") + ' sm" onclick="a1ParcPerimetreChoisir(\'' + cle + '\')">' + lib + '</button>'; };
+  return '<div class="a1p-perim"><span class="lib">PÉRIMÈTRE</span>' + b("tout", "Tout le parc · " + c.total) + b("fleet", "🚗 Véhicules · " + c.veh) + b("gen", "🔌 Groupes et engins · " + c.gen)
+    + '<span style="font-size:11.5px;color:var(--muted);margin-left:6px">' + (p === "tout" ? "toutes les machines ; le rapport demande le périmètre" : "les volets ne montrent que ce périmètre ; le rapport est le sien") + '</span></div>';
+}
+/* Les gestes qui dépendent du périmètre : un bouton par périmètre visible. */
+function a1ParcGestesParKind(E, lib, fnFleet, fnGen, cls) {
+  var deux = E.kinds.length > 1;
+  return E.kinds.map(function (k) { return [lib + (deux ? (k === "gen" ? " groupes" : " véhicules") : ""), k === "gen" ? fnGen : fnFleet, cls || ""]; });
+}
+function a1ParcGestesImport(E) { return a1ParcGestesParKind(E, "⇊ Importer des relevés", "openA1Import()", "openA1GenImport()"); }
+function a1ParcGestesRelance(E, cls) { return a1ParcGestesParKind(E, "📨 Relancer la collecte", "openA1Relance('" + E.cid + "','fleet')", "openA1Relance('" + E.cid + "','gen')", cls === undefined ? "gold" : cls); }
+function a1ParcGestesCollecte(E) { return a1ParcGestesRelance(E).concat(a1ParcGestesImport(E)); }
+/* Les réglages du parc : un bouton par périmètre pour ce qui en dépend. */
+function openA1ParcReglages() {
+  var cid = a1ParcClientCourant(), kinds = a1ParcPerimetreKinds(cid), deux = kinds.length > 1, kind = kinds[0];
+  var suf = function (k) { return deux ? (k === "gen" ? " groupes" : " véhicules") : ""; };
+  var par = function (lib, fn, titre) { return kinds.map(function (k) { return [lib + suf(k), fn(k), "", titre]; }); };
+  var G = function (titre, items) { return '<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);letter-spacing:.05em;font-weight:600;margin-bottom:5px">' + titre + '</div><div style="display:flex;gap:7px;flex-wrap:wrap">' + items.filter(Boolean).map(function (b) { return '<button class="cta ' + (b[2] || "ghost") + ' sm" onclick="closeModal();' + b[1] + '"' + (b[3] ? ' title="' + esc(b[3]) + '"' : '') + '>' + b[0] + '</button>'; }).join("") + '</div></div>'; };
+  openModal('<span class="close" onclick="closeModal()">✕</span><h2>⚙ Réglages du parc</h2><div class="msub">Prix, seuils et objectif ; sauvegarde et journaux ; la zone sensible en dernier.</div>'
+    + G("Prix, seuils, objectif", [["⛽ Prix carburant", "openFuelPrices()"], ["⚙ Seuils d’alerte", "openA1Thresholds()"]].concat(par("🥅 Objectif client", function (k) { return "openA1Target('" + k + "')"; }), par("🚦 Prêt à présenter ?", function (k) { return "openA1ReadyCheck('" + k + "')"; })))
+    + G("Sauvegarde et journaux", [["💾 Sauvegarde", "openA1DataSafety()"], ["🔎 Vérifier l’intégrité", "a1VerifierIntegrite()"], ["📜 Journal des imports", "openA1ImportJournal()"], ["🧾 Journal des requêtes IA", "openA1IaJournal()"]].concat(par("🗄️ Banque de données", function (k) { return "openA1DataBank('" + k + "')"; })))
+    + G("Démonstration", [["🎬 Rapport d’exemple (client SIMULATION)", "a1DemoMode('" + kind + "')"]])
+    + G("Zone sensible", par("🧹 Remettre le parc à zéro", function (k) { return "a1PurgerParc('" + k + "')"; }, "Tout le parc du client sélectionné, avec corbeille").concat([(DB.meta && DB.meta.a1Corbeille) && ["↩ Annuler la remise à zéro", "a1AnnulerPurge()"]]))
+    + '<div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>');
+}
+/* ---- 3 · Analyse ---- */
+function a1ParcAnalyseCompte(E) {
+  var n = 0;
+  E.kinds.forEach(function (k) { try { var arr = (k === "gen" ? a1GenCompute(E.cid) : a1Compute(E.cid)).arr; n += arr.filter(function (p) { return p.anomaly || (k === "gen" && p.lowLoad); }).length; } catch (e) { } });
+  return n;
+}
+function a1ParcAnalyseHtml(E) {
+  var cid = E.cid; a1Client = cid; a1genClient = cid;   /* les cartes des anciens écrans lisent le client sélectionné */
+  var out = a1ParcEtudesCardHtml(E), deux = E.kinds.length > 1, gestes = [];
+  E.kinds.forEach(function (k) {
+    if (deux) out += '<h2 style="font-size:15px;margin:8px 0 8px">' + (k === "gen" ? "🔌 Groupes et engins" : "🚗 Véhicules") + '</h2>';
+    out += k === "gen" ? a1ParcAnalyseGenHtml(E) : a1ParcAnalyseFleetHtml(E);
+    var suf = deux ? (k === "gen" ? " groupes" : " véhicules") : "";
+    gestes.push(["🤖 Analyse IA" + suf, k === "gen" ? "a1GenAnalyze()" : "a1Analyze()", "gold"], ["💬 Assistant" + suf, "openA1Chat('" + k + "')"], ["🧭 Nouvelle analyse guidée" + suf, "openA1Wizard('" + k + "')"], ["🎯 Données & fiabilité" + suf, "openA1DataPanel('" + k + "')"], ["🥅 Objectif client" + suf, "openA1Target('" + k + "')"], ["🚦 Prêt à présenter ?" + suf, "openA1ReadyCheck('" + k + "')"]);
+    if (k === "gen") {
+      var g0 = (DB.a1gensets || []).filter(function (g) { return g.clientId === cid && g.statut !== "cede" && !a1EstEngin(g); })[0];
+      gestes.push(["🔁 Étude de permutation", "openA1SwapStudy()"], ["🧪 + Simulation d’une charge à venir", "openA1Simulation()"]);
+      if (g0) gestes.push(["📈 Mesure de pointe", "openA1PeakForm('" + g0.id + "')"]);
+      gestes.push(["✍ Heures hors coupure", "openA1ExplicationHC('" + cid + "')"], ["🧾 Facture JIRAMA", "openA1InvoiceImport('jirama')"]);
+    } else gestes.push(["📍 Importer un export GPS", "openA1GpsImport()"], ["🧾 Facture carburant", "openA1InvoiceImport('fuel')"]);
+  });
+  return out + a1ParcGestes(gestes);
+}
+function a1ParcEcartCardHtml(arr, lib) {
+  var tl = arr.reduce(function (s, p) { return s + ((p.diag && p.diag.loss) || 0); }, 0), fr = arr.filter(function (p) { return p.diag && p.diag.fraudScore >= 35; });
+  if (!(tl > 0) && !fr.length) return "";
+  return '<div class="card" style="border-left:3px solid var(--navy)">' + (tl > 0 ? '<b>💸 Écart valorisé face à la référence constructeur :</b> ' + fmtD(tl) + '. ' : '') + (fr.length ? '<b style="color:var(--red)">' + fr.length + ' ' + lib + (fr.length > 1 ? 's' : '') + ' avec des écarts à instruire</b> (score ≥ 35) : ouvrir le 🔬 diagnostic.' : '') + '</div>';
+}
+function a1ParcAnalyseFleetHtml(E) {
+  var cid = E.cid, comp = a1Compute(cid), arr = comp.arr.filter(function (p) { return p.n > 0; });
+  if (!arr.length) return '<div class="card" id="a1p-coupdoeil-fleet"><div class="empty">Aucun relevé de véhicule sur la période : l’analyse attend les relevés.</div></div>';
+  var anomalies = arr.filter(function (p) { return p.anomaly; });
+  var out = '<div class="card" id="a1p-coupdoeil-fleet"><h2>🎛️ Les véhicules en un coup d’œil</h2>' + a1ParcCardsHtml('fleet', arr, { fleetConso: comp.fleetConso }) + '<div class="hint" style="margin-top:6px">Jauge = dérive de consommation vs <b>référence constructeur</b> (à défaut : moyenne du parc). Vert = mieux que la référence · rouge au-delà de +15 %. Un clic sur le véhicule ouvre son diagnostic.</div></div>';
+  if (anomalies.length) out += '<div class="card" id="a1p-anomalies-fleet" style="border-left:3px solid var(--red)"><b>⚠️ Anomalies détectées :</b> ' + anomalies.map(function (p) { return esc(p.v.name) + " (" + p.consoL100.toFixed(1) + " L/100 km, " + (p.driftTheo != null ? ((p.driftTheo > 0 ? "+" : "") + Math.round(p.driftTheo) + " % vs référence") : (((p.consoL100 / comp.fleetConso - 1) * 100 > 0 ? "+" : "") + Math.round((p.consoL100 / comp.fleetConso - 1) * 100) + " % vs moyenne")) + ")"; }).join(" · ") + '. À vérifier : conduite, entretien ou circuit carburant.</div>';
+  out += a1ParcEcartCardHtml(arr, "véhicule");
+  var gps = ""; try { gps = a1GpsRecoupCard(); } catch (e) { gps = ""; }
+  out += a1TrendCard('fleet') + (typeof a1ComparerMoisCard === "function" ? a1ComparerMoisCard('fleet') : "")
+    + (gps || '<div class="card" id="a1p-gpsrecoup"><h2>📍 Recoupement GPS</h2><div class="hint">Aucun export GPS chargé sur la période : le recoupement carburant / kilomètres GPS apparaît ici dès qu’un export est importé (volet Données reçues).</div></div>')
+    + a1DriverCard() + a1BenchCard('fleet') + a1ConcentrationCard('fleet') + a1InvoiceCard("fuel");
+  return out;
+}
+function a1ParcAnalyseGenHtml(E) {
+  var cid = E.cid, comp = a1GenCompute(cid), arr = comp.arr.filter(function (p) { return p.n > 0; }), totals = comp.totals;
+  if (!arr.length) return '<div class="card" id="a1p-coupdoeil-gen"><div class="empty">Aucun relevé de groupe ou d’engin sur la période : l’analyse attend les relevés.</div></div>';
+  var anomalies = arr.filter(function (p) { return p.anomaly; }), lowLoads = arr.filter(function (p) { return p.lowLoad; });
+  var out = '<div class="card" id="a1p-coupdoeil-gen"><h2>🎛️ Les groupes et engins en un coup d’œil</h2>' + a1ParcCardsHtml('gen', arr) + '<div class="hint" style="margin-top:6px">Trait navy = charge moyenne · trait fin = pointe estimée (moyenne × ' + A1_SWAP_PEAK + ') · zone verte 60–80 % = zone idéale d’un diesel. Un clic sur la machine ouvre son diagnostic.</div></div>';
+  if (anomalies.length || lowLoads.length) out += '<div class="card" id="a1p-anomalies-gen" style="border-left:3px solid var(--red)">' + (anomalies.length ? '<b>⚠️ Surconsommations :</b> ' + anomalies.map(function (p) { return esc(p.g.name) + " (" + p.realLh.toFixed(1) + " L/h, +" + p.driftLh.toFixed(0) + " % vs attendu)"; }).join(" · ") + ". À vérifier : entretien, injecteurs, charge, ou circuit carburant." : "") + (anomalies.length && lowLoads.length ? "<br>" : "") + (lowLoads.length ? '<b style="color:var(--amber)">Sous-charge :</b> ' + lowLoads.map(function (p) { return esc(p.g.name) + " (" + p.chargePct.toFixed(0) + " %)"; }).join(" · ") + " — groupe surdimensionné pour son site, rendement et durée de vie dégradés." : "") + '</div>';
+  out += a1ParcEcartCardHtml(arr, "groupe");
+  if (totals.jiramaKwh > 0 && totals.kwh > 0) out += '<div class="card" id="a1p-jirama" style="border-left:3px solid var(--navy)"><b>⚡ Comparatif réseau JIRAMA :</b> ' + Math.round(totals.kwh).toLocaleString("fr-FR") + ' kWh produits au groupe = <b>' + fmtD(totals.cost) + '</b> ; au tarif réseau (' + fmtD(totals.jiramaKwh) + '/kWh) cela coûterait <b>' + fmtD(totals.jiramaEquiv) + '</b> → ' + (totals.cost > totals.jiramaEquiv ? 'surcoût d’autonomie de <b style="color:var(--amber)">' + fmtD(totals.cost - totals.jiramaEquiv) + '</b> (prix de la continuité pendant les délestages)' : '<b style="color:var(--green)">économie de ' + fmtD(totals.jiramaEquiv - totals.cost) + '</b> vs réseau') + '.</div>';
+  if (totals.outageH > 0) out += '<div class="card" id="a1p-coupures" style="border-left:3px solid ' + (totals.horsCoupureH >= 2 ? 'var(--amber)' : 'var(--navy)') + '"><b>⚡ Coupures du réseau :</b> ' + Math.round(totals.outageH).toLocaleString("fr-FR") + ' h de délestage déclarées · ' + Math.round(totals.hours).toLocaleString("fr-FR") + ' h de marche groupes (couverture ' + (totals.hours / totals.outageH).toFixed(2) + '×).' + (totals.horsCoupureH >= 2 ? ' <b style="color:var(--amber)">~' + Math.round(totals.horsCoupureH) + ' h hors coupure</b> — marche au-delà des délestages (réseau probablement disponible, à investiguer) : ' + arr.filter(function (p) { return p.horsCoupureH >= 2; }).map(function (p) { return esc(p.g.name) + " +" + Math.round(p.horsCoupureH) + "h"; }).join(" · ") + '.' : ' Marche cohérente avec les coupures ✅.') + '<div class="hint" style="margin-top:4px">Indicateur mensuel de <b>screening</b> (pas une preuve horaire). Comparaison prix « vs réseau » = renseigne le tarif JIRAMA (facture).</div></div>';
+  else out += '<div class="card a1-int" id="a1p-coupures" style="border-left:3px solid var(--muted)"><b>⚡ Coupures du réseau :</b> durée non renseignée → <b>heures hors coupure non calculables</b>. Importe le tableau de bord (colonne « Durée coupures (h) ») ou saisis-les.</div>';
+  out += a1SeasonCard() + a1TrendCard('gen') + (typeof a1ComparerMoisCard === "function" ? a1ComparerMoisCard('gen') : "")
+    + a1ParcPermutationCardHtml(cid) + (typeof a1SimulationCard === "function" ? a1SimulationCard() : "") + a1ParcPointeCardHtml(cid)
+    + a1BenchCard('gen') + a1ConcentrationCard('gen') + a1InvoiceCard("jirama");
+  return out;
+}
+/* La permutation épinglée au rapport : une carte permanente, recalculée avec les données de la période. */
+function a1ParcPermutationCardHtml(cid) {
+  var gens = (DB.a1gensets || []).filter(function (g) { return g.clientId === cid && g.statut !== "cede" && !a1EstEngin(g); });
+  if (gens.length < 2) return "";
+  var pin = (DB.a1swapReport || {})[cid], gA = pin && gens.filter(function (g) { return g.id === pin.a; })[0], gB = pin && gens.filter(function (g) { return g.id === pin.b; })[0];
+  if (!pin || !gA || !gB) return '<div class="card" id="a1p-permutation"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 style="margin:0">🔁 Permutation des groupes</h2><span class="a1-int"><button class="cta ghost sm" onclick="openA1SwapStudy()">🔁 Étudier une permutation</button></span></div><div class="hint">Aucune permutation épinglée au rapport. L’étude dit si échanger deux groupes tient la pointe de chaque site, et ce qu’il reste à mesurer.</div></div>';
+  var res = null; try { res = a1SwapAssess(pin.a, pin.b, (typeof a1SimOptsPour === "function") ? a1SimOptsPour(cid, pin) : { addA: pin.addA, addB: pin.addB }); } catch (e) { res = null; }
+  if (!res) return "";
+  var badge = function (st) { var m = a1SwapStatusBadge(st && st.status), p = st && st.chargeAvg > 0 ? Math.round(st.chargeAvg) + " % de charge · " : ""; return p + '<span style="color:' + m[0] + ';font-weight:700">' + esc(m[1]) + '</span>'; };
+  var auj = function (st) { var c = st && st.charge > 0 ? Math.round(st.charge) : 0, col = !c ? "var(--muted)" : (c < 30 ? "var(--amber)" : (c <= 85 ? "var(--green)" : "var(--red)")), lib = !c ? "charge inconnue" : (c < 30 ? "sous-charge" : (c <= 85 ? "charge normale" : "charge élevée")); return (c ? c + " % de charge · " : "") + '<span style="color:' + col + ';font-weight:700">' + lib + '</span>'; };
+  return '<div class="card" id="a1p-permutation"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 style="margin:0">🔁 Permutation épinglée au rapport — ' + esc(gA.name) + ' ⇄ ' + esc(gB.name) + '</h2><span class="a1-int"><button class="cta sm" onclick="openA1SwapStudy()">Ouvrir l’étude ▸</button> <button class="cta ghost sm" onclick="a1ParcPermutationRetirer(\'' + cid + '\')">Retirer du rapport</button></span></div>'
+    + '<div class="hint">' + (pin.since ? 'Question posée par le client le ' + frDate(pin.since) : 'Question posée par le client') + (pin.electricien ? ' (électricien : ' + esc(pin.electricien) + ')' : '') + (pin.evolutions ? ' ; évolution prévue : ' + esc(pin.evolutions) : '') + '. Recalculée à chaque rapport avec les données de la période.</div>'
+    + '<table style="margin-top:8px"><thead><tr><th>Site</th><th>Aujourd’hui</th><th>Après permutation</th></tr></thead><tbody>'
+    + '<tr><td><b>' + esc(gA.site || "site de " + gA.name) + '</b></td><td>' + esc(gA.name) + ' · ' + auj(res.A) + '</td><td>' + esc(gB.name) + ' · ' + badge(res.AB) + '</td></tr>'
+    + '<tr><td><b>' + esc(gB.site || "site de " + gB.name) + '</b></td><td>' + esc(gB.name) + ' · ' + auj(res.B) + '</td><td>' + esc(gA.name) + ' · ' + badge(res.BA) + '</td></tr></tbody></table>'
+    + '<div style="font-size:12.5px;margin-top:8px">' + (res.litersSaved > 0 ? 'Gain estimé si permutation : <b>' + Math.round(res.litersSaved).toLocaleString("fr-FR") + ' L</b> sur la période, soit ' + fmtD(res.costSaved) + '. ' : '') + 'Le verdict complet, les gains et ce qui reste à mesurer : dans l’étude.</div></div>';
+}
+function a1ParcPermutationRetirer(cid) { if (DB.a1swapReport && DB.a1swapReport[cid]) { delete DB.a1swapReport[cid]; save(); toast("La permutation ne sera plus reprise dans le rapport."); } renderA1Parc(); }
+/* Les mesures de pointe : la campagne de chaque groupe, ou la pointe estimée en attendant. */
+function a1ParcPointeCardHtml(cid) {
+  var gens = (DB.a1gensets || []).filter(function (g) { return g.clientId === cid && g.statut !== "cede" && !a1EstEngin(g); });
+  if (!gens.length) return "";
+  var n = 0, lignes = gens.map(function (g) {
+    var pk = (DB.a1peaks || []).filter(function (p) { return p.gensetId === g.id; }).sort(function (a, b) { return String(b.dateEnd || b.dateStart || "").localeCompare(String(a.dateEnd || a.dateStart || "")); })[0];
+    var st = null; try { st = a1GroupLoadStats(g); } catch (e) { st = null; }
+    if (pk) { n++; return a1ParcLi("ok", "<b>" + esc(g.name) + "</b>" + (g.site ? " · " + esc(g.site) : "") + " : pointe mesurée <b>" + Math.round(+pk.peakKw) + " kW</b>" + (pk.dateEnd ? " (campagne jusqu’au " + frDate(pk.dateEnd) + ")" : "") + (st && st.kwNom ? " · " + Math.round(+pk.peakKw / st.kwNom * 100) + " % du nominal" : "") + ' <span class="a1-int"><button class="cta ghost sm" onclick="openA1PeakForm(\'' + g.id + '\',\'' + pk.id + '\')">✎</button></span>'); }
+    return a1ParcLi("att", "<b>" + esc(g.name) + "</b>" + (g.site ? " · " + esc(g.site) : "") + " : " + (st && st.kwAvg > 0 ? "pointe estimée " + Math.round(st.kwAvg * A1_SWAP_PEAK) + " kW (moyenne × " + A1_SWAP_PEAK + ")" : "aucune mesure, pointe non estimable sans kWh") + ' <span class="a1-int"><button class="cta ghost sm" onclick="openA1PeakForm(\'' + g.id + '\')">📈 Campagne</button></span>');
+  }).join("");
+  return '<div class="card" id="a1p-pointe"><h2>📈 Mesures de pointe — ' + (n ? n + ' campagne' + (n > 1 ? 's' : '') : 'aucune campagne') + '</h2><div class="hint">Sans mesure, la pointe est estimée (moyenne × ' + A1_SWAP_PEAK + ') et l’étude de permutation reste prudente. Une campagne de 7 à 14 jours sur le TGBT du site la remplace par la valeur mesurée.</div>' + lignes + '</div>';
+}
+/* ---- Les études d'optimisation ---- */
+var A1_ETUDE_MESURES = [
+  { cle: "km", lib: "Kilomètres", kind: "fleet", fmt: function (v) { return Math.round(v).toLocaleString("fr-FR") + " km"; } },
+  { cle: "liters", lib: "Litres", kind: "fleet", fmt: function (v) { return Math.round(v).toLocaleString("fr-FR") + " L"; } },
+  { cle: "consoL100", lib: "L/100 km", kind: "fleet", gras: true, fmt: function (v) { return (+v).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }); } },
+  { cle: "reference", lib: "Référence", kind: "fleet", fmt: function (v) { return (+v).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }); } },
+  { cle: "ecart", lib: "Écart", kind: "fleet", pct: true, fmt: function (v) { return (v > 0 ? "+" : "") + Math.round(v) + " %"; } },
+  { cle: "cost", lib: "Coût carburant", kind: "fleet", fmt: function (v) { return fmtD(v); } },
+  { cle: "costPerKm", lib: "Coût au km", kind: "fleet", fmt: function (v) { return fmtD(v); } },
+  { cle: "charge", lib: "Charge moyenne", kind: "fleet", fmt: function (v) { return (+v).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " t"; } },
+  { cle: "hours", lib: "Heures de marche", kind: "gen", fmt: function (v) { return Math.round(v).toLocaleString("fr-FR") + " h"; } },
+  { cle: "kwh", lib: "Énergie", kind: "gen", fmt: function (v) { return Math.round(v).toLocaleString("fr-FR") + " kWh"; } },
+  { cle: "liters", lib: "Gasoil", kind: "gen", fmt: function (v) { return Math.round(v).toLocaleString("fr-FR") + " L"; } },
+  { cle: "rendement", lib: "kWh / L", kind: "gen", gras: true, fmt: function (v) { return (+v).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); } },
+  { cle: "chargePct", lib: "Charge moyenne", kind: "gen", fmt: function (v) { return Math.round(v) + " %"; } },
+  { cle: "pointe", lib: "Pointe estimée", kind: "gen", fmt: function (v) { return Math.round(v) + " kW"; } },
+  { cle: "costPerKwh", lib: "Coût du kWh", kind: "gen", gras: true, fmt: function (v) { return fmtD(v); } },
+  { cle: "ecartReseau", lib: "vs réseau", kind: "gen", pct: true, fmt: function (v) { return (v > 0 ? "+" : "") + Math.round(v) + " %"; } },
+  { cle: "outageH", lib: "Heures de coupure", kind: "gen", fmt: function (v) { return Math.round(v).toLocaleString("fr-FR") + " h"; } },
+  { cle: "horsCoupure", lib: "Heures hors coupure", kind: "gen", fmt: function (v) { return Math.round(v).toLocaleString("fr-FR") + " h"; } },
+  { cle: "realLh", lib: "L / h", kind: "gen", gras: true, fmt: function (v) { return (+v).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }); } },
+  { cle: "reference", lib: "Référence L/h", kind: "gen", fmt: function (v) { return (+v).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }); } },
+  { cle: "ecart", lib: "Écart", kind: "gen", pct: true, fmt: function (v) { return (v > 0 ? "+" : "") + Math.round(v) + " %"; } },
+  { cle: "cost", lib: "Coût gasoil", kind: "gen", fmt: function (v) { return fmtD(v); } },
+  { cle: "interventions", lib: "Interventions", kind: "both", fmt: function (v) { return String(Math.round(v)); } },
+  { cle: "coutEntretien", lib: "Coût d’entretien", kind: "both", fmt: function (v) { return fmtD(v); } }];
+var A1_ETUDE_MODELES = [
+  { cle: "derive", kind: "fleet", lib: "Dérive de consommation", mesures: ["km", "liters", "consoL100", "reference", "ecart", "cost"], regroupement: "machine", comparaison: "reference", intro: "Consommation réelle de chaque véhicule face à sa référence constructeur sur la période. Tolérance retenue : 15 %." },
+  { cle: "coutkm", kind: "fleet", lib: "Coût au kilomètre", mesures: ["km", "liters", "cost", "costPerKm", "ecart"], regroupement: "machine", comparaison: "parc", intro: "Coût du carburant rapporté au kilomètre, véhicule par véhicule, face à la moyenne du parc." },
+  { cle: "chauffeur", kind: "fleet", lib: "Carburant par chauffeur (interne)", mesures: ["km", "liters", "consoL100", "ecart", "cost"], regroupement: "chauffeur", comparaison: "reference", interne: true, intro: "" },
+  { cle: "avantapres", kind: "both", lib: "Avant / après intervention", mesures: ["km", "liters", "consoL100", "ecart", "interventions"], mesuresGen: ["hours", "liters", "realLh", "rendement", "interventions"], regroupement: "mois", comparaison: "precedent", intro: "Consommation mois par mois autour des interventions d’entretien enregistrées." },
+  { cle: "objectif", kind: "both", lib: "Trajectoire face à l’objectif", mesures: ["km", "consoL100", "ecart", "cost"], mesuresGen: ["kwh", "costPerKwh", "ecart", "cost"], regroupement: "mois", comparaison: "objectif", intro: "Mois par mois, la consommation face à l’objectif convenu avec le client." },
+  { cle: "rendement", kind: "gen", lib: "Rendement et coût du kWh par site", mesures: ["hours", "kwh", "liters", "rendement", "chargePct", "costPerKwh", "ecartReseau"], regroupement: "machine", comparaison: "reseau", intro: "Énergie produite, gasoil consommé et coût du kWh de chaque groupe, face au tarif du réseau." },
+  { cle: "coupures", kind: "gen", lib: "Heures de marche face aux coupures", mesures: ["hours", "outageH", "horsCoupure", "liters", "cost"], regroupement: "mois", comparaison: "precedent", intro: "Mois par mois, les heures de marche des groupes face aux heures de coupure déclarées." },
+  { cle: "charge", kind: "gen", lib: "Charge et dimensionnement", mesures: ["hours", "kwh", "chargePct", "pointe", "rendement"], regroupement: "machine", comparaison: "reference", intro: "Charge moyenne et pointe estimée de chaque groupe face à sa puissance nominale." },
+  { cle: "engins", kind: "gen", lib: "Engins : litres par heure face à la référence", mesures: ["hours", "liters", "realLh", "reference", "ecart", "cost"], regroupement: "machine", comparaison: "reference", intro: "Consommation horaire de chaque engin face à sa référence constructeur. Tolérance retenue : 15 %." },
+  { cle: "libre", kind: "both", lib: "Étude libre", mesures: ["km", "liters", "consoL100", "ecart", "cost"], mesuresGen: ["hours", "kwh", "liters", "rendement", "costPerKwh"], regroupement: "machine", comparaison: "reference", intro: "" }];
+function a1EtudeMesuresPour(kind) { return A1_ETUDE_MESURES.filter(function (m) { return m.kind === kind || m.kind === "both"; }); }
+function a1EtudeMesure(kind, cle) { return a1EtudeMesuresPour(kind).filter(function (m) { return m.cle === cle; })[0] || null; }
+function a1EtudeModelesPour(kind) { return A1_ETUDE_MODELES.filter(function (m) { return m.kind === kind || m.kind === "both"; }); }
+function a1EtudeModele(cle) { return A1_ETUDE_MODELES.filter(function (m) { return m.cle === cle; })[0] || A1_ETUDE_MODELES[A1_ETUDE_MODELES.length - 1]; }
+function a1EtudeRegroupements(kind) { return kind === "gen" ? [["machine", "par groupe ou engin"], ["site", "par site"], ["mois", "par mois"], ["modele", "par modèle"]] : [["machine", "par véhicule"], ["mois", "par mois"], ["modele", "par modèle"], ["chauffeur", "par chauffeur (interne seulement)"]]; }
+function a1EtudeComparaisons(kind) { return kind === "gen" ? [["reference", "fiche constructeur"], ["reseau", "tarif réseau JIRAMA"], ["precedent", "mois précédent"], ["objectif", "objectif client"]] : [["reference", "référence constructeur"], ["parc", "moyenne du parc"], ["precedent", "mois précédent"], ["objectif", "objectif client"]]; }
+function a1Etudes(cid, kind) { return (DB.a1etudes || []).filter(function (e) { return e.clientId === cid && (!kind || e.kind === kind); }).sort(function (a, b) { return String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || "")); }); }
+function a1EtudeMoisDisponibles(cid, kind) { var m = []; try { m = rapportPeriodeMois(cid, kind); } catch (e) { m = []; } if (!m.length) { var a = todayISO().slice(0, 7); for (var i = 5; i >= 0; i--) m.push(agendaJourPlus(a + "-01", -30 * i).slice(0, 7)); } return m; }
+function a1EtudeNouvelle(cid, kind, prefill) {
+  prefill = prefill || {}; var mod = a1EtudeModele(prefill.modele || (kind === "gen" ? "rendement" : "derive")), mois = a1EtudeMoisDisponibles(cid, kind);
+  var mes = (kind === "gen" && mod.mesuresGen) ? mod.mesuresGen : mod.mesures;
+  return { id: "", clientId: cid, kind: kind, titre: mod.lib.replace(" (interne)", ""), modele: mod.cle, machines: (prefill.machines || []).slice(), du: prefill.du || mois[Math.max(0, mois.length - 6)], au: prefill.au || mois[mois.length - 1], mesures: mes.slice(), regroupement: prefill.regroupement || mod.regroupement, comparaison: mod.comparaison, lecture: "", reco: null, recoManuelle: false, dansRapport: !mod.interne, notes: "" };
+}
+function a1EtudeAppliquerModele(e, cle) {
+  var mod = a1EtudeModele(cle), mes = (e.kind === "gen" && mod.mesuresGen) ? mod.mesuresGen : mod.mesures;
+  e.modele = mod.cle; e.mesures = mes.slice(); e.regroupement = mod.regroupement; e.comparaison = mod.comparaison;
+  if (!e.titre || A1_ETUDE_MODELES.some(function (m) { return m.lib.replace(" (interne)", "") === e.titre; })) e.titre = mod.lib.replace(" (interne)", "");
+  if (mod.interne || e.regroupement === "chauffeur") e.dansRapport = false;
+  e.lecture = ""; e.reco = null; e.recoManuelle = false;
+}
+function a1EtudeFenetre(du, au) { return { du: du + "-01", au: agendaJourPlus(a1MonthStartAfter(au + "-01"), -1) }; }
+function a1EtudeMoisListe(du, au) { var out = [], m = du, n = 0; while (m <= au && n++ < 36) { out.push(m); m = a1MonthStartAfter(m + "-01").slice(0, 7); } return out; }
+function a1EtudePeriodeLib(e) { return e.du === e.au ? a1MonthLabel(e.du) : a1MonthLabel(e.du) + " → " + a1MonthLabel(e.au); }
+/* L'accumulateur d'une ligne : les relevés s'y versent, les mesures en sortent. */
+function a1EtudeAcc(kind) { return { kind: kind, km: 0, liters: 0, litersMesures: 0, cost: 0, n: 0, refNum: 0, refDen: 0, attNum: 0, attDen: 0, charge: 0, chargeN: 0, hours: 0, kwh: 0, chW: 0, chH: 0, hc: 0, jk: 0, jkW: 0, interventions: 0, coutEntretien: 0, machines: {}, engins: 0, groupes: 0 }; }
+function a1EtudeVerserFleet(a, p, l) {
+  var mesure = !l.__sansEcart && (+l.km || 0) > 0;
+  a.km += (+l.km || 0); a.liters += (+l.liters || 0); if (mesure) a.litersMesures += (+l.liters || 0);
+  a.cost += a1LogCost(l, p.v.motorisation); a.n++; a.machines[p.v.id] = 1;
+  if (p.consoTheo > 0 && mesure) { a.refNum += (+l.km || 0) * p.consoTheo / 100; a.refDen += (+l.km || 0); }
+  if (+l.chargeMoyT > 0) { a.charge += +l.chargeMoyT; a.chargeN++; }
+}
+function a1EtudeVerserGen(a, p) {
+  a.hours += p.hours; a.kwh += p.kwh; a.liters += p.liters; a.cost += p.cost; a.n += p.n; a.machines[p.g.id] = 1;
+  if (a1EstEngin(p.g)) a.engins++; else a.groupes++;
+  if (p.chargePct > 0 && p.hours > 0) { a.chW += p.chargePct * p.hours; a.chH += p.hours; }
+  a.hc += (+p.horsCoupureH || 0);
+  if (a1EstEngin(p.g)) { if (p.consoTheo > 0 && p.hours > 0) { a.refNum += p.consoTheo * p.hours; a.refDen += p.hours; } }
+  else if (p.expectedLh > 0 && p.hours > 0) { a.attNum += p.expectedLh * p.hours; a.attDen += p.hours; }
+  if (p.jiramaKwh > 0) { a.jk += p.jiramaKwh * (p.kwh || 1); a.jkW += (p.kwh || 1); }
+}
+function a1EtudeEntretien(a, cid, fen) {
+  var ids = a.machines, mt = (DB.a1maint || []).filter(function (x) { return ids[x.machineId] && String(x.date || "").slice(0, 10) >= fen.du && String(x.date || "").slice(0, 10) <= fen.au; });
+  a.interventions = mt.length; a.coutEntretien = mt.reduce(function (s, x) { return s + (+x.cost || 0); }, 0);
+}
+function a1EtudeValeurs(a) {
+  var v = { n: a.n, interventions: a.interventions, coutEntretien: a.coutEntretien, cost: a.cost, liters: a.liters };
+  if (a.kind === "fleet") {
+    v.km = a.km; v.consoL100 = a.km >= 100 ? a.litersMesures / a.km * 100 : null; v.reference = a.refDen > 0 ? a.refNum / a.refDen * 100 : null;
+    v.costPerKm = a.km >= 100 ? a.cost / a.km : null; v.charge = a.chargeN ? a.charge / a.chargeN : null;
+    v.ecart = (v.consoL100 != null && v.reference > 0) ? (v.consoL100 / v.reference - 1) * 100 : null;
+    v.ecartLitres = (v.ecart != null) ? a.km * (v.consoL100 - v.reference) / 100 : null;
+  } else {
+    v.hours = a.hours; v.kwh = a.kwh; v.rendement = (a.liters > 0 && a.kwh > 0) ? a.kwh / a.liters : null; v.chargePct = a.chH > 0 ? a.chW / a.chH : null;
+    v.pointe = (a.hours > 0 && a.kwh > 0) ? a.kwh / a.hours * A1_SWAP_PEAK : null; v.costPerKwh = a.kwh > 0 ? a.cost / a.kwh : null;
+    v.reseau = a.jkW > 0 ? a.jk / a.jkW : (+(DB.meta && DB.meta.jiramaKwhPrice) || 0);
+    v.ecartReseau = (v.costPerKwh != null && v.reseau > 0) ? (v.costPerKwh / v.reseau - 1) * 100 : null;
+    v.horsCoupure = a.hc; v.realLh = a.hours > 0 ? a.liters / a.hours : null;
+    v.reference = a.refDen > 0 ? a.refNum / a.refDen : (a.attDen > 0 ? a.attNum / a.attDen : null);
+    v.ecart = (v.realLh != null && v.reference > 0) ? (v.realLh / v.reference - 1) * 100 : null;
+    v.ecartLitres = (v.ecart != null) ? a.hours * (v.realLh - v.reference) : null;
+  }
+  return v;
+}
+/* Le calcul d'une étude : les lignes selon le regroupement, les colonnes selon les mesures, l'écart selon la comparaison. */
+function a1EtudeCalcul(e) {
+  var cid = e.clientId, kind = e.kind, fen = a1EtudeFenetre(e.du, e.au), sel = {}; (e.machines || []).forEach(function (id) { sel[id] = 1; });
+  var garder = function (p) { var id = kind === "gen" ? p.g.id : p.v.id; return e.machines && e.machines.length ? !!sel[id] : p.n > 0; };
+  var calcArr = function (f) { var c = kind === "gen" ? a1GenCompute(cid, f) : a1Compute(cid, f); return { arr: c.arr.filter(garder), comp: c }; };
+  var base = calcArr(fen), lignes = [], outages = {};
+  (DB.a1outages || []).forEach(function (o) { if ((o.clientId || "") === cid) outages[String(o.period || "").slice(0, 7)] = +o.hours || 0; });
+  var ligne = function (nom, sous, acc, extra) { a1EtudeEntretien(acc, cid, fen); var v = a1EtudeValeurs(acc); if (extra) Object.keys(extra).forEach(function (k) { v[k] = extra[k]; }); return { nom: nom, sous: sous || "", vals: v, acc: acc }; };
+  var nomDe = function (p) { return kind === "gen" ? (p.g.name || "") : (p.v.plate || p.v.name || ""); };
+  var modeleDe = function (p) { var m = kind === "gen" ? p.g : p.v; return ((m.marque || "") + " " + (m.modele || "")).trim() || "modèle non renseigné"; };
+  var verser = function (acc, p) { if (kind === "gen") a1EtudeVerserGen(acc, p); else (p.logs || []).forEach(function (l) { a1EtudeVerserFleet(acc, p, l); }); };
+  var outPeriode = a1EtudeMoisListe(e.du, e.au).reduce(function (s, m) { return s + (outages[m] || 0); }, 0);
+  if (e.regroupement === "mois") {
+    a1EtudeMoisListe(e.du, e.au).forEach(function (m) {
+      var f = a1EtudeFenetre(m, m), c = calcArr(f), acc = a1EtudeAcc(kind); c.arr.forEach(function (p) { verser(acc, p); });
+      var l = ligne(a1MonthLabel(m), "", acc, kind === "gen" ? { outageH: outages[m] || 0 } : null); l.mois = m; l.sansDonnees = acc.n === 0; lignes.push(l);
+    });
+  } else if (e.regroupement === "chauffeur" && kind === "fleet") {
+    var par = {}; base.arr.forEach(function (p) { (p.logs || []).forEach(function (l) { var d = String(l.driver || p.v.driver || "").trim() || "sans chauffeur"; if (!par[d]) par[d] = a1EtudeAcc(kind); a1EtudeVerserFleet(par[d], p, l); }); });
+    Object.keys(par).forEach(function (d) { var acc = par[d], nM = Object.keys(acc.machines).length; lignes.push(ligne(d, nM + " véhicule" + (nM > 1 ? "s" : "") + " · " + acc.n + " relevé" + (acc.n > 1 ? "s" : ""), acc)); });
+  } else if (e.regroupement === "modele" || (e.regroupement === "site" && kind === "gen")) {
+    var grp = {}, ordre = [];
+    base.arr.forEach(function (p) { var k = e.regroupement === "site" ? ((p.g.site || "").trim() || "sans site") : modeleDe(p); if (!grp[k]) { grp[k] = a1EtudeAcc(kind); ordre.push(k); } verser(grp[k], p); });
+    ordre.forEach(function (k) { var acc = grp[k], nM = Object.keys(acc.machines).length; lignes.push(ligne(k, nM + " machine" + (nM > 1 ? "s" : ""), acc, kind === "gen" ? { outageH: outPeriode } : null)); });
+  } else {
+    base.arr.forEach(function (p) { var acc = a1EtudeAcc(kind); verser(acc, p); var sous = modeleDe(p) + (kind === "gen" && p.g.site ? " · " + p.g.site : ""); lignes.push(ligne(nomDe(p), sous, acc, kind === "gen" ? { outageH: outPeriode } : null)); });
+  }
+  /* la comparaison fixe ce que mesure l'écart */
+  var compLib = "référence constructeur", cle = kind === "gen" ? "realLh" : "consoL100";
+  if (e.comparaison === "parc" && kind === "fleet") { var parc = base.comp.fleetConso || 0; compLib = "moyenne du parc"; lignes.forEach(function (l) { var v = l.vals; v.reference = parc > 0 ? parc : null; v.ecart = (v.consoL100 != null && parc > 0) ? (v.consoL100 / parc - 1) * 100 : null; v.ecartLitres = v.ecart != null ? v.km * (v.consoL100 - parc) / 100 : null; }); }
+  else if (e.comparaison === "reseau" && kind === "gen") { compLib = "tarif réseau"; lignes.forEach(function (l) { var v = l.vals; v.ecart = v.ecartReseau; }); }
+  else if (e.comparaison === "objectif") { var t = a1TargetGet(kind, cid), ob = t ? +t.value : 0; compLib = "objectif client"; lignes.forEach(function (l) { var v = l.vals, x = kind === "gen" ? v.costPerKwh : v.consoL100; v.reference = ob > 0 ? ob : null; v.ecart = (x != null && ob > 0) ? (x / ob - 1) * 100 : null; v.ecartLitres = null; }); }
+  else if (e.comparaison === "precedent") { compLib = "mois précédent"; var prev = null; lignes.forEach(function (l) { var v = l.vals, x = kind === "gen" ? (v.rendement != null ? v.costPerKwh : v.realLh) : v.consoL100; v.reference = prev; v.ecart = (x != null && prev > 0) ? (x / prev - 1) * 100 : null; v.ecartLitres = null; if (x != null) prev = x; }); }
+  if (e.regroupement !== "mois") lignes.sort(function (a, b) { var x = a.vals.ecart, y = b.vals.ecart; if (x == null && y == null) return (b.vals[cle] || 0) - (a.vals[cle] || 0); if (x == null) return 1; if (y == null) return -1; return y - x; });
+  var colonnes = (e.mesures || []).map(function (c) { return a1EtudeMesure(kind, c); }).filter(Boolean);
+  return { kind: kind, fen: fen, periode: a1EtudePeriodeLib(e), colonnes: colonnes, lignes: lignes, comparaison: compLib, tolerance: 15, reseau: (kind === "gen" && lignes[0]) ? lignes[0].vals.reseau : 0, parc: kind === "fleet" ? base.comp.fleetConso : 0 };
+}
+function a1EtudeFmt(col, v) { if (v == null || v === "" || (typeof v === "number" && !isFinite(v))) return "—"; return col.fmt(v); }
+function a1EtudeCouleur(v) { return v == null ? "" : (v > 15 ? "#C0392B" : (v > 0 ? "#B5923A" : "#2F855A")); }
+/* La lecture : ce que les chiffres disent, en phrases courtes ; jamais une cause, jamais une personne dans un document. */
+function a1EtudeLecture(e, calc) {
+  if (e.lecture) return esc(e.lecture);
+  var L = calc.lignes.filter(function (l) { return l.vals.n > 0; }), kind = calc.kind, F0 = function (v) { return Math.round(v || 0).toLocaleString("fr-FR"); }, F1 = function (v) { return (+v || 0).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }); }, pct = function (v) { return (v > 0 ? "+" : "") + Math.round(v) + " %"; };
+  if (!L.length) return "Aucun relevé sur la période pour ces machines : rien à lire.";
+  var out = [], tol = calc.tolerance, prix = (DB.meta.fuelPrices && +DB.meta.fuelPrices.gasoil) || 0;
+  if (e.regroupement === "mois") {
+    var a = L[0], b = L[L.length - 1], cle = kind === "gen" ? "costPerKwh" : "consoL100", lib = kind === "gen" ? "le coût du kWh" : "la consommation moyenne", fmt = function (v) { return kind === "gen" ? fmtD(v) : F1(v) + " L/100 km"; };
+    if (a.vals[cle] != null && b.vals[cle] != null && L.length > 1) out.push("Entre " + esc(a.nom) + " et " + esc(b.nom) + ", " + lib + " passe de <b>" + fmt(a.vals[cle]) + "</b> à <b>" + fmt(b.vals[cle]) + "</b> (" + pct((b.vals[cle] / a.vals[cle] - 1) * 100) + ") ; le coût de " + fmtD(a.vals.cost) + " à " + fmtD(b.vals.cost) + ".");
+    else if (L.length === 1) out.push("Un seul mois : " + esc(a.nom) + ", " + (a.vals[cle] != null ? lib + " " + fmt(a.vals[cle]) + ", " : "") + "coût " + fmtD(a.vals.cost) + ".");
+    var pic = L.slice().sort(function (x, y) { return (y.vals[cle] || 0) - (x.vals[cle] || 0); })[0]; if (pic && pic !== b && pic.vals[cle] != null && L.length > 2) out.push("Le mois le plus haut est " + esc(pic.nom) + " (" + fmt(pic.vals[cle]) + ").");
+    if (kind === "gen") { var h = L.reduce(function (s, l) { return s + (l.vals.hours || 0); }, 0), o = L.reduce(function (s, l) { return s + (l.vals.outageH || 0); }, 0), hc = L.reduce(function (s, l) { return s + (l.vals.horsCoupure || 0); }, 0); if (o > 0) out.push("Sur la période, <b>" + F0(h) + " h</b> de marche pour " + F0(o) + " h de coupures déclarées (couverture " + (h / o).toFixed(2) + "×)" + (hc >= 2 ? ", dont <b>" + F0(hc) + " h hors coupure</b> à expliquer" : "") + "."); }
+    var nInt = L.reduce(function (s, l) { return s + (l.vals.interventions || 0); }, 0); if (nInt && e.mesures.indexOf("interventions") >= 0) out.push(nInt + " intervention" + (nInt > 1 ? "s" : "") + " d’entretien sur la période : la consommation se lit avant et après.");
+    return out.join(" ");
+  }
+  var avecEcart = L.filter(function (l) { return l.vals.ecart != null; });
+  if (kind === "fleet" || (kind === "gen" && e.comparaison !== "reseau" && L.every(function (l) { return l.acc.engins && !l.acc.groupes; }))) {
+    var unite = kind === "gen" ? " L/h" : " L/100 km", cleV = kind === "gen" ? "realLh" : "consoL100";
+    if (avecEcart.length) {
+      var pire = avecEcart[0], autres = avecEcart.slice(1), horsTol = avecEcart.filter(function (l) { return l.vals.ecart > tol; });
+      if (pire.vals.ecart > tol) {
+        out.push("Sur " + esc(calc.periode) + ", <b>" + esc(pire.nom) + "</b> est à " + F1(pire.vals[cleV]) + unite + ", soit <b>" + pct(pire.vals.ecart) + "</b> face à " + calc.comparaison + " (" + F1(pire.vals.reference) + ").");
+        if (autres.length) out.push("Les " + autres.length + " autres " + (e.regroupement === "modele" ? "modèles" : (e.regroupement === "chauffeur" ? "chauffeurs" : "machines")) + " sont entre " + pct(Math.min.apply(null, autres.map(function (l) { return l.vals.ecart; }))) + " et " + pct(Math.max.apply(null, autres.map(function (l) { return l.vals.ecart; }))) + (horsTol.length > 1 ? ", dont " + (horsTol.length - 1) + " au-delà de la tolérance de " + tol + " %" : ", dans la tolérance de " + tol + " %") + ".");
+        if (pire.vals.ecartLitres > 0) out.push("L’écart de " + esc(pire.nom) + " représente <b>" + F0(pire.vals.ecartLitres) + " L</b> sur la période" + (prix ? ", soit " + fmtD(pire.vals.ecartLitres * prix) + " au prix relevé" : "") + ".");
+      } else out.push("Sur " + esc(calc.periode) + ", toutes les lignes sont dans la tolérance de " + tol + " % face à " + calc.comparaison + " : la plus haute est <b>" + esc(pire.nom) + "</b> à " + pct(pire.vals.ecart) + ".");
+      var sansRef = L.length - avecEcart.length; if (sansRef) out.push(sansRef + " ligne" + (sansRef > 1 ? "s" : "") + " sans référence : mesurée" + (sansRef > 1 ? "s" : "") + ", pas jugée" + (sansRef > 1 ? "s" : "") + ".");
+    } else {
+      var top = L.slice().sort(function (x, y) { return (y.vals[cleV] || 0) - (x.vals[cleV] || 0); })[0];
+      out.push("Aucune référence pour juger : la consommation se mesure, elle ne se juge pas encore. La plus haute est <b>" + esc(top.nom) + "</b> à " + (top.vals[cleV] != null ? F1(top.vals[cleV]) + unite : "—") + ".");
+    }
+    if (e.regroupement === "chauffeur") out.push("Lecture interne : aucun nom ne sort dans un document client.");
+    return out.join(" ");
+  }
+  /* groupes : rendement, charge, coût du kWh face au réseau, heures hors coupure */
+  L.slice(0, 4).forEach(function (l) { var v = l.vals; if (v.rendement != null) out.push("<b>" + esc(l.nom) + "</b> produit " + v.rendement.toFixed(2) + " kWh par litre" + (v.chargePct != null ? " à " + Math.round(v.chargePct) + " % de charge" : "") + (v.costPerKwh != null ? ", le kWh lui coûte " + fmtD(v.costPerKwh) : "") + "."); else if (v.realLh != null) out.push("<b>" + esc(l.nom) + "</b> consomme " + F1(v.realLh) + " L/h" + (v.ecart != null ? " (" + pct(v.ecart) + " face à " + calc.comparaison + ")" : "") + "."); });
+  if (calc.reseau > 0) { var cout = L.reduce(function (s, l) { return s + (l.vals.cost || 0); }, 0), kwh = L.reduce(function (s, l) { return s + (l.vals.kwh || 0); }, 0); if (kwh > 0) out.push("Au tarif réseau (" + fmtD(calc.reseau) + "/kWh), la même énergie coûterait " + fmtD(kwh * calc.reseau) + " : " + (cout > kwh * calc.reseau ? "surcoût d’autonomie de <b>" + fmtD(cout - kwh * calc.reseau) + "</b> sur la période" : "économie de " + fmtD(kwh * calc.reseau - cout) + " face au réseau") + "."); }
+  var sous = L.filter(function (l) { return l.vals.chargePct != null && l.vals.chargePct < 30; }), haut = L.filter(function (l) { return l.vals.chargePct > 85; });
+  if (sous.length) out.push(sous.map(function (l) { return esc(l.nom); }).join(", ") + " " + (sous.length > 1 ? "tournent" : "tourne") + " sous 30 % de charge : un diesel y consomme plus par kWh et s’encrasse.");
+  if (haut.length) out.push(haut.map(function (l) { return esc(l.nom); }).join(", ") + " " + (haut.length > 1 ? "sont" : "est") + " au-dessus de 85 % : marge de pointe réduite.");
+  var hcT = L.reduce(function (s, l) { return s + (l.vals.horsCoupure || 0); }, 0); if (hcT >= 2 && e.mesures.indexOf("horsCoupure") >= 0) out.push("<b>" + F0(hcT) + " h hors coupure</b> sur la période : une marche au-delà des délestages, à expliquer avec le client.");
+  return out.join(" ");
+}
+/* La recommandation suggérée par règles : la première qui s'applique ; jamais une accusation. */
+function a1EtudeRecoSuggestion(e, calc) {
+  var L = calc.lignes.filter(function (l) { return l.vals.n > 0; }), kind = calc.kind, tol = calc.tolerance, F0 = function (v) { return Math.round(v || 0).toLocaleString("fr-FR"); }, pct = function (v) { return (v > 0 ? "+" : "") + Math.round(v) + " %"; }, prix = (DB.meta.fuelPrices && +DB.meta.fuelPrices.gasoil) || 0;
+  if (!L.length) return null;
+  var quoi = e.regroupement === "modele" ? "le modèle " : (e.regroupement === "site" ? "le site " : "");
+  if (e.regroupement === "mois") {
+    var a = L[0], b = L[L.length - 1], cle = kind === "gen" ? "costPerKwh" : "consoL100";
+    if (L.length > 1 && a.vals[cle] > 0 && b.vals[cle] != null) { var d = (b.vals[cle] / a.vals[cle] - 1) * 100; if (d > 10) return { titre: "Chercher la cause de la hausse " + (kind === "gen" ? "du coût de l’énergie" : "de consommation") + " (" + pct(d) + " entre " + a.nom + " et " + b.nom + ")", detail: kind === "gen" ? "Comparer les heures de marche aux coupures déclarées, la charge des groupes et le prix du gasoil des deux mois, puis les entretiens faits entre-temps." : "Comparer les trajets et la charge des deux mois, vérifier les entretiens faits entre-temps, puis les pleins sans distance connue.", impact: "retour au niveau de " + a.nom, regle: "hausse de plus de 10 % entre le premier et le dernier mois" }; }
+    if (kind === "gen") { var hc = L.reduce(function (s, l) { return s + (l.vals.horsCoupure || 0); }, 0); if (hc >= 2) return { titre: "Expliquer les heures hors coupure (" + F0(hc) + " h sur la période)", detail: "Rapprocher le journal de marche des coupures déclarées, site par site. Une marche hors coupure est une question posée au client, pas une conclusion.", impact: "chaque heure évitée économise la consommation horaire du groupe", regle: "au moins 2 h de marche hors coupure" }; }
+    return null;
+  }
+  if (kind === "fleet" || L.every(function (l) { return l.acc.engins && !l.acc.groupes; })) {
+    var pire = L.filter(function (l) { return l.vals.ecart != null; })[0];
+    if (pire && pire.vals.ecart > tol && e.regroupement !== "chauffeur") return { titre: "Contrôler " + quoi + pire.nom + " : " + pct(pire.vals.ecart) + " face à " + calc.comparaison + " sur " + calc.periode, detail: kind === "gen" ? "Vérifier dans l’ordre : entretien (filtres, injecteurs), conditions d’usage (sol, charge, régime moteur), puis circuit carburant. Relever les heures à chaque plein pendant un mois pour confirmer la mesure." : "Vérifier dans l’ordre : entretien (filtres, injecteurs, pression des pneus), conditions d’usage (charge, trajets), puis circuit carburant. Relever le compteur à chaque plein pendant un mois pour confirmer la mesure.", impact: pire.vals.ecartLitres > 0 ? "jusqu’à " + F0(pire.vals.ecartLitres) + " L sur la période" + (prix ? ", environ " + fmtD(pire.vals.ecartLitres * prix) : "") : "consommation ramenée dans la tolérance", regle: "écart au-delà de " + tol + " % face à " + calc.comparaison };
+    if (pire && pire.vals.ecart > tol && e.regroupement === "chauffeur") return { titre: "Revoir l’éco-conduite avec les équipes : jusqu’à " + pct(pire.vals.ecart) + " face à " + calc.comparaison, detail: "Un rappel collectif des règles d’éco-conduite (régime, ralenti, charge, anticipation), puis un relevé du compteur à chaque plein pendant un mois. Lecture interne : aucun nom dans un document client.", impact: "jusqu’à " + F0(pire.vals.ecartLitres || 0) + " L sur la période", regle: "écart au-delà de " + tol + " % sur un chauffeur, formulé collectivement" };
+    var sansRef = L.filter(function (l) { return l.vals.ecart == null && l.vals.n > 0; });
+    if (sansRef.length && e.comparaison === "reference") return { titre: "Poser la fiche constructeur de " + sansRef.slice(0, 2).map(function (l) { return l.sous && e.regroupement === "machine" ? l.sous.split(" · ")[0] : l.nom; }).join(" et ") + (sansRef.length > 2 ? " et " + (sansRef.length - 2) + " autre" + (sansRef.length > 3 ? "s" : "") : ""), detail: "Sans référence, la consommation se mesure mais ne se juge pas : la fiche constructeur fixe le repère et le plan d’entretien du modèle.", impact: "des écarts jugés au lieu d’être supposés", regle: "référence constructeur manquante" };
+    return null;
+  }
+  var sous = L.filter(function (l) { return l.vals.chargePct != null && l.vals.chargePct < 30; }), haut = L.filter(function (l) { return l.vals.chargePct > 85; });
+  if (sous.length && haut.length && e.regroupement === "machine") return { titre: "Mesurer la pointe sur " + [sous[0], haut[0]].map(function (l) { return l.sous.indexOf(" · ") > 0 ? l.sous.split(" · ")[1] : l.nom; }).join(" et ") + " avant toute permutation des groupes", detail: sous[0].nom + " est sous-chargé (" + Math.round(sous[0].vals.chargePct) + " %) et " + haut[0].nom + " en charge élevée (" + Math.round(haut[0].vals.chargePct) + " %). Une campagne de mesure de 7 à 14 jours sur chaque TGBT dira si la permutation tient la pointe ; sans elle, la décision reposerait sur une estimation.", impact: "rendement du groupe sous-chargé relevé vers 60–80 % ; décision de permutation prise sur mesure, pas sur estimation", regle: "sous-charge sous 30 % et un second groupe au-dessus de 85 %" };
+  if (sous.length) return { titre: "Adapter la charge de " + sous[0].nom + " : sous-charge à " + Math.round(sous[0].vals.chargePct) + " %", detail: "Regrouper des usages sur ce groupe, ou étudier un groupe plus petit pour ce site ; un diesel sous 30 % consomme plus par kWh et s’encrasse. Mesurer la pointe avant de décider.", impact: "rendement relevé vers la zone 60–80 % de charge", regle: "sous-charge sous 30 %" };
+  if (haut.length) return { titre: "Surveiller " + haut[0].nom + " : charge élevée (" + Math.round(haut[0].vals.chargePct) + " %), marge de pointe réduite", detail: "Mesurer la pointe sur 7 à 14 jours ; prévoir le délestage des charges non prioritaires aux heures les plus chargées.", impact: "pas de décrochage ni d’usure accélérée", regle: "charge au-dessus de 85 %" };
+  var hcT = L.reduce(function (s, l) { return s + (l.vals.horsCoupure || 0); }, 0);
+  if (hcT >= 2 && e.mesures.indexOf("horsCoupure") >= 0) return { titre: "Expliquer les heures hors coupure (" + F0(hcT) + " h sur la période)", detail: "Rapprocher le journal de marche des coupures déclarées, site par site. Une marche hors coupure est une question posée au client, pas une conclusion.", impact: "chaque heure évitée économise la consommation horaire du groupe", regle: "au moins 2 h de marche hors coupure" };
+  return null;
+}
+function a1EtudeRecoCourante(e, calc) { if (e.recoManuelle && e.reco && e.reco.titre) return e.reco; return a1EtudeRecoSuggestion(e, calc); }
+/* La fenêtre d'étude. */
+var _a1Etude = null;
+var _a1EtudeEdit = { lecture: false, reco: false };
+function a1EtudeDepuisMachine(kind, id) { openA1Etude("", { kind: kind, machines: [id] }); }
+function openA1Etude(id, prefill) {
+  prefill = prefill || {};
+  var cid = prefill.clientId || a1ParcClientCourant(); if (!cid) { toast("Choisis d’abord un client."); return; }
+  var ex = id ? (DB.a1etudes || []).filter(function (x) { return x.id === id; })[0] : null;
+  if (id && !ex) { toast("Étude introuvable."); return; }
+  var kind = ex ? ex.kind : (prefill.kind || a1ParcPerimetreKinds(cid)[0] || "fleet");
+  _a1Etude = ex ? JSON.parse(JSON.stringify(ex)) : a1EtudeNouvelle(cid, kind, prefill);
+  _a1EtudeEdit = { lecture: false, reco: false };
+  openModal(a1EtudeHtml(), "sheet");
+  var mc = document.getElementById("modal-content"); if (mc && mc.classList && mc.classList.add) mc.classList.add("etude");
+}
+function a1EtudeHtml() {
+  var e = _a1Etude, cid = e.clientId, kind = e.kind, mois = a1EtudeMoisDisponibles(cid, kind);
+  if (mois.indexOf(e.du) < 0) mois.unshift(e.du); if (mois.indexOf(e.au) < 0) mois.push(e.au);
+  var machines = a1ParcMachines(cid).filter(function (x) { return x.kind === kind; });
+  var chip = function (on, lib, fn, titre) { return '<span class="chip' + (on ? ' active' : '') + '" onclick="' + fn + '"' + (titre ? ' title="' + esc(titre) + '"' : '') + '>' + lib + '</span>'; };
+  var opt = function (liste, cur) { return liste.map(function (o) { var v = Array.isArray(o) ? o[0] : o, l = Array.isArray(o) ? o[1] : o; return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join(""); };
+  var sel = function (id, liste, cur, fn) { return '<select id="' + id + '" onchange="' + fn + '" style="padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px">' + opt(liste, cur) + '</select>'; };
+  var th = function (t) { return '<div class="etu-th">' + t + '</div>'; };
+  return '<span class="close" onclick="closeModal()">✕</span><h2>🔬 ' + (e.id ? "Étude" : "Nouvelle étude") + ' — ' + esc(e.titre || a1EtudeModele(e.modele).lib) + '</h2>'
+    + '<div class="msub">Une étude interne : tu choisis les machines, la période, les mesures ; le Cockpit lit les chiffres et propose une recommandation. Tu décides si elle entre dans le rapport.</div>'
+    + '<div class="field row2"><label>Titre & modèle d’étude</label><input id="etu-titre" value="' + esc(e.titre) + '" oninput="a1EtudeChamp(\'titre\',this.value)">' + sel("etu-modele", a1EtudeModelesPour(kind).map(function (m) { return [m.cle, m.lib]; }), e.modele, "a1EtudeChoisirModele(this.value)") + '</div>'
+    + th("MACHINES · " + (kind === "gen" ? "🔌 groupes et engins" : "🚗 véhicules")) + '<div style="display:flex;gap:6px;flex-wrap:wrap">' + chip(!e.machines.length, kind === "gen" ? "Tous" : "Toutes", "a1EtudeToutesMachines()") + machines.map(function (x) { return chip(e.machines.indexOf(x.m.id) >= 0, esc(x.nom), "a1EtudeToggleMachine('" + x.m.id + "')", x.modele); }).join(" ") + '</div>'
+    + '<div class="field row2" style="margin-top:12px"><label>Période (du mois, au mois)</label>' + sel("etu-du", mois.map(function (m) { return [m, a1MonthLabel(m)]; }), e.du, "a1EtudeChamp('du',this.value)") + sel("etu-au", mois.map(function (m) { return [m, a1MonthLabel(m)]; }), e.au, "a1EtudeChamp('au',this.value)") + '</div>'
+    + th("MESURES") + '<div style="display:flex;gap:6px;flex-wrap:wrap">' + a1EtudeMesuresPour(kind).map(function (m) { return chip(e.mesures.indexOf(m.cle) >= 0, m.lib, "a1EtudeToggleMesure('" + m.cle + "')"); }).join(" ") + '</div>'
+    + '<div class="field row2" style="margin-top:12px"><label>Regroupement & comparaison</label>' + sel("etu-regroupement", a1EtudeRegroupements(kind), e.regroupement, "a1EtudeChamp('regroupement',this.value)") + sel("etu-comparaison", a1EtudeComparaisons(kind), e.comparaison, "a1EtudeChamp('comparaison',this.value)") + '</div>'
+    + '<div id="etu-resultat">' + a1EtudeResultatHtml() + '</div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:12px;border-top:1px solid var(--line)">'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" id="etu-rapport"' + (e.dansRapport ? ' checked' : '') + (e.regroupement === "chauffeur" ? ' disabled' : '') + ' onchange="a1EtudeChamp(\'dansRapport\',this.checked)"> <b>Dans le rapport d’analyse</b> <span style="font-size:12px;color:var(--muted)">' + (e.regroupement === "chauffeur" ? "regroupement par chauffeur : étude interne, jamais dans un document client" : "section « Études d’optimisation » + recommandation prioritaire, à ta relecture dans Rapports") + '</span></label>'
+    + '<span style="display:flex;gap:8px">' + (e.id ? '<button class="cta ghost" onclick="a1EtudeSupprimer(\'' + e.id + '\')">🗑 Supprimer</button>' : '') + '<button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="a1EtudeEnregistrer()">Enregistrer l’étude</button></span></div>'
+    + '<div class="field" style="margin-top:12px"><label>Notes internes (jamais dans un document client)</label><textarea id="etu-notes" rows="2" oninput="a1EtudeChamp(\'notes\',this.value)" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px">' + esc(e.notes || "") + '</textarea></div>';
+}
+function a1EtudeBarresSvg(lignes, tol) {
+  var rows = lignes.filter(function (l) { return l.vals.ecart != null; }).slice(0, 12); if (rows.length < 2) return "";
+  var W = 520, H = rows.length * 24 + 24, x0 = 150, w = W - x0 - 60, max = Math.max(30, Math.max.apply(null, rows.map(function (r) { return Math.abs(r.vals.ecart); }))), sx = function (v) { return x0 + w / 2 + v / max * (w / 2); };
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" style="max-width:100%;font-family:inherit">';
+  s += '<line x1="' + sx(0) + '" y1="4" x2="' + sx(0) + '" y2="' + (H - 16) + '" stroke="#9CA3AF" stroke-width="1"/>';
+  s += '<line x1="' + sx(tol) + '" y1="4" x2="' + sx(tol) + '" y2="' + (H - 16) + '" stroke="#C0392B" stroke-dasharray="3 3"/><text x="' + (sx(tol) + 3) + '" y="' + (H - 4) + '" font-size="9" fill="#C0392B">+' + tol + ' % tolérance</text>';
+  rows.forEach(function (r, i) { var v = r.vals.ecart, y = 8 + i * 24, col = a1EtudeCouleur(v); s += '<text x="' + (x0 - 8) + '" y="' + (y + 12) + '" font-size="11" text-anchor="end" fill="#102A43" font-weight="600">' + esc(String(r.nom).slice(0, 22)) + '</text><rect x="' + Math.min(sx(0), sx(v)) + '" y="' + y + '" width="' + Math.abs(sx(v) - sx(0)) + '" height="15" rx="3" fill="' + col + '"/><text x="' + (v >= 0 ? sx(v) + 5 : sx(v) - 5) + '" y="' + (y + 12) + '" font-size="10.5" fill="' + col + '"' + (v < 0 ? ' text-anchor="end"' : '') + '>' + (v > 0 ? "+" : "") + Math.round(v) + ' %</text>'; });
+  return s + '</svg>';
+}
+function a1EtudeTableHtml(calc) {
+  if (!calc.colonnes.length) return '<div class="hint">Choisis au moins une mesure.</div>';
+  var tete = '<th>' + (calc.kind === "gen" ? "Groupe · site" : "Véhicule") + '</th>' + calc.colonnes.map(function (c) { return '<th style="text-align:right">' + esc(c.lib) + '</th>'; }).join("");
+  var rows = calc.lignes.map(function (l) { return '<tr' + (l.vals.n ? '' : ' style="color:var(--muted)"') + '><td><b>' + esc(l.nom) + '</b>' + (l.sous ? '<div style="font-size:11px;color:var(--muted)">' + esc(l.sous) + '</div>' : '') + '</td>' + calc.colonnes.map(function (c) { var v = l.vals[c.cle], col = c.pct ? a1EtudeCouleur(v) : ""; return '<td style="text-align:right;white-space:nowrap' + (c.gras ? ';font-weight:700' : '') + (col ? ';color:' + col + ';font-weight:700' : '') + '">' + a1EtudeFmt(c, v) + '</td>'; }).join("") + '</tr>'; }).join("");
+  return '<div style="overflow-x:auto"><table><thead><tr>' + tete + '</tr></thead><tbody>' + (rows || '<tr><td colspan="' + (calc.colonnes.length + 1) + '"><div class="hint">Aucune ligne : pas de relevé sur la période pour ces machines.</div></td></tr>') + '</tbody></table></div>';
+}
+function a1EtudeResultatHtml() {
+  var e = _a1Etude, calc = a1EtudeCalcul(e), reco = a1EtudeRecoCourante(e, calc), aEcart = calc.colonnes.some(function (c) { return c.pct; }) && e.regroupement !== "mois";
+  var lecture = _a1EtudeEdit.lecture ? '<textarea id="etu-lecture" rows="4" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px">' + esc(e.lecture || String(a1EtudeLecture(e, calc)).replace(/<[^>]+>/g, "").replace(/&#39;/g, "’").replace(/&amp;/g, "&")) + '</textarea><div class="a1-int" style="margin-top:6px;display:flex;gap:6px"><button class="cta sm" onclick="a1EtudeLectureAppliquer()">Garder cette lecture</button><button class="cta ghost sm" onclick="a1EtudeLectureAuto()">Revenir à la lecture du Cockpit</button></div>'
+    : '<div style="margin-top:4px">' + a1EtudeLecture(e, calc) + '</div><div class="a1-int" style="margin-top:8px"><button class="cta ghost sm" onclick="a1EtudeReformuler()">✎ Reformuler</button>' + (e.lecture ? ' <button class="cta ghost sm" onclick="a1EtudeLectureAuto()">↺ Lecture du Cockpit</button>' : '') + '</div>';
+  var recoHtml;
+  if (_a1EtudeEdit.reco) { var r = reco || { titre: "", detail: "", impact: "" }; recoHtml = '<div class="card" style="border-left:3px solid var(--gold);margin:0;padding:12px 14px"><div class="field"><label>Titre</label><input id="etu-reco-titre" value="' + esc(r.titre || "") + '"></div><div class="field"><label>Détail</label><textarea id="etu-reco-detail" rows="3" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:13px">' + esc(r.detail || "") + '</textarea></div><div class="field"><label>Impact attendu</label><input id="etu-reco-impact" value="' + esc(r.impact || "") + '"></div><div style="display:flex;gap:6px"><button class="cta sm" onclick="a1EtudeRecoAppliquer()">Garder cette recommandation</button><button class="cta ghost sm" onclick="a1EtudeRecoAuto()">Revenir à la suggestion</button></div></div>'; }
+  else if (reco) recoHtml = '<div class="card" style="border-left:3px solid var(--gold);margin:0;padding:12px 14px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap"><div><b>' + esc(reco.titre) + '</b><div style="font-size:12.5px;margin-top:4px;line-height:1.6">' + esc(reco.detail || "") + '</div>' + (reco.impact ? '<div style="font-size:12px;color:var(--muted);margin-top:4px"><b>Impact attendu :</b> ' + esc(reco.impact) + '</div>' : '') + '</div><span class="a1-int" style="white-space:nowrap"><button class="cta ghost sm" onclick="a1EtudeRecoModifier()">✎ Modifier</button> <button class="cta ghost sm" onclick="a1EtudeAutreProposition()">💬 Autre proposition</button>' + (e.recoManuelle ? ' <button class="cta ghost sm" onclick="a1EtudeRecoAuto()">↺ Suggestion</button>' : '') + '</span></div><div class="hint" style="margin-top:6px">' + (e.recoManuelle ? (reco.regle === "proposition de l’assistant" ? "Proposée par l’assistant sur des données pseudonymisées, à ta relecture." : "Rédigée par toi.") : "Proposée par les règles du Cockpit (" + esc(reco.regle || "") + ") ; l’assistant peut en proposer une autre, sur des données pseudonymisées.") + " Rien n’est écrit au client sans ta relecture.</div></div>";
+  else recoHtml = '<div class="card" style="margin:0;padding:12px 14px"><div class="hint">Aucune recommandation suggérée par les règles : lecture seule. Tu peux en écrire une, ou demander une proposition à l’assistant.</div><div class="a1-int" style="margin-top:6px;display:flex;gap:6px"><button class="cta ghost sm" onclick="a1EtudeRecoModifier()">✎ Écrire une recommandation</button><button class="cta ghost sm" onclick="a1EtudeAutreProposition()">💬 Proposition de l’assistant</button></div></div>';
+  return '<div class="etu-th">RÉSULTAT · ' + esc(calc.periode) + ' · ' + calc.lignes.length + ' ligne' + (calc.lignes.length > 1 ? 's' : '') + '</div>' + a1EtudeTableHtml(calc)
+    + (aEcart ? '<div style="display:grid;grid-template-columns:minmax(260px,520px) 1fr;gap:16px;align-items:start;margin-top:10px"><div>' + a1EtudeBarresSvg(calc.lignes, calc.tolerance) + '</div><div class="etu-lect"><b>Lecture du Cockpit</b>' + lecture + '</div></div>' : '<div class="etu-lect" style="margin-top:10px"><b>Lecture du Cockpit</b>' + lecture + '</div>')
+    + '<div class="etu-th">RECOMMANDATION ' + (e.recoManuelle ? "RETENUE" : "SUGGÉRÉE") + '</div>' + recoHtml;
+}
+function a1EtudeRafraichir() { var z = document.getElementById("etu-resultat"); if (z) z.innerHTML = a1EtudeResultatHtml(); var r = document.getElementById("etu-rapport"); if (r && _a1Etude.regroupement === "chauffeur") { r.checked = false; r.disabled = true; } }
+function a1EtudeChamp(cle, val) {
+  var e = _a1Etude; if (!e) return;
+  if (cle === "titre" || cle === "notes") { e[cle] = String(val || ""); return; }
+  if (cle === "dansRapport") { e.dansRapport = !!val && e.regroupement !== "chauffeur"; return; }
+  if (cle === "du" || cle === "au") { e[cle] = String(val || "").slice(0, 7); if (e.au < e.du) { if (cle === "du") e.au = e.du; else e.du = e.au; } }
+  else if (cle === "regroupement") { e.regroupement = String(val || "machine"); if (e.regroupement === "chauffeur") e.dansRapport = false; }
+  else if (cle === "comparaison") e.comparaison = String(val || "reference");
+  e.lecture = ""; e.recoManuelle = e.recoManuelle && !!(e.reco && e.reco.titre);
+  a1EtudeRafraichir();
+}
+function a1EtudeChoisirModele(cle) { a1EtudeAppliquerModele(_a1Etude, cle); var mc = document.getElementById("modal-content"); if (mc && typeof mc.innerHTML === "string") { mc.innerHTML = a1EtudeHtml(); } }
+function a1EtudeToggleMachine(id) { var e = _a1Etude, i = e.machines.indexOf(id); if (i >= 0) e.machines.splice(i, 1); else e.machines.push(id); e.lecture = ""; a1EtudeChoisirModeleSansReset(); }
+function a1EtudeToutesMachines() { _a1Etude.machines = []; _a1Etude.lecture = ""; a1EtudeChoisirModeleSansReset(); }
+function a1EtudeToggleMesure(cle) { var e = _a1Etude, i = e.mesures.indexOf(cle); if (i >= 0) e.mesures.splice(i, 1); else e.mesures.push(cle); e.lecture = ""; a1EtudeChoisirModeleSansReset(); }
+function a1EtudeChoisirModeleSansReset() { var mc = document.getElementById("modal-content"); if (mc && typeof mc.innerHTML === "string") mc.innerHTML = a1EtudeHtml(); }
+function a1EtudeReformuler() { _a1EtudeEdit.lecture = true; a1EtudeRafraichir(); }
+function a1EtudeLectureAppliquer() { var t = String(val("etu-lecture") || "").trim(); _a1Etude.lecture = t; _a1EtudeEdit.lecture = false; a1EtudeRafraichir(); }
+function a1EtudeLectureAuto() { _a1Etude.lecture = ""; _a1EtudeEdit.lecture = false; a1EtudeRafraichir(); }
+function a1EtudeRecoModifier() { _a1EtudeEdit.reco = true; a1EtudeRafraichir(); }
+function a1EtudeRecoAppliquer() { var t = String(val("etu-reco-titre") || "").trim(); if (!t) { toast("La recommandation a besoin d’un titre."); return; } _a1Etude.reco = { titre: t, detail: String(val("etu-reco-detail") || "").trim(), impact: String(val("etu-reco-impact") || "").trim(), regle: "rédigée par BSM" }; _a1Etude.recoManuelle = true; _a1EtudeEdit.reco = false; a1EtudeRafraichir(); }
+function a1EtudeRecoAuto() { _a1Etude.reco = null; _a1Etude.recoManuelle = false; _a1EtudeEdit.reco = false; a1EtudeRafraichir(); }
+async function a1EtudeAutreProposition() {
+  var e = _a1Etude, calc = a1EtudeCalcul(e), texte = function (h) { return String(h || "").replace(/<[^>]+>/g, " ").replace(/&#39;/g, "’").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim(); };
+  var tbl = calc.lignes.map(function (l) { return l.nom + " : " + calc.colonnes.map(function (c) { return c.lib + " " + texte(a1EtudeFmt(c, l.vals[c.cle])); }).join(", "); }).join(" ; ");
+  var sys = "Tu es l’analyste parc du cabinet BSM. Réponds UNIQUEMENT en JSON : {\"titre\":\"…\",\"detail\":\"…\",\"impact\":\"…\"}. Une seule recommandation, concrète et proportionnée, en français sobre, sans accusation, sans nommer une personne, un écart est une question à instruire.";
+  var user = "Étude « " + e.titre + " » (" + calc.periode + ", comparaison : " + calc.comparaison + "). Lecture : " + texte(a1EtudeLecture(e, calc)) + " Chiffres : " + tbl;
+  toast("💬 L’assistant réfléchit…");
+  try { var d = lecJson(await aiChat(sys, user, 500, "a1")); if (d && d.titre) { e.reco = { titre: String(d.titre), detail: String(d.detail || ""), impact: String(d.impact || ""), regle: "proposition de l’assistant" }; e.recoManuelle = true; a1EtudeRafraichir(); } else toast("L’assistant n’a rien proposé d’exploitable."); }
+  catch (x) { toast("Assistant indisponible : " + ((x && x.message) || x)); }
+}
+function a1EtudeEnregistrer() {
+  var e = _a1Etude; if (!e) return;
+  e.titre = String(e.titre || "").trim() || a1EtudeModele(e.modele).lib.replace(" (interne)", "");
+  if (!e.mesures.length) { toast("Choisis au moins une mesure."); return; }
+  if (e.regroupement === "chauffeur") e.dansRapport = false;
+  var calc = a1EtudeCalcul(e), reco = a1EtudeRecoCourante(e, calc);
+  e.reco = reco ? { titre: reco.titre, detail: reco.detail || "", impact: reco.impact || "", regle: reco.regle || "" } : null;
+  e.updatedAt = new Date().toISOString(); e.by = (currentUser && currentUser.login) || "";
+  DB.a1etudes = DB.a1etudes || [];
+  if (e.id) { var i = DB.a1etudes.findIndex(function (x) { return x.id === e.id; }); if (i >= 0) DB.a1etudes[i] = e; else DB.a1etudes.push(e); }
+  else { e.id = uid(); e.createdAt = e.updatedAt; DB.a1etudes.push(e); }
+  save(); closeModal(); toast("🔬 Étude enregistrée" + (e.dansRapport ? " : elle entrera dans le prochain rapport d’analyse." : " (interne)."));
+  _a1Etude = null; if (typeof currentScreen !== "undefined" && currentScreen === "a1parc") renderA1Parc();
+}
+function a1EtudeSupprimer(id) {
+  var e = (DB.a1etudes || []).filter(function (x) { return x.id === id; })[0]; if (!e) return;
+  confirmModal("Supprimer l’étude « " + e.titre + " » ?", e.dansRapport ? "Elle ne figurera plus dans le prochain rapport d’analyse." : "Étude interne.", function () { DB.a1etudes = (DB.a1etudes || []).filter(function (x) { return x.id !== id; }); save(); closeModal(); if (typeof currentScreen !== "undefined" && currentScreen === "a1parc") renderA1Parc(); });
+}
+function a1EtudeDupliquer(id) { var e = (DB.a1etudes || []).filter(function (x) { return x.id === id; })[0]; if (!e) return; var c = JSON.parse(JSON.stringify(e)); c.id = uid(); c.titre = e.titre + " (copie)"; c.createdAt = c.updatedAt = new Date().toISOString(); c.dansRapport = false; DB.a1etudes.push(c); save(); openA1Etude(c.id); }
+/* La carte « Mes études » du volet Analyse. */
+function a1ParcEtudesCardHtml(E) {
+  var cid = E.cid, deux = E.kinds.length > 1, liste = []; E.kinds.forEach(function (k) { liste = liste.concat(a1Etudes(cid, k)); });
+  var etat = function (e) { return e.dansRapport ? '<span class="badge b-green">dans le rapport</span>' : (e.regroupement === "chauffeur" ? '<span class="badge b-grey">interne</span>' : '<span class="badge b-grey">interne</span>'); };
+  var rows = liste.map(function (e) { return '<tr><td><b>' + esc(e.titre) + '</b></td><td>' + (e.kind === "gen" ? "🔌 groupes et engins" : "🚗 véhicules") + '</td><td>' + esc(a1EtudePeriodeLib(e)) + '</td><td style="font-size:12px">' + (e.reco && e.reco.titre ? esc(e.reco.titre) : '<span style="color:var(--muted)">aucune : lecture seule</span>') + '</td><td>' + etat(e) + '</td><td class="a1-int" style="white-space:nowrap"><button class="cta ghost sm" onclick="openA1Etude(\'' + e.id + '\')">Ouvrir</button> <button class="iconbtn" title="Dupliquer" onclick="a1EtudeDupliquer(\'' + e.id + '\')">⧉</button> <button class="iconbtn del" title="Supprimer" onclick="a1EtudeSupprimer(\'' + e.id + '\')">🗑</button></td></tr>'; }).join("");
+  var nouveaux = E.kinds.map(function (k) { return '<button class="cta gold sm" onclick="openA1Etude(\'\', {kind:\'' + k + '\'})">+ Nouvelle étude' + (deux ? (k === "gen" ? " groupes" : " véhicules") : "") + '</button>'; }).join(" ");
+  var modeles = E.kinds.map(function (k) { return a1EtudeModelesPour(k).map(function (m) { return '<span class="chip" onclick="openA1Etude(\'\', {kind:\'' + k + '\', modele:\'' + m.cle + '\'})">' + (deux ? (k === "gen" ? "🔌 " : "🚗 ") : "") + esc(m.lib) + '</span>'; }).join(" "); }).join(" ");
+  return '<div class="card" id="a1p-etudes"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h2 style="margin:0">🔬 Mes études d’optimisation — ' + liste.length + '</h2><span class="a1-int">' + nouveaux + '</span></div>'
+    + '<div class="hint">Tes analyses à toi : machines, période, mesures. Le Cockpit lit et propose ; tu décides ce qui entre dans le rapport d’analyse, le reste reste interne.</div>'
+    + (liste.length ? '<table class="clickrows" style="margin-top:8px"><thead><tr><th>Étude</th><th>Périmètre</th><th>Période</th><th>Recommandation</th><th>État</th><th class="a1-int"></th></tr></thead><tbody>' + rows + '</tbody></table>' : '<div class="hint" style="margin-top:8px">Aucune étude pour l’instant : un modèle ci-dessous pré-remplit la première.</div>')
+    + '<div class="etu-th a1-int" style="margin-top:12px">ÉTUDES PRÊTES À L’EMPLOI · un clic pré-remplit</div><div class="a1-int" style="display:flex;gap:6px;flex-wrap:wrap">' + modeles + '</div></div>';
+}
+/* ---- Dans le rapport : la section « Études d'optimisation » et les recommandations qui en viennent ---- */
+function a1EtudesPourRapport(cid, kind) { return a1Etudes(cid, kind).filter(function (e) { return e.dansRapport && e.regroupement !== "chauffeur"; }).sort(function (a, b) { return String(a.createdAt || "").localeCompare(String(b.createdAt || "")); }); }
+function a1EtudeTableRapportHtml(calc) {
+  var tete = '<tr style="background:#F9FAFB">' + RAP_TH(calc.kind === "gen" ? "Groupe · site" : "Véhicule") + calc.colonnes.map(function (c) { return RAP_TH(esc(c.lib), 1); }).join("") + '</tr>';
+  var rows = calc.lignes.filter(function (l) { return l.vals.n > 0; }).map(function (l) { return '<tr>' + RAP_TD('<b>' + esc(l.nom) + '</b>' + (l.sous ? ' <span style="color:#6B7280">' + esc(l.sous) + '</span>' : '')) + calc.colonnes.map(function (c) { var v = l.vals[c.cle], col = c.pct ? a1EtudeCouleur(v) : ""; return RAP_TD((col ? '<span style="color:' + col + ';font-weight:700">' : (c.gras ? '<b>' : '')) + a1EtudeFmt(c, v) + (col ? '</span>' : (c.gras ? '</b>' : '')), 1); }).join("") + '</tr>'; }).join("");
+  return '<table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;font-size:12px;page-break-inside:avoid;margin-bottom:8px"><thead>' + tete + '</thead><tbody>' + rows + '</tbody></table>';
+}
+function a1EtudesSectionHtml(cid, kind) {
+  if (!cid) return "";
+  var liste = a1EtudesPourRapport(cid, kind); if (!liste.length) return "";
+  var blocs = liste.map(function (e) {
+    var calc = null; try { calc = a1EtudeCalcul(e); } catch (x) { calc = null; } if (!calc || !calc.lignes.some(function (l) { return l.vals.n > 0; })) return "";
+    var mod = a1EtudeModele(e.modele), aEcart = calc.colonnes.some(function (c) { return c.pct; });
+    return '<div style="page-break-inside:avoid"><h3 style="font-size:12.5px;font-weight:700;color:#B5923A;text-transform:uppercase;letter-spacing:.04em;margin:16px 0 6px;break-after:avoid-page;page-break-after:avoid">' + esc(e.titre) + ' — ' + esc(calc.periode) + '</h3>'
+      + (mod.intro ? '<p style="font-size:12.5px;line-height:1.7">' + esc(mod.intro) + '</p>' : '') + a1EtudeTableRapportHtml(calc)
+      + '<p style="font-size:12.5px;line-height:1.7"><b>Lecture.</b> ' + a1EtudeLecture(e, calc) + (aEcart ? ' C’est un écart à instruire, pas une conclusion sur sa cause.' : '') + '</p></div>';
+  }).filter(Boolean);
+  if (!blocs.length) return "";
+  return '<p style="font-size:12.5px;line-height:1.7">Études conduites par ' + esc(DB.meta.cabinetName || "BSM Advisory & Consulting") + ' sur les relevés de la période, en complément de l’analyse. Chacune se lit avec sa recommandation, reprise dans les recommandations prioritaires.</p>' + blocs.join("");
+}
+function a1RecosEtudes(cid, kind) {
+  return a1EtudesPourRapport(cid, kind).map(function (e) { var r = e.reco; if (!r || !r.titre) { try { r = a1EtudeRecoCourante(e, a1EtudeCalcul(e)); } catch (x) { r = null; } } if (!r || !r.titre) return null; return { titre: r.titre, detail: r.detail || "", impact: (r.impact ? r.impact + " · " : "") + "étude « " + e.titre + " »" }; }).filter(Boolean);
+}
 /* Le rapport d'analyse : un seul bouton ; si le client a des véhicules et des groupes, il choisit le périmètre. */
 function a1ParcRapport() {
   var cid = a1ParcClientCourant(); if (!cid) { toast("Choisis d’abord un client."); return; }
-  var kinds = a1ParcKinds(cid);
+  var kinds = a1ParcKinds(cid), perim = a1ParcPerimetreEffectif(cid); if (perim !== "tout") { rapportPeriodeOuvrir(cid, perim); return; }   /* patch 197 */
   if (kinds.length === 1) { rapportPeriodeOuvrir(cid, kinds[0]); return; }
   openModal('<span class="close" onclick="closeModal()">✕</span><h2>📕 Rapport d’analyse — ' + esc(clientName(cid)) + '</h2><div class="msub">Ce client a des véhicules et des groupes ou engins : un rapport par périmètre.</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="cta gold" onclick="closeModal();rapportPeriodeOuvrir(\'' + cid + '\',\'fleet\')">🚗 Véhicules</button><button class="cta" onclick="closeModal();rapportPeriodeOuvrir(\'' + cid + '\',\'gen\')">🔌 Groupes et engins</button></div>'
     + '<div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>');
 }
 /* Les réglages et journaux : hors des volets, sous un seul bouton. */
-function openA1ParcReglages() {
-  var cid = a1ParcClientCourant(), kind = a1ParcKinds(cid)[0];
-  var G = function (titre, items) { return '<div style="margin-bottom:10px"><div style="font-size:11px;color:var(--muted);letter-spacing:.05em;font-weight:600;margin-bottom:5px">' + titre + '</div><div style="display:flex;gap:7px;flex-wrap:wrap">' + items.filter(Boolean).map(function (b) { return '<button class="cta ' + (b[2] || "ghost") + ' sm" onclick="closeModal();' + b[1] + '"' + (b[3] ? ' title="' + esc(b[3]) + '"' : '') + '>' + b[0] + '</button>'; }).join("") + '</div></div>'; };
-  openModal('<span class="close" onclick="closeModal()">✕</span><h2>⚙ Réglages du parc</h2><div class="msub">Prix, seuils et objectif ; sauvegarde et journaux ; la zone sensible en dernier.</div>'
-    + G("Prix, seuils, objectif", [["⛽ Prix carburant", "openFuelPrices()"], ["⚙ Seuils d’alerte", "openA1Thresholds()"], ["🥅 Objectif client", "openA1Target('" + kind + "')"], ["🚦 Prêt à présenter ?", "openA1ReadyCheck('" + kind + "')"]])
-    + G("Sauvegarde et journaux", [["💾 Sauvegarde", "openA1DataSafety()"], ["🔎 Vérifier l’intégrité", "a1VerifierIntegrite()"], ["📜 Journal des imports", "openA1ImportJournal()"], ["🧾 Journal des requêtes IA", "openA1IaJournal()"], ["🗄️ Banque de données", "openA1DataBank('" + kind + "')"]])
-    + G("Démonstration", [["🎬 Rapport d’exemple (client SIMULATION)", "a1DemoMode('" + kind + "')"]])
-    + G("Zone sensible", [["🧹 Remettre le parc à zéro", "a1PurgerParc('" + kind + "')", "", "Tout le parc du client sélectionné, avec corbeille"], (DB.meta && DB.meta.a1Corbeille) && ["↩ Annuler la remise à zéro", "a1AnnulerPurge()"]])
-    + '<div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Fermer</button></div>');
-}
 function renderA1Suivi(){
   const host=document.getElementById("scr-a1suivi"); if(!host) return;
   if(!window.a1SuiviMonth) window.a1SuiviMonth=todayISO().slice(0,7);
@@ -26232,6 +26725,7 @@ function a1PurgerParc(kind){
         DB.a1logs=(DB.a1logs||[]).filter(l=>!c.ids.has(l.vehicleId)); }
       DB.a1maint=(DB.a1maint||[]).filter(x=>!c.ids.has(x.machineId));
       DB.a1peaks=(DB.a1peaks||[]).filter(x=>!c.ids.has(x.gensetId||x.machineId));
+      DB.a1etudes=(DB.a1etudes||[]).filter(x=>!(x.clientId===cid&&x.kind===kind));   /* patch 197 */
       DB.a1orphans=(DB.a1orphans||[]).filter(o=>(o.clientId||"")!==cid);
       save(); closeModal(); if(typeof a1RefreshCurrent==="function") a1RefreshCurrent();
       toast("🧹 Parc remis à zéro — "+quoi.join(" · ")+" effacés. Réimporte le fichier du client, ou annule depuis ☰ Actions.");
@@ -28960,7 +29454,7 @@ function a1SnoozeBackup(){ const d=new Date(Date.now()+86400000); DB.meta.backup
 /* Sélecteur de module A1 — un seul programme, deux modules (véhicules / groupes). */
 function a1ModuleTabs(cur){ return `<div style="display:flex;gap:8px;margin:0 0 10px;flex-wrap:wrap;align-items:center">
   <span class="a1-int" style="font-size:11px;color:var(--muted);letter-spacing:.05em;font-weight:600">PROGRAMME DE PARC</span>
-  <button class="cta ${cur==='parc'?'':'ghost'} sm" onclick="setScreen('a1parc')" title="Un client, six volets">🚗 Parc</button><button class="cta ${cur==='fleet'?'':'ghost'} sm" onclick="setScreen('a1fleet')">🚗 Véhicules</button>
+  <button class="cta ${cur==='parc'?'':'ghost'} sm" onclick="setScreen('a1parc')" title="Un client, sept volets">🚗 Parc</button><button class="cta ${cur==='fleet'?'':'ghost'} sm" onclick="setScreen('a1fleet')">🚗 Véhicules</button>
   <button class="cta ${cur==='gen'?'':'ghost'} sm" onclick="setScreen('a1genset')">🔌 Groupes</button>
   <button class="cta ${cur==='suivi'?'':'ghost'} sm" onclick="setScreen('a1suivi')">📬 Suivi du mois</button><button class="cta ghost sm a1-int" onclick="setScreen('a1aero')" title="Espace réservé — conditions à remplir avant ouverture" style="opacity:.65">✈️ Aérien</button><span style="margin-left:auto;display:flex;align-items:center;gap:6px"><span class="a1-int" style="font-size:11px;color:var(--muted)">PÉRIODE</span><select class="a1-periode" onchange="a1PoserFenetre(this.value)" style="font-size:12.5px;padding:5px 8px;border:1px solid var(--line);border-radius:8px"><option value="tout" ${a1FenetreCourante()?'':'selected'}>Tout l'historique</option><option value="courant">Mois en cours</option><option value="precedent">Mois précédent</option><option value="12mois">12 derniers mois</option></select><b style="font-size:12px;color:var(--navy)">${esc(a1FenetreLibelle())}</b></span></div>`; }
 /* Restauration depuis le classeur exporté (upsert par id) */
@@ -38338,7 +38832,7 @@ const PERMSCREENS=[
   {key:"commercial",label:"Simulateur de prix / Devis",grp:"COMMERCIAL",fin:true},
   {key:"rh",       label:"Équipe du cabinet",grp:"CABINET",fin:true},
   {key:"audit",    label:"Diagnostic",grp:"CABINET"},
-  {key:"a1parc",   label:"Programme de parc — Parc (un client, six volets)",grp:"PROGRAMME DE PARC"},
+  {key:"a1parc",   label:"Programme de parc — Parc (un client, sept volets)",grp:"PROGRAMME DE PARC"},
   {key:"a1fleet",  label:"Programme de parc — Véhicules",grp:"PROGRAMME DE PARC"},
   {key:"a1aero",   label:"Programme de parc — Flotte aérienne (réservé)",grp:"PROGRAMME DE PARC"},
   {key:"a1genset", label:"Programme de parc — Groupes et engins",grp:"PROGRAMME DE PARC"},
