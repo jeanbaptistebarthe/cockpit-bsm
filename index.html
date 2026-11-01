@@ -705,11 +705,8 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
     <div class="navitem" data-scr="audit" onclick="setScreen('audit')"><span class="ic">📝</span><span class="lbl">Diagnostic</span></div>
     <div class="navitem" data-scr="analyses" onclick="setScreen('analyses')"><span class="ic">🧠</span><span class="lbl">Analyses</span><span id="nav-advice-badge" class="badge-nav" style="display:none">0</span></div>
     <div class="navgroup">FINANCES</div>
-    <div class="navitem" data-scr="budget" onclick="setScreen('budget')"><span class="ic">💶</span><span class="lbl">Budget</span></div>
-    <div class="navitem" data-scr="ca" onclick="setScreen('ca')"><span class="ic">📈</span><span class="lbl">Chiffre d'affaires</span></div>
-    <div class="navitem" data-scr="resultat" onclick="setScreen('resultat')"><span class="ic">🧾</span><span class="lbl">Compte de résultat</span></div>
-    <div class="navitem" data-scr="pointmort" onclick="setScreen('pointmort')"><span class="ic">🎯</span><span class="lbl">Point mort</span></div>
-    <div class="navitem" data-scr="roi" onclick="setScreen('roi')"><span class="ic">📊</span><span class="lbl">Investissements</span></div>
+    <div class="navitem" data-scr="budget" onclick="setScreen('budget')"><span class="ic">💶</span><span class="lbl">Trésorerie</span></div>
+    <div class="navitem" data-scr="pilotage" onclick="window.open(PILOTAGE_URL,'_blank','noopener')" title="Chiffre d'affaires, compte de résultat, point mort, investissements et indicateurs : dans le dashboard BSM A&C Pilotage"><span class="ic">🧭</span><span class="lbl">Pilotage de la société ↗</span></div>
     <div class="navgroup">COMMERCIAL</div>
     <!-- patch 166 : le simulateur de prix a quitté le menu — le barème par type (Paramètres) et le barème R5 font foi -->
     <div class="navitem" data-scr="documentation" onclick="setScreen('documentation')"><span class="ic">🗂️</span><span class="lbl">Documentation</span></div>
@@ -846,11 +843,12 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.5";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.8";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const PILOTAGE_URL = "https://claude.ai/artifact/4Fecc8R8QfbCRjdYJh6MpH";   // dashboard BSM A&C Pilotage : point mort, investissements, indicateurs (patch 200)
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
-const APP_VERSION_DATE = "23 octobre 2026";
+const APP_VERSION_DATE = "16 octobre 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* ===================== STOCKAGE COMPRESSÉ (patch 62, 23/09/2026) =====================
    Le navigateur n'accorde qu'environ 5 Mo à l'application ; la base réelle en pesait 2,5 le 23/09/2026, et un
@@ -1463,14 +1461,14 @@ const SB_URL = "https://fxaeeplylyeitukctlph.supabase.co";
 const SB_KEY = "sb_publishable_SrXvreUFVJgLLBi6PLvA-g_ARBg2SST";
 // Clé VAPID PUBLIQUE (Web Push) — publique par nature ; la clé privée vit dans les secrets Supabase.
 const PUSH_VAPID_PUBLIC = "BM6Kpk3mQIq8bJihU4TbVho2TXy9BNz-0tlgmHtlHGg8rqbt6W1kKkJz0z_ct8aqOCEvdZFMA6bAA7xZoTkbOKw";
-const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","a1orphans","a1imports","a1iaLog","a1docs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge","r5reports","solutionsLib","a1execreports","a1periodicites","a1maint","a1peaks","directives","a1merSite"]; // directives (consignes direction→membre, RLS ciblée toUid) + a1maint + a1peaks ajoutés 21/08 (carnet d'entretien & mesures de pointe) ; a1execreports ajouté 18/08 : le registre des rapports exécutifs A1 suit sur tous les appareils (le HTML archivé reste sur le PC serveur)
+const CLOUD_COLLECTIONS = ["clients","events","transactions","missions","risks","recommendations","employees","recruitments","leaves","activities","documents","playbooks","recurring","jobs","primes","devis","moneyRequests","investments","decisions","a1vehicles","a1logs","a1gensets","a1genlogs","a1offers","a1gpslogs","a1invoices","a1specs","a1orphans","a1imports","a1iaLog","a1docs","docTemplates","clientDocs","aiUsage","assistants","aiSettings","aiChat","aiMemory","reports","knowledge","r5reports","solutionsLib","a1execreports","a1periodicites","a1maint","a1peaks","directives","a1merSite","a1contrats","courrier"]; // directives (consignes direction→membre, RLS ciblée toUid) + a1maint + a1peaks ajoutés 21/08 (carnet d'entretien & mesures de pointe) ; a1execreports ajouté 18/08 : le registre des rapports exécutifs A1 suit sur tous les appareils (le HTML archivé reste sur le PC serveur)
 /* ===== CLOISONNEMENT PAR RÔLE (chantier 21/08) — miroir de la table collection_policies =====
    La VRAIE barrière est la RLS serveur (migration 0007) : le cloud ne LIVRE et n'ACCEPTE que ce que
    le rôle autorise. Ce miroir côté app évite simplement de pousser des collections interdites
    (erreurs de synchro) et documente la règle. admin/direction voient tout ; toute collection absente
    d'ici est visible par tous les membres. */
 const CLOUD_COLLECTION_SCOPE={
-  transactions:"direction", investments:"direction", recurring:"direction", aiUsage:"direction",
+  transactions:"direction", investments:"direction", recurring:"direction", aiUsage:"direction", a1contrats:"direction", courrier:"direction",
   reports:"direction", a1execreports:"direction", // r5reports RETIRÉ (21/08) : le rapport d'audit est cloisonné PAR CLIENT — le collaborateur prépare, demande validation, la direction envoie
   aiChat:"direction", aiMemory:"direction", assistants:"direction", aiSettings:"direction", knowledge:"direction",
   employees:"rh", recruitments:"rh", leaves:"rh", jobs:"rh", primes:"rh",
@@ -3081,6 +3079,7 @@ function exitClientMode(){
   toast("Mode présentation quitté — Cockpit complet réaffiché.");
 }
 function setScreen(name){
+  if(name==="pointmort"||name==="roi"||name==="ca"||name==="resultat"){ toast("Le chiffre d'affaires, le compte de résultat, le point mort et les investissements vivent désormais dans le dashboard BSM A&C Pilotage."); try{ window.open(PILOTAGE_URL,"_blank","noopener"); }catch(_){} return; }   /* patch 200 */
   /* patch 169 : plus de mode rendez-vous */
   if(clientMode && CLIENT_MODE_SCREENS.indexOf(name)<0) return; // mode présentation : on reste dans le programme A1
   if(name.indexOf("admin-")===0 && !isAdmin()){ toast("Accès réservé aux administrateurs."); return; } // garde côté client
@@ -3535,6 +3534,7 @@ function validationPanelHtml(compact){
 
 /* ----------------------------- Tableau de bord ----------------------------- */
 function dashLink(screen,label){ return `<a href="#" onclick="setScreen('${screen}');return false;" style="font-size:12.5px;color:var(--navy);font-weight:600;text-decoration:none;">${label} →</a>`; }
+function pilotageLink(label){ return `<a href="#" onclick="window.open(PILOTAGE_URL,'_blank','noopener');return false;" style="font-size:12.5px;color:var(--navy);font-weight:600;text-decoration:none;" title="Ouvre le dashboard BSM A&C Pilotage">${label} ↗</a>`; }   /* patch 201 */
 /* Raccourcis clavier globaux (fluidité) : Ctrl/Cmd+K ou « / » = recherche · Échap = fermer. */
 function bsmKeydown(e){
   if(clientMode) return; // mode rendez-vous : aucun raccourci (Ctrl+K, Échap…) ne doit rouvrir le Cockpit devant le client
@@ -3574,7 +3574,7 @@ function kpiCard(screen, value, cls, label, icon, accent, spark){
 function dashPriorityBand(a, critR, lateR, missionsEC, upcoming){
   const today=todayISO(); const pri=[];
   if(a.solde<0) pri.push({sev:'d',ic:'⚖️',txt:'Trésorerie négative ('+fmtD(a.solde)+')',go:"setScreen('budget')"});
-  if(a.enRetard>0) pri.push({sev:'d',ic:'⏰',txt:fmtD(a.enRetard)+" en retard d'encaissement",go:"setScreen('ca')"});
+  if(a.enRetard>0) pri.push({sev:'d',ic:'⏰',txt:fmtD(a.enRetard)+" en retard d'encaissement",go:"setScreen('budget')"});
   if(critR.length) pri.push({sev:'d',ic:'⚠️',txt:critR.length+' risque'+(critR.length>1?'s':'')+' critique'+(critR.length>1?'s':'')+' ouvert'+(critR.length>1?'s':''),go:"setScreen('risks')"});
   if(lateR.length) pri.push({sev:'w',ic:'✅',txt:lateR.length+' recommandation'+(lateR.length>1?'s':'')+' en retard',go:"setScreen('recos')"});
   const missNoRisk=missionsEC.filter(m=>!DB.risks.some(r=>r.missionId===m.id));
@@ -3779,7 +3779,7 @@ function renderDashboard(){
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">💶 Mouvements d'argent récents</h2>${(can("budget")||can("ca"))?`<button class="cta ghost sm" onclick="openTxForm()">+ Mouvement</button>`:""}</div>
         <div style="margin-top:8px">${txHtml}</div>
-        <div style="text-align:right;margin-top:6px;">${can("ca")?dashLink('ca','Chiffre d’affaires'):""} ${can("budget")?dashLink('budget','Budget'):""}</div>
+        <div style="text-align:right;margin-top:6px;">${can("budget")?dashLink('budget','Trésorerie'):""} ${pilotageLink('Chiffre d’affaires dans le Pilotage')}</div>
       </div>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">🎯 Missions en cours (${missionsEC.length})</h2>${can("missions")?`<button class="cta ghost sm" onclick="openMissionForm()">+ Mission</button>`:""}</div>
@@ -3803,7 +3803,7 @@ function renderDashboard(){
       <div class="card">
         <h2>CA encaissé — 7 derniers mois</h2>
         ${barsHtml(monthlySeries("entrant","realise"))}
-        <div style="text-align:right;margin-top:6px;">${dashLink('ca','Détail du chiffre d’affaires')}</div>
+        <div style="text-align:right;margin-top:6px;">${pilotageLink('Détail dans le Pilotage')}</div>
       </div>
       <div class="card">
         <h2>Répartition clients</h2>
@@ -7102,6 +7102,14 @@ function txRowHtml(t){
 function txTable(rowsHtml){
   return `<table><thead><tr><th>Libellé</th><th>Client</th><th>Catégorie</th><th>Date</th><th>Paiement</th><th>Statut</th><th style="text-align:right">Montant</th><th></th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
 }
+function tresorerieBoutonsHtml(){   /* patch 201 : les gestes qui vivaient sur l'écran Chiffre d'affaires, désormais ici */
+  const nb=overdueRelanceList().length; let h="";
+  if(isDirection()&&DB.meta.arcLastImport&&(DB.meta.arcLastImport.added.length||DB.meta.arcLastImport.updated.length)) h+=`<button class="cta ghost" onclick="arcUndoImport()" title="Erreur de fichier, de mois ou doublon : remet le CA exactement dans son état d'avant l'import">↩ Annuler l'import Archivage du ${frDate(String(DB.meta.arcLastImport.at).slice(0,10))}</button>`;
+  else if(isDirection()) h+=`<button class="cta ghost" onclick="arcPickFile()" title="Recevoir le chiffre d'affaires de BSM Archivage (export JSON de l'application)">📥 CA Archivage</button>`;
+  if(nb) h+=`<button class="cta ${nb>2?'':'ghost'}" onclick="openRelanceBatch()" title="Relancer d'un coup tous les encaissements en retard — un e-mail de rappel par client, tracé, avec copie sur ta boîte">📨 Relancer les retards (${nb})</button>`;
+  h+=`<button class="cta ghost" onclick="window.open(PILOTAGE_URL,'_blank','noopener')" title="Chiffre d'affaires, compte de résultat, point mort et investissements : dans le dashboard BSM A&C Pilotage">🧭 Pilotage ↗</button>`;
+  return h;
+}
 function renderBudget(){
   const y=curYear();
   let entr=DB.transactions.filter(t=>t.sens==="entrant"&&inEntity(t));
@@ -7119,8 +7127,8 @@ function renderBudget(){
   const entrShown=entr.filter(fstat).sort((x,y)=>String(y.date).localeCompare(String(x.date)));
   const sortShown=sortie.filter(fstat).sort((x,y)=>String(y.date).localeCompare(String(x.date)));
   document.getElementById("scr-budget").innerHTML=`
-    <div class="pagetitle"><div><h1>Budget</h1><div class="sub">Trésorerie du cabinet — entrées d'activité vs dépenses internes${isDirection()?"":" · vos saisies passent en validation direction 🔐"}</div></div>
-      <div style="display:flex;gap:8px">${isDirection()&&trashCount()?`<button class="cta ghost" onclick="openTrash()" title="Mouvements supprimés — conservés 30 jours">🗑 Corbeille (${trashCount()})</button>`:""}${isDirection()?`<button class="cta ghost" onclick="openRecurringManager()" title="Montants récurrents (mensuel/trimestriel/annuel)">🔁 Récurrents${DB.recurring.filter(r=>r.active!==false).length?` (${DB.recurring.filter(r=>r.active!==false).length})`:""}</button>`:""}${financesRemiseAZeroBoutonHtml()}<button class="cta ghost" onclick="openTxForm(null,'sortant')">− Dépense</button><button class="cta" onclick="openTxForm(null,'entrant')">+ Entrée</button></div></div>
+    <div class="pagetitle"><div><h1>Trésorerie</h1><div class="sub">Saisie des entrées et des dépenses, encaissements, relances, pièces et clôture — le chiffre d'affaires et le compte de résultat se lisent dans le Pilotage${isDirection()?"":" · vos saisies passent en validation direction 🔐"}</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${tresorerieBoutonsHtml()}${isDirection()&&trashCount()?`<button class="cta ghost" onclick="openTrash()" title="Mouvements supprimés — conservés 30 jours">🗑 Corbeille (${trashCount()})</button>`:""}${isDirection()?`<button class="cta ghost" onclick="openRecurringManager()" title="Montants récurrents (mensuel/trimestriel/annuel)">🔁 Récurrents${DB.recurring.filter(r=>r.active!==false).length?` (${DB.recurring.filter(r=>r.active!==false).length})`:""}</button>`:""}${financesRemiseAZeroBoutonHtml()}<button class="cta ghost" onclick="openTxForm(null,'sortant')">− Dépense</button><button class="cta" onclick="openTxForm(null,'entrant')">+ Entrée</button></div></div>
     ${validationPanelHtml()}
     ${focusBanner()}
     ${invoicePanelHtml()}
@@ -7142,7 +7150,7 @@ function renderBudget(){
         <div class="li"><span>Dont en retard</span><b style="color:${retardIn>0?'var(--red)':'inherit'}">${fmtD(retardIn)}</b></div>
       </div>
       ${entrShown.length? txTable(entrShown.map(txRowHtml).join("")) : `<div class="empty">Aucune entrée pour ce filtre. Cliquez « + Entrée ».</div>`}
-      <div style="text-align:right;margin-top:6px">${dashLink('ca','Voir le chiffre d’affaires')}</div>
+      <div style="text-align:right;margin-top:6px">${pilotageLink('Chiffre d’affaires dans le Pilotage')}</div>
     </div>
     <div class="card" style="border-left:3px solid var(--red)">
       <div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">🔴 Dépenses internes</h2><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${depensesBarreHtml()}<button class="cta ghost sm" onclick="openTxForm(null,'sortant')">+ Dépense</button></div></div>
@@ -7152,7 +7160,7 @@ function renderBudget(){
       </div>
       ${depensesPiecesHintHtml()}${grpRows.length?`<div style="font-size:11px;color:var(--muted);letter-spacing:.04em;margin:4px 0 2px">RÉPARTITION PAR POSTE</div><div class="mini-list" style="margin-bottom:8px">${grpRows.map(g=>`<div class="li"><span>${g.name}</span><b>${fmtD(g.val)}</b></div>`).join("")}</div>`:""}
       ${sortShown.length? txTable(sortShown.map(txRowHtml).join("")) : `<div class="empty">Aucune dépense pour ce filtre. Cliquez « + Dépense ».</div>`}
-      <div style="text-align:right;margin-top:6px">${dashLink('resultat','Voir le compte de résultat')}</div>
+      <div style="text-align:right;margin-top:6px">${pilotageLink('Compte de résultat dans le Pilotage')}</div>
     </div>
     ${closurePanelHtml()}`;
 }
@@ -8685,11 +8693,11 @@ function openSettings(){
     <hr style="border:none;border-top:1px solid var(--line);margin:16px 0">
     <div class="field"><label>Assistant IA — Clé API Claude (Anthropic) <span style="color:var(--gold)">(prioritaire — recommandé pour les rapports)</span></label>${aiKeyInputHtml("s-claude", DB.meta.claudeKey, _srvAI.claude, "Colle ta clé Claude (sk-ant-…)")}</div>
     <div class="field"><label>Modèle Claude</label><select id="s-claude-model">
-      ${[["claude-sonnet-5","Claude Sonnet 5 (équilibré — recommandé)"],["claude-opus-5","Claude Opus 5 (meilleure qualité, rapports)"],["claude-haiku-4-5-20251001","Claude Haiku 4.5 (rapide / éco)"]].map(m=>`<option value="${m[0]}" ${(DB.meta.claudeModel||'claude-sonnet-5')===m[0]?'selected':''}>${m[1]}</option>`).join("")}</select></div>
+      ${[["claude-opus-5-5","Claude Opus 5.5 (meilleure qualité, rapports — recommandé)"],["claude-sonnet-5-5","Claude Sonnet 5.5 (équilibré)"],["claude-haiku-5-5","Claude Haiku 5.5 (rapide / éco)"],["claude-sonnet-5","Claude Sonnet 5"],["claude-opus-5","Claude Opus 5"],["claude-haiku-4-5-20251001","Claude Haiku 4.5"]].map(m=>`<option value="${m[0]}" ${(DB.meta.claudeModel||'claude-sonnet-5')===m[0]?'selected':''}>${m[1]}</option>`).join("")}</select></div>
     ${typeof facturationParamBlocHtml==="function"?facturationParamBlocHtml():""}
     ${typeof a1BaremeParamBlocHtml==="function"?a1BaremeParamBlocHtml():""}
     ${typeof rechercheParamBlocHtml==="function"?rechercheParamBlocHtml():""}
-    <div class="hint">Clé <b>Anthropic</b> (console.anthropic.com) — Claude est l'unique moteur d'analyse du Cockpit. Chaque appel est compté (tokens + coût estimé) → onglet <b>Usage & coûts IA</b>. ${serverEnabled&&_srvAI.checked?'🔐 <b>Stockage sécurisé :</b> la clé est conservée sur le serveur BSM, jamais dans le navigateur — ton associé peut utiliser l\'IA sans voir la clé.':'⚠️ Sans serveur local, la clé est stockée dans ce navigateur — à n\'utiliser que sur un poste de confiance.'}</div>
+    <div class="hint">Clé <b>Anthropic</b> (platform.claude.com — à créer dans l'organisation Console liée à l'abonnement Claude : ses crédits mensuels inclus sont alors consommés en premier, voir <b>Coûts de l'assistant</b>) — Claude est l'unique moteur d'analyse du Cockpit. Chaque appel est compté (tokens + coût estimé) → onglet <b>Usage & coûts IA</b>. ${serverEnabled&&_srvAI.checked?'🔐 <b>Stockage sécurisé :</b> la clé est conservée sur le serveur BSM, jamais dans le navigateur — ton associé peut utiliser l\'IA sans voir la clé.':'⚠️ Sans serveur local, la clé est stockée dans ce navigateur — à n\'utiliser que sur un poste de confiance.'}</div>
     <div class="field" style="margin-top:10px"><label>Assistant « Bras droit » (agent unique)</label>
       <button type="button" class="cta ghost sm" onclick="closeModal();setScreen('aiassist')">🤖 Ouvrir le réglage de l'assistant</button>
       <div class="hint">Prompt métier et périmètre de l'agent — l'écran a quitté le menu pour alléger la navigation.</div></div>
@@ -16647,7 +16655,7 @@ async function aiRecherche(system, user, maxTokens, sector, maxRecherches) {
   rechercheQuotaCompter();
   const resp = await fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: [{ role: "system", content: p1.texte }, { role: "user", content: p2.texte }], maxTokens: maxTokens || 1200, claudeModel: rechercheModele(), webSearch: true, webSearchMax: maxRecherches || 2 }) });
   const j = await resp.json().catch(function () { return null; });
-  if (!j || !j.ok || !j.content) throw new Error((j && j.error) || "Recherche indisponible");
+  if (!j || !j.ok || !j.content) throw new Error(aiErreurLisible((j && j.error) || "Recherche indisponible"));
   try { recordAiUsage(j.provider, j.model, j.usage, sector || "recherche"); } catch (_) { }
   return { texte: aiDepseudonymiser(aiDepseudo(j.content)), sources: Array.isArray(j.sources) ? j.sources : [] };
 }
@@ -16740,7 +16748,7 @@ async function rechercheConstructeurManquantes(cid) {
 }
 /* Paramètres : le modèle et le plafond. */
 function rechercheParamBlocHtml() {
-  var q = rechercheQuota(), m = rechercheModele(), opts = [["claude-haiku-4-5-20251001", "Claude Haiku 4.5 (éco — recommandé)"], ["claude-sonnet-5", "Claude Sonnet 5"], ["claude-opus-5", "Claude Opus 5"]];
+  var q = rechercheQuota(), m = rechercheModele(), opts = [["claude-haiku-5-5", "Claude Haiku 5.5 (éco — recommandé)"], ["claude-haiku-4-5-20251001", "Claude Haiku 4.5"], ["claude-sonnet-5-5", "Claude Sonnet 5.5"], ["claude-opus-5-5", "Claude Opus 5.5"]];
   var cout = (DB.aiUsage || []).filter(function (u) { return u.sector === "recherche" && String(u.ts || "").slice(0, 7) === q.mois; }).reduce(function (s, u) { return s + (+u.costUsd || 0); }, 0);
   return '<div class="field"><label>🔎 Recherche constructeur (web)</label><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><select id="s-claude-model-recherche">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (m === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join("") + '</select><label style="font-size:12px;color:var(--muted)">plafond par mois <input type="number" id="s-recherche-max" min="0" step="1" value="' + q.max + '" style="width:70px"></label></div>'
     + '<div class="hint">Deux recherches web par modèle au plus, sans le préambule du cabinet ; une fiche trouvée sert à tous les véhicules du même modèle, chez tous les clients. Ce mois : ' + q.n + ' recherche(s) sur ' + q.max + (cout ? ', ≈ ' + cout.toFixed(2) + ' $' : '') + '.</div></div>';
@@ -22733,14 +22741,14 @@ function clientContratsPills(c) {
 var NAV_ECRANS = { dashboard: { ic: "▦", lbl: "Tableau de bord" }, clients: { ic: "👥", lbl: "Clients" }, agenda: { ic: "📅", lbl: "Agenda" }, courrier: { ic: "✉️", lbl: "Courrier" }, reports: { ic: "📋", lbl: "Rapports" }, monitoring: { ic: "🩺", lbl: "Santé du système" },
   a1parc: { ic: "🚗", lbl: "Parc" }, a1suivi: { ic: "📬", lbl: "Suivi du mois" }, a1fleet: { ic: "🚗", lbl: "Véhicules" }, a1genset: { ic: "🔌", lbl: "Groupes et engins" }, gpspresta: { ic: "📡", lbl: "Prestataire GPS" }, a1aero: { ic: "✈️", lbl: "Flotte aérienne" },
   missions: { ic: "🎯", lbl: "Missions" }, risks: { ic: "⚠️", lbl: "Risques" }, carto: { ic: "🗺️", lbl: "Carte des risques" }, recos: { ic: "✅", lbl: "Recommandations" }, audit: { ic: "📝", lbl: "Diagnostic" }, analyses: { ic: "🧠", lbl: "Analyses" },
-  budget: { ic: "💶", lbl: "Budget" }, ca: { ic: "📈", lbl: "Chiffre d'affaires" }, resultat: { ic: "🧾", lbl: "Compte de résultat" }, pointmort: { ic: "🎯", lbl: "Point mort" }, roi: { ic: "📊", lbl: "Investissements" },
+  budget: { ic: "💶", lbl: "Trésorerie" },
   documentation: { ic: "🗂️", lbl: "Documentation" }, rh: { ic: "🧑‍💼", lbl: "Équipe du cabinet" }, fiches: { ic: "🆘", lbl: "Fiches réflexes" }, glossaire: { ic: "📖", lbl: "Glossaire R5" }, aireport: { ic: "📊", lbl: "Coûts de l'assistant" },
   "admin-users": { ic: "🔐", lbl: "Utilisateurs & accès" }, "admin-log": { ic: "📋", lbl: "Journal d'activité" }, "admin-sante": { ic: "🧰", lbl: "Sauvegardes" }, "admin-secaudit": { ic: "🛡️", lbl: "Sécurité" } };
 /* Les voisins de chaque écran, dans « Aller à » : ce vers quoi on va le plus souvent depuis là. Trois à cinq, pas plus. */
 var NAV_RENVOIS = { dashboard: ["clients", "agenda", "courrier", "a1suivi", "monitoring"], clients: ["a1suivi", "courrier", "agenda", "missions"], agenda: ["clients", "courrier", "a1suivi"], courrier: ["clients", "agenda", "reports", "a1suivi"], reports: ["clients", "courrier", "a1suivi"], monitoring: ["clients", "missions", "recos", "a1suivi"],
   a1parc: ["a1suivi", "clients", "courrier", "reports"], a1suivi: ["a1parc", "a1fleet", "a1genset", "courrier", "reports"], a1fleet: ["a1parc", "a1suivi", "a1genset", "clients", "gpspresta"], gpspresta: ["a1parc", "a1fleet", "clients", "budget"], a1genset: ["a1parc", "a1suivi", "a1fleet", "clients"], a1aero: ["a1suivi", "a1fleet", "clients"],
   missions: ["clients", "risks", "recos", "agenda"], risks: ["missions", "carto", "recos"], carto: ["risks", "recos", "missions"], recos: ["risks", "missions", "audit"], audit: ["recos", "risks", "missions"], analyses: ["clients", "recos", "missions"],
-  budget: ["ca", "resultat", "pointmort"], ca: ["budget", "resultat", "clients"], resultat: ["ca", "budget", "pointmort"], pointmort: ["resultat", "budget", "roi"], roi: ["pointmort", "budget", "ca"],
+  budget: ["clients", "rh"],
   documentation: ["fiches", "glossaire", "clients"], rh: ["budget", "missions"], fiches: ["glossaire", "documentation"], glossaire: ["fiches", "documentation"], aireport: ["analyses", "admin-sante"],
   "admin-users": ["admin-log", "admin-sante"], "admin-log": ["admin-users", "admin-sante", "admin-secaudit"], "admin-sante": ["admin-log", "admin-secaudit", "aireport"], "admin-secaudit": ["admin-sante", "admin-log"],
   clientfiche: ["a1suivi", "courrier", "agenda", "reports", "missions"] };
@@ -30396,7 +30404,7 @@ function openA1Offer(clientId, product){
       <input type="date" id="ao-offstart" value="${o.offertStart||todayISO()}"><input type="date" id="ao-offend" value="${o.offertEnd||''}"></div>
     </div>
     <div class="field"><label>Validité (facultatif) et conditions particulières à ce devis</label><input id="ao-validite" value="${esc(o.validite||'')}" placeholder="Ex : 30 jours" style="margin-bottom:6px"><textarea id="ao-terms" rows="3" placeholder="Les conditions générales et celles du Programme de parc sont jointes au contrat : n’écris ici qu’une condition propre à ce devis." style="width:100%;font-family:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">${esc(o.terms||'')}</textarea></div>
-    <div class="hint">À l'enregistrement : le forfait et le tarif mensuel deviennent des <b>entrées</b> liées à ce client (Budget / CA / Compte de résultat). L'offre reste <b>éditable</b>, <b>exportable en PDF</b> et <b>envoyable par mail</b> depuis sa fiche.</div>
+    <div class="hint">À l'enregistrement : le forfait et le tarif mensuel deviennent des <b>entrées</b> liées à ce client (Trésorerie du Cockpit, puis Pilotage). L'offre reste <b>éditable</b>, <b>exportable en PDF</b> et <b>envoyable par mail</b> depuis sa fiche.</div>
     <div class="modal-actions"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="saveA1Offer('${clientId}','${product}')">Enregistrer l'offre</button></div>`); a1OfferTarifUI(false); a1OfferRemiseUI();
 }
 function saveA1Offer(clientId, product){
@@ -32387,7 +32395,7 @@ async function aiComplete(messages, maxTokens, sector, modelOverride){
         if(j.truncated) content=String(content).replace(/\s+$/,"")+"\n\n> ⚠️ *Réponse tronquée (limite de longueur atteinte). Demande « continue » ou pose la question en la découpant pour obtenir la suite.*";
         return content;
       }
-      if(!aiProvidersList().length) throw new Error((j&&j.error)||"Proxy IA du serveur indisponible.");
+      if(!aiProvidersList().length) throw new Error(aiErreurLisible((j&&j.error)||"Proxy IA du serveur indisponible."));
     }catch(err){ if(!aiProvidersList().length) throw err; } // repli sur d'éventuelles clés locales (mode en ligne / secours)
   }
   // 2) VOIE DIRECTE (secours) : clés locales du navigateur — utilisée seulement sans serveur (site en ligne / fichier local).
@@ -32410,7 +32418,7 @@ async function aiComplete(messages, maxTokens, sector, modelOverride){
           headers:{"content-type":"application/json","x-api-key":p.key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
           body:JSON.stringify({model:model,max_tokens:maxTokens||900,system:sys,messages:msgs}) }); }
         finally{ if(to) clearTimeout(to); }
-        if(!resp.ok){ let e={}; try{e=await resp.json();}catch(_){} throw new Error((e.error&&e.error.message)||e.message||("Erreur claude "+resp.status)); }
+        if(!resp.ok){ let e={}; try{e=await resp.json();}catch(_){} throw new Error(aiErreurLisible((e.error&&e.error.message)||e.message||("Erreur claude "+resp.status))); }
         data=await resp.json();
         content=(data&&data.content&&data.content[0]&&data.content[0].text)?data.content[0].text:null;
         if(content==null||String(content).trim()==="") throw new Error("Réponse vide de claude (modèle/quota ?)");
@@ -32497,20 +32505,20 @@ function knowledgeContext(budget){
 }
 /* ---- Métrologie IA : comptage tokens + coût estimé + report automatique au budget ---- */
 const AI_SECTOR_LABELS={ conseils:"Conseils portefeuille", "client-advice":"Conseil client (fiche 360°)", "qa":"Questions / réponses", "a1":"Programme de parc (flotte)", reporting:"Reporting", autre:"Autre" };
-function defaultAiPrices(){ // $ par 1 MILLION de tokens {in,out} — Claude : TARIFS OFFICIELS Anthropic (vérifiés 08/2026) ; autres : estimations éditables
+function defaultAiPrices(){ // $ par 1 MILLION de tokens {in,out} — Claude : TARIFS OFFICIELS Anthropic (vérifiés 31/10/2026 sur platform.claude.com/docs/en/about-claude/pricing — patch 199) ; autres : estimations éditables
   // Les tarifs des anciens modèles Mammouth sont CONSERVÉS : ils servent à recalculer le coût des
   // appels DÉJÀ enregistrés dans l'historique. Ils ne sont plus proposés à la sélection (AI_PRICE_GRID).
   return { "mammouth-recommended":{in:2,out:8}, "gpt-5.5":{in:5,out:15}, "gpt-5.4":{in:2.5,out:10}, "gpt-5.4-mini":{in:0.4,out:1.6},
     "claude-opus-4.7":{in:5,out:25},
-    "claude-opus-5":{in:5,out:25}, "claude-sonnet-5":{in:3,out:15}, "claude-haiku-4-5-20251001":{in:1,out:5}, "claude-haiku-4-5":{in:1,out:5}, "claude-fable-5":{in:10,out:50},
+    "claude-opus-5":{in:5,out:25}, "claude-opus-5-5":{in:4,out:20}, "claude-sonnet-5-5":{in:2,out:10}, "claude-haiku-5-5":{in:0.1,out:0.5}, "claude-fable-5-1":{in:10,out:50}, "claude-sonnet-5":{in:2,out:10}, "claude-haiku-4-5-20251001":{in:1,out:5}, "claude-haiku-4-5":{in:1,out:5}, "claude-fable-5":{in:10,out:50},
     "mistral-medium-3.1":{in:0.4,out:2}, "gemini-3.1-flash-preview":{in:0.3,out:2.5},
     "llama-4-maverick":{in:0.2,out:0.6}, "deepseek-v4-flash":{in:0.3,out:1.2}, "mistral-large-latest":{in:2,out:6}, "mistral-small-latest":{in:0.2,out:0.6}, "_default":{in:3,out:15} };
 }
 /* Modèles affichés dans la grille de prix éditable (Claude d'abord — fournisseur principal). */
-const AI_PRICE_GRID=["claude-sonnet-5","claude-opus-5","claude-haiku-4-5-20251001","mistral-large-latest","mistral-small-latest"];
+const AI_PRICE_GRID=["claude-opus-5-5","claude-sonnet-5-5","claude-haiku-5-5","claude-sonnet-5","claude-opus-5","claude-haiku-4-5-20251001","mistral-large-latest","mistral-small-latest"];
 function aiPrices(){ return Object.assign({}, defaultAiPrices(), DB.meta.aiPrices||{}); }
 function aiPrice(model){ const p=aiPrices(); if(p[model]) return p[model];
-  const m=String(model||""); const key=Object.keys(p).find(k=>k!=="_default" && m.indexOf(k)===0); if(key) return p[key]; // ids versionnés (claude-opus-5-YYYYMMDD…)
+  const m=String(model||""); const key=Object.keys(p).filter(k=>k!=="_default" && m.indexOf(k)===0).sort((a,b)=>b.length-a.length)[0]; if(key) return p[key]; // ids versionnés (claude-opus-5-YYYYMMDD…)
   if(/fable|mythos/i.test(m)) return {in:10,out:50}; if(/opus/i.test(m)) return {in:5,out:25}; if(/sonnet/i.test(m)) return {in:3,out:15}; if(/haiku/i.test(m)) return {in:1,out:5};
   return p["_default"]||{in:3,out:15}; }
 /* Recalcule le coût de TOUT l'historique d'usage avec la grille actuelle, puis met à jour la ligne budget. */
@@ -32607,6 +32615,64 @@ function aiExportCsv(){
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
   a.download="BSM_usage_IA_"+todayISO()+".csv"; a.click(); toast("Export CSV téléchargé.");
 }
+/* ===== CRÉDITS API INCLUS DANS L'ABONNEMENT CLAUDE (patch 199, v6.100.6, 31/10/2026) =====
+   Depuis octobre 2026, un abonnement Claude (Max, Ultra, Team) verse à chaque cycle de facturation des crédits API à UNE
+   organisation Console qui lui est liée (claude.ai → Paramètres → Facturation → Crédits API → Lier l'organisation).
+   Toute clé de cette organisation puise d'abord dans ces crédits ; le reliquat expire en fin de cycle, sans report.
+   Aucune API n'expose le solde : le Cockpit le reconstitue depuis son propre comptage (grille de prix estimée) sur le
+   cycle en cours — du jour de renouvellement au jour qui précède le renouvellement suivant. */
+function aiCreditsReglage(){ const m=DB.meta||{}; return { montant:Math.max(0,+m.aiCreditsUsd||0), jour:Math.min(28,Math.max(1,parseInt(m.aiCreditsJour,10)||1)) }; }
+/* Le cycle qui contient « quand » : il commence le jour de renouvellement à 0 h ; « fin » est le premier instant du cycle suivant. */
+function aiCreditsCycle(quand){
+  const r=aiCreditsReglage(), d=quand?new Date(quand):new Date();
+  let debut=new Date(d.getFullYear(), d.getMonth(), r.jour);
+  if(debut.getTime()>d.getTime()) debut=new Date(d.getFullYear(), d.getMonth()-1, r.jour);
+  const fin=new Date(debut.getFullYear(), debut.getMonth()+1, r.jour);
+  return { debut:debut, fin:fin, joursRestants:Math.max(0, Math.ceil((fin.getTime()-d.getTime())/86400000)) };
+}
+/* L'état du cycle : null quand aucun montant n'est renseigné. */
+function aiCreditsEtat(quand){
+  const r=aiCreditsReglage(); if(!(r.montant>0)) return null;
+  const c=aiCreditsCycle(quand), t0=c.debut.getTime(), t1=c.fin.getTime();
+  let consomme=0; (DB.aiUsage||[]).forEach(u=>{ const t=new Date(u.ts).getTime(); if(t>=t0&&t<t1) consomme+=(+u.costUsd||0); });
+  const reste=Math.max(0, r.montant-consomme), pct=Math.min(999, Math.round(consomme/r.montant*100));
+  return { montant:r.montant, jour:r.jour, consomme:consomme, reste:reste, pct:pct, debut:c.debut, fin:c.fin, joursRestants:c.joursRestants,
+    epuise:consomme>=r.montant, alerte:consomme>=r.montant*0.8 };
+}
+function aiCreditsDateFr(d){ return d.toLocaleDateString("fr-FR",{day:"numeric",month:"long"}); }
+/* La carte « Crédits inclus » de l'écran Coûts de l'assistant. */
+function aiCreditsHtml(){
+  const e=aiCreditsEtat();
+  if(!e) return '<div class="card" style="border-left:3px solid var(--gold)"><b>💳 Crédits API inclus dans l\'abonnement Claude</b> — montant non renseigné. '
+    +'Un abonnement Max, Ultra ou Team verse à chaque cycle des crédits API à l\'organisation Console qui lui est liée (claude.ai → Paramètres → Facturation → Crédits API → Lier l\'organisation) ; '
+    +'renseigne le montant et le jour de renouvellement sous la grille de prix pour suivre ce qu\'il en reste.</div>';
+  const couleur=e.epuise?'var(--red)':(e.alerte?'var(--orange)':'var(--green)');
+  const veille=new Date(e.fin.getTime()-86400000);
+  const perte=(!e.epuise&&e.joursRestants<=5&&e.reste>=e.montant*0.3)?' <span style="color:var(--orange)">Ces crédits ne se reportent pas : '+e.reste.toFixed(2)+' $ expirent dans '+e.joursRestants+' jour(s).</span>':'';
+  return '<div class="card" style="border-left:3px solid '+couleur+'">'
+    +'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:baseline"><b>💳 Crédits API inclus dans l\'abonnement Claude</b>'
+    +'<span class="hint">cycle du '+aiCreditsDateFr(e.debut)+' au '+aiCreditsDateFr(veille)+' · renouvellement le '+aiCreditsDateFr(e.fin)+' (dans '+e.joursRestants+' j)</span></div>'
+    +'<div style="display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 4px;font-size:13px"><span>Inclus : <b>'+e.montant.toFixed(0)+' $</b></span><span>Consommé (estimé) : <b>'+e.consomme.toFixed(2)+' $</b> · '+e.pct+' %</span><span>Reste : <b style="color:'+couleur+'">'+e.reste.toFixed(2)+' $</b></span></div>'
+    +'<div style="height:8px;background:var(--line);border-radius:4px;overflow:hidden"><div style="width:'+Math.min(100,e.pct)+'%;height:100%;background:'+couleur+'"></div></div>'
+    +'<div class="hint" style="margin-top:6px">'+(e.epuise
+      ?'<b>Crédits du cycle épuisés</b> : l\'assistant s\'arrête jusqu\'au renouvellement, sauf crédits achetés ou recharge automatique sur platform.claude.com/settings/billing.'
+      :'Estimation par la grille de prix du Cockpit ; le solde exact est sur platform.claude.com/settings/billing (Promotional credits). Les crédits inclus sont consommés avant les crédits achetés.')
+    +perte+'</div></div>';
+}
+function aiSaveCredits(){
+  const v=parseFloat(String(val("ai-credits")||"").replace(",",".")), j=parseInt(val("ai-credits-jour"),10);
+  DB.meta.aiCreditsUsd=(v>0)?v:0; DB.meta.aiCreditsJour=(j>=1&&j<=28)?j:1;
+  save(); renderAireport(); toast(v>0?"Crédits inclus enregistrés — cycle à partir du "+DB.meta.aiCreditsJour+" de chaque mois.":"Crédits inclus retirés.");
+}
+/* Le message de l'API quand le solde de l'organisation est à zéro, dit en clair et daté. */
+function aiErreurLisible(msg){
+  const s=String(msg==null?"":msg);
+  if(!/credit balance is too low/i.test(s)) return s;
+  let e=null; try{ e=aiCreditsEtat(); }catch(_){}
+  return "Crédits API épuisés : l'organisation Console de la clé n'a plus de solde."
+    +(e?" Les crédits inclus dans l'abonnement se renouvellent le "+aiCreditsDateFr(e.fin)+" (dans "+e.joursRestants+" jour(s)).":"")
+    +" En attendant : acheter des crédits ou activer la recharge automatique sur platform.claude.com/settings/billing.";
+}
 function aiSaveBudget(){ const v=parseFloat((val("ai-budget")||"").replace(",",".")); DB.meta.aiBudgetUsd=(v>0)?v:0; save(); renderAireport(); toast(v>0?"Budget IA mensuel enregistré.":"Budget IA retiré."); }
 function usdToAr(u){ return Math.round((u||0)*(DB.meta.rateUsdMga||4500)); }
 function aiSectorLabel(s){ return AI_SECTOR_LABELS[s]||s||"—"; }
@@ -32657,6 +32723,7 @@ function renderAireport(){
     <div class="card" style="border-left:3px solid ${(serverEnabled&&_srvAI.any)||prov?'var(--green)':'var(--orange)'}">
       ${provHtml}
       <span style="color:var(--muted)"> Les coûts sont <b>estimés</b> via la grille de prix ci-dessous — ajuste-la selon ta facture réelle.</span></div>
+    ${aiCreditsHtml()}
     <div class="kpis">
       <div class="kpi" style="border-top:3px solid var(--gold)"><div class="v">$${totCost.toFixed(2)}</div><div class="l">Coût total (${range.label}) · ≈ ${usdToAr(totCost).toLocaleString("fr-FR")} Ar</div></div>
       <div class="kpi" style="border-top:3px solid var(--navy)"><div class="v">${totTok.toLocaleString("fr-FR")}</div><div class="l">Tokens consommés (période)</div></div>
@@ -32691,8 +32758,17 @@ function renderAireport(){
         <button class="cta ghost sm" onclick="aiSaveBudget()">Enregistrer</button>
         <span class="hint">Affiche « % utilisé » sur la carte du mois, comme la console Claude (0 ou vide = pas de budget).</span>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:var(--cream);border-radius:10px">
+        <b style="font-size:12.5px">💳 Crédits inclus dans l'abonnement Claude ($ par cycle)</b>
+        <input id="ai-credits" type="number" step="1" min="0" value="${+DB.meta.aiCreditsUsd||''}" placeholder="ex : 200" style="width:90px;padding:6px 8px;border:1px solid var(--line);border-radius:7px">
+        <label style="font-size:12px;color:var(--muted)">renouvelés le</label>
+        <input id="ai-credits-jour" type="number" step="1" min="1" max="28" value="${Math.min(28,Math.max(1,parseInt(DB.meta.aiCreditsJour,10)||1))}" style="width:60px;padding:6px 8px;border:1px solid var(--line);border-radius:7px">
+        <label style="font-size:12px;color:var(--muted)">de chaque mois</label>
+        <button class="cta ghost sm" onclick="aiSaveCredits()">Enregistrer</button>
+        <span class="hint">Le jour est celui du renouvellement affiché sur platform.claude.com/settings/billing (Promotional credits) ; la carte en tête de l'écran suit le cycle.</span>
+      </div>
       <table><thead><tr><th>Modèle</th><th>Prix entrée ($/1M)</th><th>Prix sortie ($/1M)</th></tr></thead><tbody>${priceRows}</tbody></table>
-      <div class="hint" style="margin-top:10px">💡 Le coût est reporté chaque mois dans le <b>Budget</b> (catégorie « Intelligence artificielle », entité BSM A&C), donc dans le CA net et le Compte de résultat. <button class="cta ghost sm" onclick="aiSyncBudget();toast('Ligne budget IA recalculée.')">↻ Recalculer la ligne budget maintenant</button></div>
+      <div class="hint" style="margin-top:10px">💡 Le coût est reporté chaque mois dans la <b>Trésorerie</b> (catégorie « Intelligence artificielle », entité BSM A&C), donc dans le compte de résultat du Pilotage. <button class="cta ghost sm" onclick="aiSyncBudget();toast('Ligne budget IA recalculée.')">↻ Recalculer la ligne budget maintenant</button></div>
     </div>`;
 }
 function aiClassifOpts(sel){ return [["public","Public"],["interne","Interne"],["confidentiel","Confidentiel"],["tres_confidentiel","Très confidentiel"]].map(o=>`<option value="${o[0]}" ${sel===o[0]?"selected":""}>${o[1]}</option>`).join(""); }
@@ -32714,7 +32790,7 @@ function renderAiassist(){
   const st=aiSettings();
   const a=(DB.assistants||[])[0];
   if(!a){ host.innerHTML='<div class="card"><div class="empty">Assistant introuvable — recharge la page.</div></div>'; return; }
-  const CLAUDE_MODELS=[["claude-sonnet-5","Claude Sonnet 5 (équilibré)"],["claude-opus-5","Claude Opus 5 (qualité maximale — recommandé)"],["claude-haiku-4-5-20251001","Claude Haiku 4.5 (rapide / éco)"]];
+  const CLAUDE_MODELS=[["claude-opus-5-5","Claude Opus 5.5 (qualité maximale — recommandé)"],["claude-sonnet-5-5","Claude Sonnet 5.5 (équilibré)"],["claude-haiku-5-5","Claude Haiku 5.5 (rapide / éco)"],["claude-sonnet-5","Claude Sonnet 5"],["claude-opus-5","Claude Opus 5"],["claude-haiku-4-5-20251001","Claude Haiku 4.5"]];
   const modelOpts=(sel)=>CLAUDE_MODELS.map(m=>`<option value="${m[0]}" ${sel===m[0]?"selected":""}>${m[1]}</option>`).join("");
   host.innerHTML=`
     <div class="pagetitle"><div><h1>Assistant « Bras droit »</h1><div class="sub">L'agent unique du Cockpit (moteur Claude) — analyses, rapports, chat. Accès : ⚙ Paramètres.</div></div>
@@ -37323,7 +37399,7 @@ function aiSaveClientAdvice(){
 
 /* --- Assistant conversationnel + mémoire apprenante --- */
 function cockpitGuide(){ return "=== CARTE DU COCKPIT (tu connais l'outil dans le détail — tu peux guider, dépanner, expliquer) ===\n"
-  +"Menu (gauche) : PILOTAGE (Tableau de bord, Monitoring & suivi, Suivi du mois, Clients, Agenda, Rapports, Usage & coûts IA) · FINANCES (Budget, Chiffre d'affaires, Compte de résultat, ROI & Investissements) · MÉTHODE R5 (Missions, Matrice des risques, Cartographie, Recommandations, Audit terrain, Analyses & Conseils) · COMMERCIAL (Simulateur, Documentation) · CABINET (RH & équipe, Fiches réflexes, Glossaire R5) · ADMINISTRATION (Utilisateurs & accès, Connexions & activité). L'écran « Rapports » est LE point central : rapports du cabinet + rapports exécutifs A1. Réglage de l'assistant : ⚙ Paramètres.\n"
+  +"Menu (gauche) : PILOTAGE (Tableau de bord, Monitoring & suivi, Suivi du mois, Clients, Agenda, Rapports, Usage & coûts IA) · FINANCES (Trésorerie ; le chiffre d'affaires, le compte de résultat, le point mort et les investissements se lisent dans le dashboard BSM A&C Pilotage) · MÉTHODE R5 (Missions, Matrice des risques, Cartographie, Recommandations, Audit terrain, Analyses & Conseils) · COMMERCIAL (Simulateur, Documentation) · CABINET (RH & équipe, Fiches réflexes, Glossaire R5) · ADMINISTRATION (Utilisateurs & accès, Connexions & activité). L'écran « Rapports » est LE point central : rapports du cabinet + rapports exécutifs A1. Réglage de l'assistant : ⚙ Paramètres.\n"
   +"PROGRAMME DE PARC (depuis « Audit terrain ») = 2 modules : 🚗 Véhicules & GPS et 🔌 Groupes & JIRAMA. Actions : importer des relevés (CSV/Excel), importer GPS, factures pompiste/JIRAMA (PDF conservé comme preuve + validation humaine des chiffres), fiches techniques constructeur (catalogue + import PDF/Excel), Parc complet + export CSV/Excel, Contrôle & écarts (rapproche factures ↔ référence : écarts prix/quantité/montant, erreurs de calcul, doublons), Analyse IA, 💬 Chat IA, Rapport, Tableau de bord, fiche machine 360° (clic sur le nom d'une machine), 💾 Sauvegarde Excel. Accès réservé aux profils autorisés (direction par défaut).\n"
   +"Fiche client 360° (clic sur un client) : scores R5, missions, budget/CA, risques, recommandations, documents, carte Programme de parc, boutons « aller à » ses onglets (données filtrées sur ce client), rapport, portail client. Un seul client de contexte (focus) est partagé par tous les onglets.\n"
   +"Données & synchro : app locale (navigateur) · serveur local http://localhost:3000 (nécessaire pour envoyer mails/rapports via le pont Google) · en ligne github.io. La connexion Cloud (Supabase) = synchro 2 sens automatique + cloisonnement par organisation (RLS). Sauvegardes : ⬇ Sauvegarde JSON + export Excel A1 ; rappel de sauvegarde automatique.\n"
@@ -38841,11 +38917,7 @@ const PERMSCREENS=[
   {key:"clients",  label:"Clients",grp:"PILOTAGE"},
   {key:"agenda",   label:"Agenda",grp:"PILOTAGE"},
   {key:"courrier", label:"Courrier",grp:"PILOTAGE"},
-  {key:"budget",   label:"Budget",grp:"PILOTAGE",fin:true},
-  {key:"ca",       label:"Chiffre d'affaires",grp:"PILOTAGE",fin:true},
-  {key:"resultat", label:"Compte de résultat",grp:"PILOTAGE",fin:true},
-  {key:"pointmort",label:"Point mort",grp:"PILOTAGE",fin:true},
-  {key:"roi",      label:"Investissements",grp:"PILOTAGE",fin:true},
+  {key:"budget",   label:"Trésorerie",grp:"PILOTAGE",fin:true},
   {key:"monitoring",label:"Santé du système",grp:"PILOTAGE"},
   {key:"a1suivi",  label:"Suivi du mois (production A1)",grp:"PILOTAGE"},
   {key:"aireport", label:"Coûts de l'assistant",grp:"PILOTAGE",fin:true},
