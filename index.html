@@ -843,12 +843,12 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.8";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.9";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const PILOTAGE_URL = "https://claude.ai/artifact/4Fecc8R8QfbCRjdYJh6MpH";   // dashboard BSM A&C Pilotage : point mort, investissements, indicateurs (patch 200)
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
-const APP_VERSION_DATE = "16 octobre 2026";
+const APP_VERSION_DATE = "4 novembre 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* ===================== STOCKAGE COMPRESSÉ (patch 62, 23/09/2026) =====================
    Le navigateur n'accorde qu'environ 5 Mo à l'application ; la base réelle en pesait 2,5 le 23/09/2026, et un
@@ -2625,6 +2625,27 @@ function auditChargeMarquer(){ const a=(DB&&DB.audit)||[]; _auditChargeN=a.lengt
    copie ne perd rien ; l'envoyer la nôtre reculerait son registre. Une chaîne qui diverge n'est jamais « en avance ». */
 function serveurEnAvance(data, n, h){ n=(n===undefined)?_auditChargeN:n; h=(h===undefined)?_auditChargeH:h; const sa=(data&&data.audit)||[]; if(!n||!h||sa.length<=n) return false; const e=sa[n-1]; return !!(e&&String(e.h||"")===h); }
 function serveurReprendreSiEnAvance(data){ if(!serveurEnAvance(data)) return false; const n=((data&&data.audit)||[]).length-_auditChargeN; DB=data; DB.advice=DB.advice||{dismissed:[],edits:{},custom:[]}; auditChargeMarquer(); try{ if(typeof logEvent==="function") logEvent("sync","Copie du serveur reprise : elle était en avance de "+n+" action(s) sur celle lue ici (autre fenêtre ou autre stockage)"); }catch(_e){} save(); if(typeof refreshAll==="function") refreshAll(); try{ toast("Copie du serveur reprise : elle était en avance de "+n+" action(s) sur celle gardée par ce navigateur."); }catch(_e){} return true; }
+/* ===== COMPACTAGE DU JOURNAL D'AUDIT ET GARDE-FOU DU SERVEUR (patch 202, 04/11/2026) ===================================
+   Constat de JB : « Envoi retenu — disparition massive de données » à chaque connexion, journal d'audit à 3 999 sur le serveur
+   contre 3 003 dans l'envoi. Passé 4 000 maillons, auditSeal compacte le journal : les 3 000 derniers derrière un maillon-témoin
+   qui porte l'empreinte du maillon retiré. Le serveur, qui ne tolère pas trois maillons d'écart sur un journal, refusait cet
+   envoi ; « Annuler et recharger » ramenait sa copie longue, et le compactage se refaisait à l'ouverture suivante : une boucle.
+   Règle : un journal plus court est un compactage, et non une perte, quand il commence par un maillon-témoin et qu'il porte
+   encore le dernier maillon connu du serveur, à la même empreinte : rien de récent n'a disparu, seul l'amont a été scellé.
+   Le serveur l'admet de lui-même (server.js, compactageLegitime) ; tant qu'il n'a pas été redémarré, le navigateur fait la
+   même vérification en relisant sa copie, puis confirme l'envoi sans rien demander. Un onglet périmé, dont la chaîne ne porte
+   pas le dernier maillon du serveur, garde la fenêtre « Annuler et recharger / Forcer ». Banc : check_audit_compactage.js. */
+function auditCompactageSeul(perte){ var p=(perte&&perte.pertes)||[]; var a=(DB&&DB.audit)||[]; return p.length>0 && p.every(function(x){ return !!x && x.collection==="audit (journal)"; }) && !!(a[0] && a[0].type==="compactage"); }
+function auditPorteTete(local, serveur){ var sa=Array.isArray(serveur)?serveur:[]; if(!sa.length) return true; var hs={}; (local||[]).forEach(function(e){ if(e&&e.h) hs[e.h]=1; }); return sa.slice(-3).some(function(e){ return !!(e&&e.h&&hs[e.h]); }); }
+async function auditCompactageConfirmer(perte, corps){
+  if(!auditCompactageSeul(perte)) return false;
+  var data=null; try{ var rd=await fetch("/api/data",{cache:"no-store"}); if(rd.ok) data=await rd.json(); }catch(_e){ data=null; }
+  if(!data || typeof data!=="object" || !auditPorteTete(DB.audit, data.audit)) return false;
+  var r=null; try{ r=await fetch("/api/data",{method:"POST",headers:{"Content-Type":"application/json","X-BSM-Confirmer-Perte":"oui"},body:corps}); }catch(_e){ r=null; }
+  var ok=!!(r&&r.ok); setServerStatus(ok);
+  if(ok){ try{ if(typeof logEvent==="function") logEvent("sync","Journal d'audit compacté : "+(perte.perdusTotal||0)+" maillon(s) anciens scellés dans le maillon-témoin, copie acceptée par le serveur"); }catch(_e){} serverPush(); }
+  return ok;
+}
 function serverPush(){
   if(!serverEnabled) return; if(_pushSuspendu) return;   /* patch 191 */                 // pas de serveur détecté → on ne tente rien (site public / fichier local)
   if(_pushTimer) clearTimeout(_pushTimer);
@@ -2635,7 +2656,7 @@ function serverPush(){
         if(r.status===409){                     // le serveur a retenu une disparition massive
           let d=null; try{ d=await r.json(); }catch(e){}
           setServerStatus(false);
-          if(d&&d.perte){ if(typeof a1PerteCouverte==="function" && a1PerteCouverte(d.perte)) a1ConfirmerPerteVolontaire(d.perte, corps); else demanderConfirmationPerte(d.perte, corps); }   // patch 75 bis : une suppression faite ici, à l'instant, rangée en corbeille, se confirme d'elle-même
+          if(d&&d.perte){ if(typeof a1PerteCouverte==="function" && a1PerteCouverte(d.perte)) a1ConfirmerPerteVolontaire(d.perte, corps); else if(typeof auditCompactageConfirmer==="function" && auditCompactageSeul(d.perte)) auditCompactageConfirmer(d.perte, corps).then(function(fait){ if(!fait) demanderConfirmationPerte(d.perte, corps); }); else demanderConfirmationPerte(d.perte, corps); }   // patch 75 bis : une suppression faite ici, à l'instant, rangée en corbeille, se confirme d'elle-même · patch 202 : le compactage du journal d'audit aussi, après relecture de la copie du serveur
           return;
         }
         setServerStatus(r.ok);
