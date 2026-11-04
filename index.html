@@ -843,7 +843,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.10";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.11";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const PILOTAGE_URL = "https://claude.ai/artifact/4Fecc8R8QfbCRjdYJh6MpH";   // dashboard BSM A&C Pilotage : point mort, investissements, indicateurs (patch 200)
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
@@ -17531,9 +17531,11 @@ function rapportPeriodeOuvrir(cid, kind, tout) {
     + '<div class="hint">' + mois.length + ' mois avec des relevés : ' + esc(a1MonthLabel(mois[0])) + ' → ' + esc(a1MonthLabel(dernier)) + '. L’évolution sur plusieurs mois apparaît dès que la période en compte deux.</div>'
     + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="cta ghost" onclick="closeModal()">Annuler</button><button class="cta" onclick="rapportPeriodeProduire(\'' + esc(cid) + '\',\'' + kind + '\')">📕 Produire le brouillon</button></div>');
 }
-async function rapportPeriodeProduire(cid, kind) {
-  kind = kind === "gen" ? "gen" : "fleet";
-  var du = String(val("rp-du") || "").slice(0, 7), au = String(val("rp-au") || "").slice(0, 7);
+async function rapportPeriodeProduire(cid, kind) {   /* patch 204 : la fenêtre lit les mois, la production est à part (la démonstration s'en sert) */
+  return rapportPeriodeProduireSur(cid, kind, String(val("rp-du") || "").slice(0, 7), String(val("rp-au") || "").slice(0, 7));
+}
+async function rapportPeriodeProduireSur(cid, kind, du, au) {
+  kind = kind === "gen" ? "gen" : "fleet"; du = String(du || "").slice(0, 7); au = String(au || "").slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(du) || !/^\d{4}-\d{2}$/.test(au)) { toast("Choisis le mois de début et le mois de fin."); return null; }
   if (au < du) { toast("Le mois de fin précède le mois de début."); return null; }
   if (!rapportPeriodeMois(cid, kind).some(function (m) { return m >= du && m <= au; })) { toast("Aucun relevé sur cette période : rien à rapporter."); return null; }
@@ -21142,15 +21144,18 @@ function demoR5Poser() {
     retenir: "- La cuve de gasoil a tenu : le risque carburant est sous contrôle, à surveiller à chaque délestage long." });
   save(); if (typeof logEvent === "function") { try { logEvent("action", "Démonstration posée : " + DEMO_R5_NOM, true); } catch (e) {} }
   toast("🎬 Démonstration posée — données fictives ; le dirigeant fictif, c'est toi.");
+  try { demoParcPoser(id).then(function () { try { if (typeof refreshAll === "function") refreshAll(); } catch (e) {} }); } catch (e) {}   /* patch 204 : le parc fictif suit, par la porte d'import */
   openClientFiche(id);
   return DB.clients.find(function (c) { return c.id === id; });
 }
 function demoR5Retirer() {
   var c = demoR5Client(); if (!c) { toast("Pas de démonstration en place."); return; }
   if (typeof isDirection === "function" && !isDirection()) { toast("Réservé à la direction."); return; }
-  confirmModal("Retirer la démonstration ?", "Le client fictif « " + esc(c.company) + " » et tout ce qui porte son identifiant (risques, recommandations, missions, rapports, courriers) disparaissent du Cockpit. Rien d'autre n'est touché.", function () {
+  confirmModal("Retirer la démonstration ?", "Le client fictif « " + esc(c.company) + " » et tout ce qui porte son identifiant (risques, recommandations, missions, rapports, courriers, parc fictif avec ses relevés) disparaissent du Cockpit. Rien d'autre n'est touché.", function () {
     var id = c.id, n = 0;
-    Object.keys(DB).forEach(function (k) { if (!Array.isArray(DB[k])) return; var avant = DB[k].length; DB[k] = DB[k].filter(function (x) { return !(x && typeof x === "object" && x.clientId === id); }); n += avant - DB[k].length; });
+    var mach = {}; ["a1vehicles", "a1gensets"].forEach(function (k) { (DB[k] || []).forEach(function (m) { if (m && m.clientId === id) mach[m.id] = 1; }); });   /* patch 204 : le parc fictif part avec la démo */
+    Object.keys(DB).forEach(function (k) { if (!Array.isArray(DB[k])) return; var avant = DB[k].length; DB[k] = DB[k].filter(function (x) { return !(x && typeof x === "object" && (x.clientId === id || mach[x.vehicleId] || mach[x.gensetId] || mach[x.machineId])); }); n += avant - DB[k].length; });
+    try { if (DB.a1targets) Object.keys(DB.a1targets).forEach(function (k) { if (k.indexOf(id + "|") === 0) delete DB.a1targets[k]; }); } catch (e) {}
     DB.clients = (DB.clients || []).filter(function (x) { return x.id !== id; });
     try { if (currentClientId === id) currentClientId = null; } catch (e) {} try { if (focusClient === id) focusClient = ""; } catch (e) {}
     save(); closeModal(); try { setScreen("clients"); } catch (e) {} if (typeof refreshAll === "function") { try { refreshAll(); } catch (e) {} }
@@ -21208,9 +21213,125 @@ function demoR5CardHtml(cid) {
     + ligne(4, "📩", "La fiche de décision", "Le fichier à joindre ou à envoyer par WhatsApp : il coche, BSM reçoit", "demoR5FicheDecision('" + esc(cid) + "')")
     + ligne(5, "📋", "La feuille de route d’un responsable", (ops ? ops.name + " (" + ops.fonction + ")" : "un responsable") + " : ses actions, son avancement à déclarer", "demoR5FeuilleResponsable('" + esc(cid) + "')", hook && !!ops, "récepteur à configurer dans ⚙ Paramètres")
     + ligne(6, "🧭", "L’espace du dirigeant", "Ses décisions à prendre, ses responsables à désigner, l’avancement déclaré — la feuille de route se publie au passage", "demoR5EspaceDirigeant('" + esc(cid) + "')", hook, "récepteur à configurer dans ⚙ Paramètres")
-    + '</div><div class="hint" style="margin-top:8px">Pour tout recevoir pour de vrai : « 📑 Rapport R5 » puis Envoyer — le courriel part à ton adresse, la page est hébergée, la feuille de route publiée. Risques, recommandations et portail restent dans le Cockpit.</div></div>';
+    + ligne(7, "🚗", "Le rapport de parc, tel qu’il s’imprime", "Douze véhicules et deux groupes fictifs, dix mois de pleins et d’entretien : l’aperçu du Cockpit sur les trois derniers mois, PDF et Word", "demoParcRapportImprime('" + esc(cid) + "')")
+    + ligne(8, "🖥", "La page interactive du parc", "Celle que le dirigeant ouvre depuis le courriel : trajectoire, chaque véhicule face à sa référence constructeur, recommandations à décider", "demoParcPageInteractive('" + esc(cid) + "')")
+    + '</div><div class="hint" style="margin-top:8px">Pour tout recevoir pour de vrai : « 📑 Rapport R5 » puis Envoyer — le courriel part à ton adresse, la page est hébergée, la feuille de route publiée. Risques, recommandations et portail restent dans le Cockpit. Le parc fictif se voit dans l’onglet Parc : le rapport des groupes s’y produit de la même façon.</div></div>';
 }
 
+/* ===== LA DÉMONSTRATION A SON PARC : LE RAPPORT DE PARC, IMPRIMÉ ET INTERACTIF (patch 204, 04/11/2026) =======================
+   JB : « rajoute le rapport parc, il me le faut en interactif et en pdf à montrer, je dois présenter demain ». La société fictive
+   reçoit un parc fictif : douze véhicules et deux groupes, dix mois de pleins et d'entretien, le même classeur que SIMULATION
+   (BANC A1/demo_simulation.js), fabriqué en mémoire et importé par la porte réelle (a1ImportClientWorkbook, plan de lecture
+   compris) : aucune écriture directe en base. Le rapport se produit comme en production (rapportPeriodeProduireSur, les trois
+   derniers mois), se relit dans l'aperçu du Cockpit (PDF, Word) et s'ouvre en page interactive (a1PremiumExperience).
+   Plaques en série 12xx distinctes de SIMULATION, prestataires « (démo) » : fictif, et visiblement. « Retirer la démo »
+   emporte aussi le parc, ses relevés, son entretien et ses rapports. Banc : check_demo_parc.js. */
+function demoParcFeuilles(ref) {
+  var graine = 20261104, alea = function () { graine = (graine * 1103515245 + 12345) & 0x7fffffff; return graine / 0x7fffffff; }, entre = function (a, b) { return a + alea() * (b - a); };
+  var SERIE0 = Date.UTC(1899, 11, 30), serie = function (a, m, j) { return Math.round((Date.UTC(a, m - 1, j) - SERIE0) / 86400000); };
+  // Dix mois pleins, le dernier étant le mois qui précède la date de référence : aucun relevé daté dans le futur.
+  var t = String(ref || todayISO()).slice(0, 10), an = +t.slice(0, 4), mo = +t.slice(5, 7), MOIS = [];
+  for (var k = 10; k >= 1; k--) { var m = mo - k, a = an; while (m <= 0) { m += 12; a -= 1; } MOIS.push([a, m]); }
+  var PU = function (a, m, essence) { return (a > 2026 || (a === 2026 && m >= 9)) ? (essence ? 5100 : 4860) : (essence ? 5029 : 4764); };
+  var PARC = [
+    { p: "1221 TBE", ma: "Toyota", mo: "Hilux 2.4 D-4D", t: "PICK-UP", c: "Diesel", reel: 8.4, site: "Siège", u: "RAKOTO, Jean" },
+    { p: "1222 TBE", ma: "Toyota", mo: "Hilux 2.4 D-4D", t: "PICK-UP", c: "Diesel", reel: 11.2, site: "Dépôt Nord", u: "ANDRIA, Paul", note: "surconsommation" },
+    { p: "1223 TBE", ma: "Toyota", mo: "Fortuner 2.8 D", t: "SUV", c: "Diesel", reel: 9.8, site: "Siège", u: "Direction" },
+    { p: "1224 TBF", ma: "Toyota", mo: "Land Cruiser Prado 2.8 D", t: "SUV", c: "Diesel", reel: 10.1, site: "Siège", u: "RASOA, Miora" },
+    { p: "1225 TBF", ma: "Renault", mo: "Duster 1.5 dCi", t: "SUV", c: "Diesel", reel: 6.4, site: "Agence Est", u: "Pool agence" },
+    { p: "1226 TBF", ma: "Renault", mo: "Logan 1.5 dCi", t: "BERLINE", c: "Diesel", reel: 5.3, site: "Agence Est", u: "Pool agence" },
+    { p: "1227 TBG", ma: "Toyota", mo: "Corolla 1.5 (E)", t: "BERLINE", c: "SP 95", reel: 7.0, site: "Siège", u: "RAVELO, Hery" },
+    { p: "1228 TBG", ma: "Suzuki", mo: "Swift 1.2 (E)", t: "CITADINE", c: "SP 95", reel: 5.9, site: "Agence Est", u: "Coursier" },
+    { p: "1229 TBG", ma: "Hyundai", mo: "Tucson 2.0 D", t: "SUV", c: "Diesel", reel: 8.1, site: "Dépôt Nord", u: "Chef de dépôt" },
+    { p: "1230 TBH", ma: "Mitsubishi", mo: "Pajero Sport 2.4 D", t: "SUV", c: "Diesel", reel: 9.0, site: "Dépôt Nord", u: "RANAIVO, Tojo", note: "compteur figé" },
+    { p: "1231 TBH", ma: "Isuzu", mo: "MU-X 3.0 D", t: "SUV", c: "Diesel", reel: 8.9, site: "Siège", u: "Logistique" },
+    { p: "1232 TBH", ma: "Nissan", mo: "Patrol 3.0 Di", t: "4X4", c: "Diesel", reel: 12.6, site: "Dépôt Nord", u: "Équipe livraisons", note: "sans compteur" }
+  ];
+  var GROUPES = [
+    { p: "G.E. SIEGE (démo)", ma: "Caterpillar", mo: "DE50E3", c: "Diesel", site: "Siège", lh: 10.8 },
+    { p: "G.E. ENTREPOT (démo)", ma: "Caterpillar", mo: "DE88E3", c: "Diesel", site: "Entrepôt", lh: 18.9 }
+  ];
+  var fVeh = [["Année", "Marque", "Modèle", "Plaque", "Type", "Groupe", "V.I.N.", "Carb", "Couleur", "Fournisseur", "acquisition", "Valeur", "Utilisateur"]];
+  PARC.forEach(function (v, i) { fVeh.push([String(2018 + (i % 6)), v.ma, v.mo, v.p, v.t, v.site, "DEMO" + String(200000 + i), v.c, ["Blanc", "Gris", "Bleu"][i % 3], "Garage Central (démo)", String(serie(2018 + (i % 6), 3 + (i % 8), 12)), String(Math.round(entre(38, 95)) * 1000000), v.u]); });
+  GROUPES.forEach(function (g, i) { fVeh.push([String(2020 + i), g.ma, g.mo, g.p, "GROUPE", g.site, "", g.c, "Jaune", "Énergie Import (démo)", String(serie(2020 + i, 6, 3)), String(Math.round(entre(60, 110)) * 1000000), "Site " + g.site]); });
+  var fCarb = [["Porteur", "immat", "date", "heure", "Station", "qte", "PU", "carte", "date2", "Ticket", "km", "Montant", "Lieu", "solde"]];
+  var STATIONS = ["Station Ambohibao (démo)", "Station Ivato (démo)", "Station Analakely (démo)", "Station Tanjombato (démo)"], LIEUX = ["ANTANANARIVO", "IVATO", "AMBOHIBAO", "TANJOMBATO"], ticket = 4100;
+  PARC.forEach(function (v, iv) {
+    var km = Math.round(entre(38000, 132000)), essence = /SP|essence/i.test(v.c), kmFige = v.note === "compteur figé" ? km + 4000 : 0;
+    MOIS.forEach(function (am, im) {
+      var a = am[0], m = am[1];
+      for (var n = 0; n < 2; n++) {
+        var jour = n === 0 ? Math.round(entre(3, 13)) : Math.round(entre(17, 27)), parcouru = Math.round(entre(380, 820));
+        km += parcouru;
+        var litres = +(parcouru * v.reel / 100 * entre(0.96, 1.04)).toFixed(2), pu = PU(a, m, essence);
+        var kmEcrit = v.note === "sans compteur" ? "" : ((v.note === "compteur figé" && im >= 2) ? String(kmFige) : String(km));
+        fCarb.push([v.p, v.p.replace(/\s+/g, ""), String(serie(a, m, jour)), (entre(0.3, 0.75)).toFixed(6), STATIONS[(iv + m) % 4], litres.toFixed(2), String(pu), String(150 + (iv % 9)), String(serie(a, m, jour)), String(ticket++), kmEcrit, String(Math.round(litres * pu)), LIEUX[(iv + n) % 4], (entre(20, 140)).toFixed(2)]);
+      }
+    });
+  });
+  GROUPES.forEach(function (g, ig) {
+    MOIS.forEach(function (am) {
+      var a = am[0], m = am[1], litres = +(g.lh * entre(85, 140)).toFixed(2), pu = PU(a, m, false), jourG = Math.round(entre(5, 24));
+      fCarb.push([g.p, g.p.replace(/[\s.()]+/g, ""), String(serie(a, m, jourG)), "0.400000", "Livraison sur site", litres.toFixed(2), String(pu), String(170 + ig), String(serie(a, m, jourG)), String(ticket++), "", String(Math.round(litres * pu)), "SITE", ""]);
+    });
+  });
+  var fTvx = [["Date", "Véhicule", "immat", "Odo", "Type de véhicule", "Département", "Groupe", "Prestataire", "Description", "Mtt Total", "ODT", "BC OPS", "BC DF"]];
+  var TRAVAUX = [["Vidange moteur + filtres", 420000], ["Révision 20 000 km", 980000], ["Plaquettes de frein avant", 640000], ["Jeu de pneus (4)", 3200000], ["Batterie 12V 74Ah", 780000], ["Amortisseurs arrière", 1450000], ["Courroie de distribution", 2350000], ["Climatisation — recharge", 390000], ["Embrayage complet", 4100000], ["Géométrie + équilibrage", 260000]], odt = 900;
+  PARC.forEach(function (v, iv) {
+    var combien = v.note === "surconsommation" ? 4 : (iv % 3 === 0 ? 3 : 2);
+    for (var k2 = 0; k2 < combien; k2++) {
+      var tr = TRAVAUX[(iv * 3 + k2) % TRAVAUX.length], am = MOIS[(iv + k2 * 3) % MOIS.length];
+      if (v.note === "surconsommation" && k2 === 3) tr = ["Injecteurs — dépose, contrôle, remplacement", 5850000];
+      fTvx.push([String(serie(am[0], am[1], Math.round(entre(4, 26)))), v.ma + " " + v.mo, v.p.replace(/\s+/g, ""), String(Math.round(entre(45000, 160000))), v.t, v.site, v.site, ["Garage Central (démo)", "Atelier Nord (démo)"][(iv + k2) % 2], tr[0], String(tr[1]), "WO" + (odt++), "1", "1"]);
+    }
+  });
+  GROUPES.forEach(function (g, ig) {
+    [["Vidange groupe + filtres", 850000], ["Contrôle alternateur", 1250000]].forEach(function (tr, k3) {
+      var am = MOIS[(1 + ig * 4 + k3 * 3) % MOIS.length];
+      fTvx.push([String(serie(am[0], am[1], 14)), g.ma + " " + g.mo, g.p.replace(/[\s.()]+/g, ""), "", "GROUPE", g.site, g.site, "Énergie Import (démo)", tr[0], String(tr[1]), "WO" + (odt++), "1", "1"]);
+    });
+  });
+  return { Vehicule: fVeh, TVX: fTvx, Carb: fCarb };
+}
+function demoParcPresent(cid) { return (DB.a1vehicles || []).some(function (v) { return v && v.clientId === cid; }); }
+async function demoParcPoser(cid) {
+  cid = cid || (demoR5Client() || {}).id; if (!cid) return false;
+  if (demoParcPresent(cid)) return true;
+  var sheets = demoParcFeuilles(), plan = null;
+  try { plan = a1LirePlan(sheets); } catch (e) { plan = null; }
+  try { await a1ImportClientWorkbook({ name: "PARC FICTIF - demonstration.xlsx", sheets: sheets }, cid, "MGA", false, plan); }
+  catch (e) { toast("Parc de démonstration non posé : " + ((e && e.message) || e)); return false; }
+  return demoParcPresent(cid);
+}
+function demoParcRapportExistant(cid, kind) { return (DB.a1execreports || []).filter(function (r) { return r && r.clientId === cid && r.kind === kind; }).sort(function (a, b) { return String(b.ts || "").localeCompare(String(a.ts || "")); })[0] || null; }
+async function demoParcRapport(cid, kind) {
+  kind = kind === "gen" ? "gen" : "fleet";
+  if (!(await demoParcPoser(cid))) return null;
+  var r = demoParcRapportExistant(cid, kind); if (r) return r;
+  var mois = rapportPeriodeMois(cid, kind); if (!mois.length) { toast("Aucun relevé pour le parc de démonstration."); return null; }
+  return await rapportPeriodeProduireSur(cid, kind, mois[Math.max(0, mois.length - 3)], mois[mois.length - 1]);
+}
+async function demoParcRapportImprime(cid) {
+  var r = await demoParcRapport(cid, "fleet"); if (!r) return;
+  if (r.onServer && typeof serverEnabled !== "undefined" && serverEnabled) { await a1ViewExecReport(r.id); return; }
+  toast("Le rapport est archivé sur le PC serveur : ouvre le Cockpit en local pour l’aperçu.");
+}
+async function demoParcDoc(r) {
+  var doc = "";
+  try { var f = await (await fetch("/api/file?id=" + encodeURIComponent("a1rep_" + r.id))).json(); doc = String((f && f.data) || "").replace(/^kbtext:/, ""); } catch (e) { doc = ""; }
+  return doc;
+}
+async function demoParcPageInteractive(cid) {
+  var r = await demoParcRapport(cid, "fleet"); if (!r) return;
+  var c = (DB.clients || []).find(function (x) { return x.id === r.clientId; }), doc = await demoParcDoc(r);
+  if (!doc) { toast("Le contenu du rapport n’est pas archivé sur le serveur : ouvre le Cockpit en local."); return; }
+  var titre = "[BSM] Rapport de suivi " + (r.ref || "") + " — " + ((c && c.company) || ""), page = null;
+  try { page = a1PremiumExperience(r, titre, doc); } catch (e) { page = null; }
+  if (!page) { try { page = interactiveDocHtml(doc); } catch (e) { page = ""; } }
+  if (!page) { toast("Page indisponible."); return; }
+  if (typeof pictosEpurerHtml === "function") page = pictosEpurerHtml(page);
+  demoR5Fenetre(page);
+}
 /* ===== LA FICHE DE DÉCISION, MÊMES CARTES QUE LA PAGE INTERACTIVE (patch 157, v6.99.60, 15/10/2026)
    JB : « on passe à la fiche de décision » ; maquette validée (« ok go »). Le fichier remis au dirigeant (mail, WhatsApp, papier)
    ne liste plus que les recommandations qui attendent sa décision, en cartes : référence, priorité, investissement → gain, le
@@ -28401,7 +28522,7 @@ async function a1OuvrirRecette(file, cid, cur, remplacer){
 }
 
 async function a1ImportClientWorkbook(file, cid, cur, remplacer, plan){
-  let sheets; try{ sheets=await a1ReadXlsx(await file.arrayBuffer()); }
+  let sheets; try{ sheets=(file&&file.sheets)?file.sheets:await a1ReadXlsx(await file.arrayBuffer()); }   /* patch 204 : la démonstration apporte ses feuilles déjà lues, même porte */
   catch(e){ toast("Lecture impossible : "+(e.message||e)); return; }
   const bilan={parc:0, majParc:0, grp:0, majGrp:0, carb:0, carbGrp:0, tvx:0,
                 premiers:0, reculs:0, aberrants:0, remplaces:0, fiches:0, reperes:0, incertains:0, sansFiche:[], orph:{}, orphLignes:0, cumuls:0, fenetre:null, tvxGrp:0, doublons:0, feuilles:[],
