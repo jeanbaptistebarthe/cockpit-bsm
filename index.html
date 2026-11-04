@@ -843,7 +843,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.9";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.10";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const PILOTAGE_URL = "https://claude.ai/artifact/4Fecc8R8QfbCRjdYJh6MpH";   // dashboard BSM A&C Pilotage : point mort, investissements, indicateurs (patch 200)
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
@@ -862,6 +862,10 @@ var _zIllisible=false;                       // stockage local illisible ET impo
 var _auditChargeN=0;                         /* patch 191 : longueur de la chaîne d'audit telle que lue en local */
 var _auditChargeH="";                        /* patch 191 : dernier maillon de cette chaîne lue */
 var _pushSuspendu=false;                     /* patch 191 : envois au serveur suspendus pendant une question du garde-fou */
+var _serveurVu=false;                        /* patch 203 : un serveur a répondu au moins une fois dans cette session */
+var _serveurRetourTimer=null;                /* patch 203 : prochain essai de retour au serveur */
+var _serveurRetourBase=15000;                /* patch 203 : premier essai après 15 s */
+var _serveurRetourDelai=15000;               /* patch 203 : délai courant, doublé à chaque échec, deux minutes au plus */
 function bsmZDispo(){ return !!(typeof BSM_FFLATE==="object" && BSM_FFLATE && BSM_FFLATE.deflateSync && BSM_FFLATE.inflateSync); }
 function bsmZBytes(str){ return BSM_FFLATE.deflateSync(new TextEncoder().encode(str), {level:6}); }
 function bsmZUnbytes(bytes){ return new TextDecoder().decode(BSM_FFLATE.inflateSync(bytes)); }
@@ -2203,6 +2207,22 @@ function modeDevReconcilier(data){
     save();
     if(typeof refreshAll === "function") refreshAll();
   }
+  /* patch 203 : la chaîne d'audit tranche avant les comptes (règle et banc : bloc « patch 203 » avant serverPush). */
+  if(typeof serveurReprendreSiEnAvance === "function" && serveurReprendreSiEnAvance(data)) return Promise.resolve("serveur-en-avance");
+  if(typeof localEnAvance === "function" && localEnAvance(data)){
+    var corpsAvance = JSON.stringify(DB);
+    return fetch("/api/data", { method:"POST", headers:{ "Content-Type":"application/json" }, body: corpsAvance })
+      .then(async function(r){
+        if(r.ok){ setServerStatus(true); return "local-en-avance"; }
+        if(r.status === 409 && typeof auditCompactageConfirmer === "function"){ var d = null; try{ d = await r.json(); }catch(e){ d = null; }
+          if(d && d.perte && auditCompactageSeul(d.perte) && await auditCompactageConfirmer(d.perte, corpsAvance)) return "local-en-avance+compactage"; }
+        return modeDevMettreDeCote("local_ecarte", corpsAvance).then(function(){ reprendre(); return "cote+serveur"; });
+      })
+      .catch(function(){ return "local"; });
+  }
+  if(typeof chainesDivergent === "function" && chainesDivergent(data)){
+    return modeDevMettreDeCote("local_ecarte", JSON.stringify(DB)).then(function(){ reprendre(); return "cote+serveur"; });
+  }
   if(!perdIci.length){ reprendre(); return Promise.resolve("serveur"); }
   if(!perdLa.length){
     // Ici il y a plus : on envoie. Le serveur garde son propre garde-fou ; s'il refuse
@@ -2289,6 +2309,7 @@ async function modeDevEntrerSequence(){
   if(data) decision = await modeDevReconcilier(data);
   else { serverPush(); decision = "serveur-vide+envoi"; }   // serveur neuf : il reçoit la nôtre
   modeDevConnecter();
+  try{ var texte = modeDevDecisionTexte(decision); if(texte && typeof logEvent === "function") logEvent("sync", "Ouverture : " + texte, true); }catch(e){}   /* patch 203 */
   return decision;
 }
 
@@ -2615,6 +2636,8 @@ async function cloudBackupRestore(id){
 let serverEnabled=false, _pushTimer=null;
 function setServerStatus(on){
   serverEnabled=on;
+  if(on){ _serveurVu=true; _serveurRetourDelai=_serveurRetourBase; if(_serveurRetourTimer){ clearTimeout(_serveurRetourTimer); _serveurRetourTimer=null; } }
+  else if(_serveurVu) serveurRetourPlanifier();   /* patch 203 : l'envoi automatique ne reste plus coupé jusqu'au rechargement */
   // L'ancien indicateur « 🟢 Serveur » est remplacé par le badge d'environnement (LOCAL / EN LIGNE) — on le laisse masqué.
   if(typeof renderEnvBar==="function") renderEnvBar();
 }
@@ -2645,6 +2668,41 @@ async function auditCompactageConfirmer(perte, corps){
   var ok=!!(r&&r.ok); setServerStatus(ok);
   if(ok){ try{ if(typeof logEvent==="function") logEvent("sync","Journal d'audit compacté : "+(perte.perdusTotal||0)+" maillon(s) anciens scellés dans le maillon-témoin, copie acceptée par le serveur"); }catch(_e){} serverPush(); }
   return ok;
+}
+/* ===== L'ENVOI AUTOMATIQUE NE RESTE PLUS COUPÉ, ET LA COPIE D'ICI EN AVANCE PART À L'OUVERTURE (patch 203, 04/11/2026) ===========
+   Point faible repéré avec le patch 202 : après un refus du serveur (409) ou une panne (serveur redémarré, réseau), serverEnabled
+   restait à false jusqu'au rechargement ; le travail fait ensuite restait dans le navigateur, et à l'ouverture suivante la règle
+   des comptes reprenait la copie du serveur si le surplus local était sous ses seuils (30 %, hors collections sensibles). Une
+   question du garde-fou fermée sans réponse (Échap, clic à côté) coupait de même.
+   Trois gestes : (1) après un refus ou une panne, le serveur est retenté seul (15 s, puis le double, deux minutes au plus),
+   jamais pendant une question du garde-fou ; (2) fermer la question sans répondre la laisse ouverte : elle reviendra au prochain
+   essai ; (3) à l'ouverture, la chaîne d'audit tranche avant les comptes : si la chaîne d'ici prolonge celle du serveur (un envoi
+   resté en attente), la copie d'ici part, car le serveur ne peut rien y perdre qu'un geste fait ici ; si les deux chaînes
+   divergent, la copie d'ici est mise de côté chez le serveur et la sienne reprise, rien n'est demandé. Banc : check_envoi_retour.js. */
+function serveurRetourPlanifier(){ if(!_serveurVu || _serveurRetourTimer) return; var t=setTimeout(serveurRetourEssayer, _serveurRetourDelai); try{ if(t && typeof t.unref==='function') t.unref(); }catch(_e){} _serveurRetourTimer=t; }   // unref : sans effet dans un navigateur ; au banc, la minuterie ne retient pas le processus
+async function serveurRetourEssayer(){
+  _serveurRetourTimer=null; if(serverEnabled) return;
+  if(_perteEnCours || _pushSuspendu){ serveurRetourPlanifier(); return; }   // la question reste posée : on repassera
+  var ok=false; try{ var r=await fetch("/api/status",{cache:"no-store"}); ok=!!(r&&r.ok); }catch(_e){ ok=false; }
+  _serveurRetourDelai=Math.min(_serveurRetourDelai*2, 120000);
+  if(!ok){ serveurRetourPlanifier(); return; }
+  serverEnabled=true; if(typeof renderEnvBar==="function") renderEnvBar();
+  try{ if(typeof logEvent==="function") logEvent("sync","Serveur de nouveau joignable : l'envoi automatique reprend", true); }catch(_e){}
+  serverPush();
+}
+function auditTeteDans(journal, h){ var a=Array.isArray(journal)?journal:[]; if(!h) return false; for(var i=a.length-1;i>=0;i--){ if(a[i]&&a[i].h===h) return true; } return false; }
+function auditTetes(data){ var sa=(data&&data.audit)||[], la=(DB&&DB.audit)||[]; return { serveur:String((sa[sa.length-1]||{}).h||""), ici:String((la[la.length-1]||{}).h||""), sa:sa, la:la }; }
+/* La copie d'ici est « en avance » quand sa chaîne d'audit prolonge celle du serveur : elle porte le dernier maillon du serveur, et lui n'a pas le sien. */
+function localEnAvance(data){ var t=auditTetes(data); return !!t.serveur && !!t.ici && t.serveur!==t.ici && auditTeteDans(t.la, t.serveur) && !auditTeteDans(t.sa, t.ici); }
+/* Les deux chaînes divergent quand chacune porte un maillon que l'autre n'a pas : deux sessions ont travaillé chacune de leur côté. */
+function chainesDivergent(data){ var t=auditTetes(data); return !!t.serveur && !!t.ici && t.serveur!==t.ici && !auditTeteDans(t.la, t.serveur) && !auditTeteDans(t.sa, t.ici); }
+function modeDevDecisionTexte(d){
+  if(d==="local-en-avance") return "la copie du navigateur prolongeait celle du serveur (un envoi resté en attente) : elle a été envoyée";
+  if(d==="local-en-avance+compactage") return "la copie du navigateur prolongeait celle du serveur : envoyée, avec le journal d'audit compacté";
+  if(d==="local") return "la copie du navigateur était plus riche : elle a été envoyée";
+  if(d==="cote+serveur") return "les deux copies divergeaient : celle du navigateur est mise de côté chez le serveur (local_ecarte), la sienne est reprise";
+  if(d==="serveur-en-avance") return "la copie du serveur était en avance : elle a été reprise";
+  return "";
 }
 function serverPush(){
   if(!serverEnabled) return; if(_pushSuspendu) return;   /* patch 191 */                 // pas de serveur détecté → on ne tente rien (site public / fichier local)
@@ -2680,7 +2738,7 @@ function demanderConfirmationPerte(perte, corps){
       "<tbody>"+lignes+"</tbody></table></div>"+
     "<div class='hint'>C'est presque toujours le signe d'un <b>onglet resté ouvert avec une version ancienne</b>. "+
       "Le geste sûr : <b>Annuler</b>, puis recharger la page — le serveur réécrira ton navigateur avec l'état à jour.<br><br>"+
-      "Ne force que si tu as <b>volontairement</b> supprimé ces éléments à l'instant.</div>"+
+      "Ne force que si tu as <b>volontairement</b> supprimé ces éléments à l'instant. Fermer cette fenêtre sans choisir laisse la question ouverte : elle reviendra.</div>"+
     "<div class='modal-actions'>"+
       "<button class='cta ghost' onclick=\"_perteEnCours=false;closeModal();location.reload()\">↻ Annuler et recharger (recommandé)</button>"+
       "<button class='cta' style='background:var(--red)' onclick=\"forcerEnvoiMalgrePerte()\">Forcer l'envoi</button>"+
@@ -8943,7 +9001,12 @@ function openModal(html, size){
   __modalBackBtn(mc);
   document.getElementById("overlay").classList.add("show");
 }
-function closeModal(){ __modalStack=[]; document.getElementById("overlay").classList.remove("show"); }
+function closeModal(){ __modalStack=[];
+  /* patch 203 : une question du garde-fou fermée sans réponse (Échap, clic à côté) ne coupe plus l'envoi jusqu'au rechargement :
+     la question reviendra au prochain essai ; « ne rien faire » reste la réponse par défaut. */
+  if(_perteEnCours){ _perteEnCours=false; try{ window.__corpsEnAttente=null; }catch(_e){} serveurRetourPlanifier(); }
+  if(_pushSuspendu){ _pushSuspendu=false; }
+  document.getElementById("overlay").classList.remove("show"); }
 /* ================== CORBEILLE 30 JOURS (P4) ==================
    À chaque suppression confirmée, on compare la base avant/après : tout enregistrement disparu
    (repéré par son id, dans n'importe quelle collection) part en corbeille, restaurable 30 jours. */
