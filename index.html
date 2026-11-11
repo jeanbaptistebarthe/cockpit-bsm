@@ -249,8 +249,8 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
   body.dark .env-ok{background:#12301f;border-color:#1d4a30;} body.dark .env-online{background:#122036;border-color:#1e3555;} body.dark .env-warn{background:#33240f;border-color:#5a4320;}
   @media(max-width:820px){.env-badge .env-sub{display:none;} #env-switch{display:none;}}
   .hint{font-size:11.5px;color:var(--muted);margin-top:4px;}
-  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 20px;border-radius:8px;font-size:13px;z-index:200;opacity:0;transition:opacity .25s,transform .25s;box-shadow:0 6px 20px rgba(0,0,0,.25);}
-  .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 20px;border-radius:8px;font-size:13px;z-index:200;opacity:0;transition:opacity .25s,transform .25s;box-shadow:0 6px 20px rgba(0,0,0,.25);pointer-events:none;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);pointer-events:auto;}
   .segmented{display:inline-flex;background:var(--cream);border-radius:8px;padding:3px;gap:3px;}
   .segmented button{border:none;background:transparent;padding:6px 14px;font-size:12.5px;border-radius:6px;cursor:pointer;color:var(--muted);font-weight:600;}
   .segmented button.active{background:#fff;color:var(--navy);box-shadow:0 1px 2px rgba(0,0,0,.08);}
@@ -843,12 +843,12 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.11";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.13";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const PILOTAGE_URL = "https://claude.ai/artifact/4Fecc8R8QfbCRjdYJh6MpH";   // dashboard BSM A&C Pilotage : point mort, investissements, indicateurs (patch 200)
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
                                             //   Remettre à false avant toute publication : build.js REFUSE de publier tant que c'est true.
-const APP_VERSION_DATE = "4 novembre 2026";
+const APP_VERSION_DATE = "11 novembre 2026";
 const STORE_KEY = "bsm_cockpit_v1";
 /* ===================== STOCKAGE COMPRESSÉ (patch 62, 23/09/2026) =====================
    Le navigateur n'accorde qu'environ 5 Mo à l'application ; la base réelle en pesait 2,5 le 23/09/2026, et un
@@ -1246,6 +1246,7 @@ function load(){
     }catch(e){}
     DB.meta.fxClauseSeededV1=true;
   }
+  try{ a1OffresMensuelReparer(); }catch(e){}   /* patch 205 : un devis resté sans mensualité sous des lignes au barème la retrouve, avec sa ligne récurrente */
   generateRecurring();
 }
 /* ----------------------------- Charges & produits récurrents ----------------------------- */
@@ -1324,6 +1325,7 @@ function syncEmployeeSalary(emp){
 }
 function save(){
   if(_encLocked) return; // COFFRE VERROUILLÉ : ne JAMAIS écrire (sinon on écrase le chiffré par du vide) — garde-fou anti-perte
+  try{ a1OffresMensuelReparer(); }catch(_){}   /* patch 205f : aucun devis au barème ne s'enregistre sans mensualité, que la base vienne du chargement, du serveur ou d'un fichier */
   // Sans ce garde-fou, un stockage plein interrompait l'écriture entre la mémoire et le
   // bilan : l'utilisateur voyait à l'écran des données qui n'étaient enregistrées nulle part.
   if(_zIllisible){ try{ serverPush(); }catch(_){} try{ toast("⛔ Le stockage de ce navigateur est illisible et n'a pas pu être mis de côté : rien n'y est réécrit. La base part au serveur de ce PC ; exporte-la (Santé → Sauvegarde fichier)."); }catch(_){} return; }
@@ -4232,10 +4234,10 @@ function deleteClient(id){
   const c=DB.clients.find(x=>x.id===id);
 // Un client qui a payé ne se supprime pas : il s'archive. Sinon on efface des encaissements
 // réalisés — et un mois clôturé peut y perdre ses lignes sans qu'aucun verrou ne joue.
-const _real=DB.transactions.filter(t=>t.clientId===id&&t.status==="realise");
-if(_real.length){
+const _real=DB.transactions.filter(t=>t.clientId===id&&t.status==="realise"), _fact=DB.transactions.filter(t=>t.clientId===id&&t.sens==="entrant"&&t.status==="prevu"&&txFacturee(t));   /* patch 206e : une facture émise et non réglée compte comme un encaissement */
+if(_real.length||_fact.length){
   const _clos=_real.filter(txVerrouille).length;
-  confirmModal("Ce client a un historique d'argent", "« "+esc(c.company)+" » porte <b>"+_real.length+" mouvement(s) réalisé(s)</b>"+(_clos?" dont "+_clos+" dans un mois clôturé":"")+".<br><br>Un client qui a payé ne se supprime pas : on l'<b>archive</b>. Sa fiche et son historique restent consultables, ses abonnements s'arrêtent.",
+  confirmModal("Ce client a un historique d'argent", "« "+esc(c.company)+" » porte "+[_real.length?"<b>"+_real.length+" mouvement(s) réalisé(s)</b>"+(_clos?" dont "+_clos+" dans un mois clôturé":""):"", _fact.length?"<b>"+_fact.length+" facture(s) émise(s) non réglée(s)</b>":""].filter(Boolean).join(" et ")+".<br><br>Un client qui a payé, ou à qui une facture a été émise, ne se supprime pas : on l'<b>archive</b>. Sa fiche et son historique restent consultables, ses abonnements s'arrêtent"+(_fact.length?" ; ses factures non réglées restent relancées, puis rangées à leur règlement":"")+".",
     ()=>{ c.status="archive"; DB.recurring.forEach(r=>{ if(r.clientId===id) r.active=false; }); save(); clientArchiveCoupeAcces(c); refreshAll(); closeModal(); toast("« "+c.company+" » archivé — ses accès sont suspendus."); });
   return;
 }
@@ -5016,6 +5018,15 @@ function docVirgules(html){
   var re = /(?<![A-Za-z0-9_.])(?<!(?:[Aa]rticle|[Aa]rt\.|[Vv]ersion|[Cc]harte|§)\s{0,2})(\d+)\.(\d+)(?![.\d]*\.\d)(?!\d*\.)/g;
   return s.split(/(<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]*>)/i).map(function (p, i) { return (i % 2) ? p : p.replace(re, "$1,$2"); }).join("");
 }
+/* patch 205 : la validité d'un document. Une durée se dit « Valable 30 jours », une date « Valable jusqu'au … » : le cadre écrivait
+   « Valable jusqu'au 30 jours » sur le devis de parc, la proposition d'étude et le devis Gouvernance des risques. */
+function docValidite(v) {
+  v = String(v == null ? "" : v).trim().replace(/^(jusqu['’]\s*au|au|le)\s+/i, ""); if (!v) return null;
+  if (/^\d+$/.test(v)) return { duree: true, texte: v + " jour" + (+v > 1 ? "s" : "") };
+  if (/^\d+\s*(j|jours?|semaines?|mois|ans?)(\s|$)/i.test(v)) return { duree: true, texte: v };
+  return { duree: false, texte: /^\d{4}-\d{2}-\d{2}$/.test(v) ? frDate(v) : v };
+}
+function docValiditeHtml(v) { var d = docValidite(v); return d ? (d.duree ? "Valable " + esc(d.texte) : "Valable jusqu'au " + esc(d.texte)) : ""; }
 function docChrome(innerHtml, opt){
   opt=opt||{}; const s=docIdentity(); const G="#B5923A",D="#111827",GR="#6B7280",LT="#F9FAFB";
   const cabinet=DB.meta.cabinetName||"BSM Advisory & Consulting";
@@ -5043,7 +5054,7 @@ table{page-break-inside:auto}tr{page-break-inside:avoid;break-inside:avoid}thead
     +`<div style="text-align:right"><div style="font-size:10px;font-weight:700;color:${G};text-transform:uppercase;letter-spacing:.16em">${esc(opt.typeLabel||"Document")}</div>`
     +`<div style="font-size:22px;font-weight:600;color:${D};font-family:'Cormorant Garamond',serif;margin-top:2px">${esc(opt.ref||"")}</div>`
     +`<div style="font-size:11px;color:${GR};margin-top:3px">Émis le ${esc(opt.date||frLong(todayISO()))}</div>`
-    +`${opt.validite?`<div style="font-size:11px;color:${GR}">Valable jusqu'au ${esc(opt.validite)}</div>`:""}</div></div>`
+    +`${docValiditeHtml(opt.validite)?`<div style="font-size:11px;color:${GR}">${docValiditeHtml(opt.validite)}</div>`:""}</div></div>`
     +`${opt.clientName!==false?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:${opt.serre?14:22}px">`
       +`<div style="padding:13px 15px;background:${LT};border-left:3px solid ${G}"><div style="font-size:9px;font-weight:700;color:${G};margin-bottom:6px;text-transform:uppercase;letter-spacing:.18em">Client</div>`
       +`<div style="font-weight:600;color:${D};font-size:14px">${esc(opt.clientName||"—")}</div><div style="font-size:12px;color:${D}">${esc(opt.clientContact||"")}</div>`
@@ -8200,7 +8211,7 @@ function saveRecurring(id){
     if(ex && (ex.amount!==obj.amount || ex.currency!==obj.currency)) obj.fxRef=fxRefSnap();
     Object.assign(ex,obj);
     // purge des échéances à venir (prévu) pour régénérer selon la nouvelle fréquence/montant ; l'historique payé est conservé
-    DB.transactions=DB.transactions.filter(t=>!(t.recurringId===id && t.status==="prevu")); }
+    DB.transactions=DB.transactions.filter(t=>!(t.recurringId===id && t.status==="prevu" && !txFacturee(t))); }   /* patch 206 : une échéance facturée reste */
   else { obj.id=uid(); obj.created=todayISO(); obj.fxRef=fxRefSnap(); DB.recurring.push(obj); }
   generateRecurring(); save(); refreshAll(); toast("Récurrent enregistré — budget & compte de résultat mis à jour.");
   if(!id && obj.clientId && obj.sens==="entrant") docProposeAfter("abonnement", obj.clientId);   // nouvel abonnement client → proposer l'échéancier à la charte
@@ -8212,10 +8223,10 @@ function toggleRecurring(id,on){
 }
 function deleteRecurring(id){
   const r=DB.recurring.find(x=>x.id===id); if(!r) return;
-  const fut=DB.transactions.filter(t=>t.recurringId===id&&t.status==="prevu").length;
-  confirmModal("Supprimer ce récurrent ?", `« ${esc(r.label)} ». ${fut?`${fut} occurrence(s) à venir (prévues) seront retirées du budget. `:""}L'historique déjà payé/encaissé est conservé.`,
-    ()=>{ if(typeof a1DeclarerSuppression==="function") a1DeclarerSuppression([{coll:"recurring"}].concat(DB.transactions.filter(t=>t.recurringId===id&&t.status==="prevu").map(()=>({coll:"transactions"})))); DB.recurring=DB.recurring.filter(x=>x.id!==id);   // patch 75 bis : suppression déclarée au garde-fou
-      DB.transactions=DB.transactions.filter(t=>!(t.recurringId===id&&t.status==="prevu"));
+  const fut=DB.transactions.filter(t=>t.recurringId===id&&t.status==="prevu"&&!txFacturee(t)).length, fac=DB.transactions.filter(t=>t.recurringId===id&&t.status==="prevu"&&txFacturee(t)).length;   /* patch 206d : une facture émise reste */
+  confirmModal("Supprimer ce récurrent ?", `« ${esc(r.label)} ». ${fut?`${fut} occurrence(s) à venir (prévues) seront retirées du budget. `:""}${fac?`<b>${txFactureesResteTxt(fac)}</b> `:""}L'historique déjà payé/encaissé est conservé.`,
+    ()=>{ if(typeof a1DeclarerSuppression==="function") a1DeclarerSuppression([{coll:"recurring"}].concat(DB.transactions.filter(t=>t.recurringId===id&&t.status==="prevu"&&!txFacturee(t)).map(()=>({coll:"transactions"})))); DB.recurring=DB.recurring.filter(x=>x.id!==id);   // patch 75 bis : suppression déclarée au garde-fou
+      DB.transactions=DB.transactions.filter(t=>!(t.recurringId===id&&t.status==="prevu"&&!txFacturee(t)));
       save(); openRecurringManager(); refreshAll(); toast("Récurrent supprimé."); });
 }
 
@@ -9885,11 +9896,11 @@ function saveMission(id){
   else if(oldMs!=="termine" && obj.status==="termine") notify("mission","Mission terminée", (obj.ref||obj.type||"Mission")+" · "+clientName(obj.clientId), {clientId:obj.clientId});
   if(billing==="abonnement"){
     // Retire les échéances ponctuelles NON encaissées (l'encaissé est conservé), puis (re)crée le récurrent lié.
-    DB.transactions=DB.transactions.filter(t=>!(t.missionId===mid && !t.recurringId && t.sens==="entrant" && t.status==="prevu"));
+    DB.transactions=DB.transactions.filter(t=>!(t.missionId===mid && !t.recurringId && t.sens==="entrant" && t.status==="prevu" && !txFacturee(t)));   /* patch 206b : une échéance facturée reste */
     syncMissionSubscription(mid, m);
   } else if(billing==="forfait"){
     removeMissionRecurring(mid);
-    DB.transactions=DB.transactions.filter(t=>!(t.missionId===mid && t.sens==="entrant" && t.status==="prevu"));
+    DB.transactions=DB.transactions.filter(t=>!(t.missionId===mid && t.sens==="entrant" && t.status==="prevu" && !txFacturee(t)));   /* patch 206b */
   } else { // ponctuel
     removeMissionRecurring(mid);
     syncMissionEcheances(mid, m);
@@ -9915,7 +9926,7 @@ function syncMissionSubscription(mid, m){
   if(rc){
     Object.assign(rc,obj);
     // purge des échéances à venir (prévu) pour régénérer selon les nouveaux paramètres ; l'encaissé est conservé
-    DB.transactions=DB.transactions.filter(t=>!(t.recurringId===rc.id && t.status==="prevu"));
+    DB.transactions=DB.transactions.filter(t=>!(t.recurringId===rc.id && t.status==="prevu" && !txFacturee(t)));   /* patch 206 : une échéance facturée reste */
   } else { obj.id=uid(); obj.created=todayISO(); DB.recurring.push(obj); }
   generateRecurring();
 }
@@ -9923,7 +9934,7 @@ function syncMissionSubscription(mid, m){
 function removeMissionRecurring(mid){
   const rc=missionRecurring(mid); if(!rc) return;
   DB.recurring=DB.recurring.filter(r=>r.id!==rc.id);
-  DB.transactions=DB.transactions.filter(t=>!(t.recurringId===rc.id && t.status==="prevu"));
+  DB.transactions=DB.transactions.filter(t=>!(t.recurringId===rc.id && t.status==="prevu" && !txFacturee(t)));   /* patch 206b : le facturé reste, détaché comme l'encaissé */
   DB.transactions.forEach(t=>{ if(t.recurringId===rc.id) t.recurringId=""; }); // l'historique encaissé reste lié à la mission
 }
 
@@ -10034,6 +10045,10 @@ function invoiceData(t){
 /* patch 189 : une échéance née d'un devis du Programme de parc (a1OfferId) n'est qu'une prévision tant que sa facture n'est pas émise :
    jamais « en retard » ni « à venir » avant le contrat signé et la facture du mois écoulé. Une échéance saisie à la main garde son échéance. */
 function txEncaissementAttendu(t){ return !(t && t.a1OfferId && !t.emailedAt && !t.invoiceNo); }
+/* patch 206 : une échéance « prévue » déjà FACTURÉE (numéro, date de facture, envoi, rappel) est un engagement pris envers le client.
+   Aucune purge « pour régénérer » ne la prend : elle garde son écriture, son numéro, sa date d'envoi, son échéance et son montant. */
+function txFacturee(t){ return !!(t && (t.invoiceNo || t.invoiceDate || t.emailedAt || (t.reminders && t.reminders.length))); }
+function txFactureesResteTxt(n){ n = +n || 0; return n ? (n === 1 ? "1 facture émise et non réglée reste au budget." : n + " factures émises et non réglées restent au budget.") : ""; }   /* patch 206d */
 function overdueRelanceList(){
   return DB.transactions.filter(t=>inEntity(t)&&t.sens==="entrant"&&t.status==="prevu"&&txEncaissementAttendu(t)&&(t.dueDate||t.date)<todayISO());
 }
@@ -10239,10 +10254,10 @@ if(_verr.length){ toast("🔒 Cette mission a "+_verr.length+" encaissement(s) d
   confirmModal("Supprimer cette mission ?",
     (linkedRisks?`${linkedRisks} risque(s) y sont liés (ils perdront le lien). `:"")+
     (rc?`L'<b>abonnement récurrent lié</b> sera également supprimé. `:"")+
-    (linkedTx?`<b>${linkedTx} ligne(s) de facturation liée(s)</b> : les prévues seront supprimées, les <b>encaissements réalisés sont conservés</b> (détachés de la mission). `:"")+"Action définitive.",
+    (linkedTx?`<b>${linkedTx} ligne(s) de facturation liée(s)</b> : les prévues non facturées seront supprimées, les <b>encaissements réalisés et les factures émises sont conservés</b> (détachés de la mission). `:"")+"Action définitive.",
     ()=>{DB.missions=DB.missions.filter(x=>x.id!==id);DB.risks.forEach(r=>{if(r.missionId===id)r.missionId="";});
       if(rc) DB.recurring=DB.recurring.filter(r=>r.id!==rc.id);
-DB.transactions.forEach(t=>{ if(t.missionId===id && t.status==="realise"){ t.missionId=""; t.label=(t.label||"")+" (mission supprimée)"; } });   // un encaissement survit à sa mission
+DB.transactions.forEach(t=>{ if(t.missionId===id && (t.status==="realise" || txFacturee(t))){ t.missionId=""; t.label=(t.label||"")+" (mission supprimée)"; } });   // un encaissement survit à sa mission, une facture émise aussi (patch 206d)
       DB.transactions=DB.transactions.filter(t=>t.missionId!==id);
       save();refreshAll();toast("Mission supprimée.");});
 }
@@ -13854,13 +13869,13 @@ function a1GpsBlocsAvantImport(cid) {
    mouvement prévu de la mise en place, et les contrats produits mais non signés. Un contrat signé reste : on ne
    retire pas une signature d'un clic. Tout part dans la corbeille (30 jours), au format que trashRestore relit. */
 function a1OffreEffets(o) {
-  var eff = { recurrents: [], transactions: [], contrats: [], signes: [] };
+  var eff = { recurrents: [], transactions: [], contrats: [], signes: [], facturees: [] };   /* patch 206d : facturees = les échéances émises et non réglées, qui restent au budget */
   if (!o) return eff;
   (DB.recurring || []).forEach(function (r) { if (r.a1OfferId === o.id) eff.recurrents.push(r); });
   var rids = eff.recurrents.map(function (r) { return r.id; });
   (DB.transactions || []).forEach(function (t) {
     if (t.status !== "prevu") return;
-    if ((t.recurringId && rids.indexOf(t.recurringId) >= 0) || (o.setupTxId && t.id === o.setupTxId)) eff.transactions.push(t);
+    if ((t.recurringId && rids.indexOf(t.recurringId) >= 0) || (o.setupTxId && t.id === o.setupTxId)) (txFacturee(t) ? eff.facturees : eff.transactions).push(t);
   });
   (DB.a1contrats || []).forEach(function (k) { if (k.clientId !== o.clientId) return; if (k.signeLe) eff.signes.push(k); else eff.contrats.push(k); });
   return eff;
@@ -13872,7 +13887,7 @@ function a1OffreSupprimer(offerId) {
   var det = '<p>Devis <b>' + esc(o.label || "Programme de parc") + '</b>' + (o.ref ? ' (' + esc(o.ref) + ')' : '') + ' de <b>' + esc(nom) + '</b>'
     + (o.emailedAt ? ', envoyé le ' + frDate(o.emailedAt) : ', jamais envoyé') + '.</p><p>Partent avec lui : '
     + eff.recurrents.length + ' ligne(s) récurrente(s) du budget, ' + eff.transactions.length + ' mouvement(s) prévu(s), '
-    + eff.contrats.length + ' contrat(s) produit(s) non signé(s).' + (eff.signes.length ? ' <b>' + eff.signes.length + ' contrat(s) signé(s) restent.</b>' : '')
+    + eff.contrats.length + ' contrat(s) produit(s) non signé(s).' + (eff.signes.length ? ' <b>' + eff.signes.length + ' contrat(s) signé(s) restent.</b>' : '') + (eff.facturees.length ? ' <b>' + txFactureesResteTxt(eff.facturees.length) + '</b>' : '')
     + '</p><p style="color:var(--muted)">Le tout va dans la corbeille (30 jours) ; ce qui est déjà payé ou encaissé est conservé.</p>';
   confirmModal("Supprimer ce devis ?", det, function () { a1OffreSupprimerFaire(o.id); });
 }
@@ -15518,7 +15533,7 @@ async function miseEnRouteSignature(cid, contratId, source, ts) {
   var jourSig = String(m.contratSigneLe).slice(0, 10), moisSig = jourSig.slice(0, 7) + "-01";
   var deb = (m.contrat && m.contrat.debut) || ""; if (!deb || deb < moisSig) deb = a1MonthStartAfter(jourSig);
   m.abonnementDebut = deb;
-  try { var rc = o ? (DB.recurring || []).find(function (r) { return r.a1OfferId === o.id; }) : null; if (rc && rc.startDate !== deb && !(o.offert && o.offertEnd)) { rc.startDate = deb; DB.transactions = (DB.transactions || []).filter(function (t) { return !(t.recurringId === rc.id && t.status === "prevu"); }); if (typeof generateRecurring === "function") generateRecurring(); } } catch (e) {}
+  try { var rc = o ? (DB.recurring || []).find(function (r) { return r.a1OfferId === o.id; }) : null; if (rc && rc.startDate !== deb && !(o.offert && o.offertEnd)) { rc.startDate = deb; DB.transactions = (DB.transactions || []).filter(function (t) { return !(t.recurringId === rc.id && t.status === "prevu" && !txFacturee(t)); }); if (typeof generateRecurring === "function") generateRecurring(); }   /* patch 206 */ } catch (e) {}
   var pg = (typeof gpsPrestataire === "function") ? gpsPrestataire() : {}; m.gpsLimite = agendaJourPlus(jourSig, (+pg.delaiJours || 10));
   var tx = o && o.setupTxId ? (DB.transactions || []).find(function (t) { return t.id === o.setupTxId; }) : null;
   var facture = !!(tx && +tx.amount > 0 && tx.status === "prevu" && !tx.emailedAt) && !(o && +o.merJours > 0);   // patch 132 : au temps passé sur site, la facture suit le relevé des jours
@@ -17106,6 +17121,8 @@ function a1OfferTarifUI(appliquer) {
     if (m) m.value = tf.prix; if (s && String(s.value) !== "0" && !(mep && mep.checked)) s.value = (a1MerJoursArrondis(val("ao-mer-jours")) > 0 ? a1MerMontantAr(val("ao-mer-jours")) : BAREME_PARC.miseEnRoute); if (cur) cur.value = "MGA";
     if (typeof a1OfferRemiseUI === "function") a1OfferRemiseUI();
   }
+  var mm = document.getElementById("ao-monthly"), dev = val("ao-cur") || "MGA", rg = a1OfferMensuelRegle(spec, dev, val("ao-perimetre"));   /* patch 205 : au barème, la mensualité est la somme des lignes et ne se saisit pas */
+  if (mm && val("ao-mode") !== "ponctuel") { if (rg.auto) mm.value = rg.prix; else if ((mm.bsmAuto && String(mm.value) === mm.bsmAuto) || (dev !== "MGA" && rg.bareme && +mm.value === rg.bareme)) mm.value = ""; /* 205b, 205d : un montant posé par le calcul ne traîne pas dans le champ redevenu libre ; une saisie à la main reste */ mm.bsmAuto = rg.auto ? String(rg.prix) : ""; mm.readOnly = rg.auto; mm.title = rg.auto ? "Somme des lignes du devis : elle suit le parc saisi." : (rg.raison ? "À saisir : " + rg.raison + "." : ""); if (mm.style) mm.style.color = rg.auto ? "var(--muted)" : ""; }
 }
 /* Ce que le devis enregistre : les comptes par type, le GPS, les prix unitaires nets, la remise — et les anciens champs pour ce qui les lit encore. */
 function a1OfferTypesChamps(spec) {
@@ -17113,6 +17130,45 @@ function a1OfferTypesChamps(spec) {
   tf.lignes.forEach(function (l) { if (a1CleGen(l.cle)) gen += l.n; else veh += l.n; });
   return { types: spec.comptes, gpsN: tf.gpsN, gpsPu: tf.gpsPu, parType: tf.parType || {}, remisePct: tf.remisePct, remiseAr: tf.remise || 0, veh: veh, gen: gen, machines: tf.n, gpsInclus: tf.gpsN > 0, tranche: tf.horsGrille ? "" : tf.libelle, parVeh: tf.parVeh || 0, parGen: tf.parGen || 0 };
 }
+/* ===== LE TOTAL DU DEVIS SUIT SES LIGNES (patch 205, v6.100.12, 11/11/2026) ==========================================
+   Un devis est parti avec « Camions ou bus suivis 28 × 90 000 Ar HT par mois » puis « Abonnement mensuel — » : la mensualité
+   n'était écrite que par « Appliquer le barème », et le champ naissait vide quand le client n'avait aucune machine en base.
+   Règle : dès que le parc saisi est au barème, en ariary et au périmètre complet, la mensualité EST la somme des lignes
+   (remise lissée, géolocalisation) : la fenêtre la montre et ne la laisse plus saisir, l'enregistrement l'écrit. Ce que le
+   barème ne donne pas (parc sous le plancher, autre devise, suivi d'entretien seul) se saisit, et l'enregistrement le
+   réclame. Un document ne dit jamais « — » sous des lignes chiffrées ; un devis resté sans mensualité en base la retrouve
+   au chargement. Banc : check_devis_total.js. */
+function a1OfferMensuelRegle(spec, devise, perimetre) {
+  var tf = a1TarifParcDetail(spec || {}), ar = (devise || "MGA") === "MGA", auto = !!(tf.n && !tf.horsGrille && tf.prix > 0 && ar && perimetre !== "entretien");
+  var raison = auto ? "" : (tf.horsGrille ? "parc sous le plancher du barème (moins de " + BAREME_PARC.plancherMachines + " machines)" : (!ar ? "le barème ne s’applique qu’en ariary" : (perimetre === "entretien" ? "suivi d’entretien seul, prix fixé par avenant" : "")));
+  return { auto: auto, prix: auto ? tf.prix : 0, n: tf.n, bareme: tf.horsGrille ? 0 : tf.prix, raison: raison };
+}
+/* La somme des lignes d'un devis écrit, à SES prix : ce que le document imprime, additionné. 0 s'il n'a pas de ligne. */
+function a1OfferMensuelLignes(o) {
+  if (!o || (o.mode || "abonnement") === "ponctuel") return 0;
+  var spec = a1OfferSpec(o); if (!spec) return 0;
+  var tf = a1TarifParcDetail(spec), rm = a1OffreRemise(o, tf), brut = 0;
+  tf.lignes.forEach(function (l) { brut += l.n * ((o.parType && +o.parType[l.cle]) || l.puNet || l.pu); });
+  return Math.max(0, Math.round(brut - (rm.comprise ? 0 : rm.ar) + tf.gpsN * a1BaremeGps()));
+}
+/* Ce qu'un document affiche : la mensualité du devis ; à défaut, la somme de ses lignes, en ariary. */
+function a1OfferMensuelHt(o) { return (+o.monthlyFee > 0) ? a1OfferPrixHt(o.monthlyFee, o.currency || DB.meta.defaultCurrency, o.taux) : a1OfferPrixHt(a1OfferMensuelLignes(o), "MGA", o.taux); }
+/* Un devis resté en base sans mensualité alors que ses lignes sont au barème : elle est posée, rien d'autre ne bouge
+   (référence, envoi, mise en route). Appelé au chargement ; sans effet la deuxième fois. La ligne récurrente ne naît PAS
+   ici (205d) : le nuage fusionne par enregistrement, et deux appareils qui répareraient chacun de leur côté la créeraient
+   en double. Elle naît au premier geste fait sur un poste : enregistrer le devis, l'envoyer, le contrat signé. */
+function a1OffresMensuelReparer() {
+  var n = 0;
+  (DB.a1offers || []).forEach(function (o) {
+    if (!o || !o.id || (o.mode || "abonnement") === "ponctuel" || +o.monthlyFee > 0 || o.perimetre === "entretien" || (o.currency || DB.meta.defaultCurrency || "MGA") !== "MGA") return;
+    var spec = a1OfferSpec(o); if (!spec || a1TarifParcDetail(spec).horsGrille) return;
+    var m = a1OfferMensuelLignes(o); if (!(m > 0)) return;
+    o.monthlyFee = m; o.mensuelRepareLe = todayISO(); n++;
+  });
+  return n;
+}
+/* La ligne récurrente d'un abonnement chiffré, quand elle manque : création seulement, jamais de régénération. */
+function a1OfferRecurrentAssurer(o) { if (!o || (o.mode || "abonnement") === "ponctuel" || !(+o.monthlyFee > 0) || (DB.recurring || []).some(function (r) { return r.a1OfferId === o.id && r.active !== false; })) return false; syncA1OfferRecurring(o); return true; }
 /* Les lignes de prix du contrat (article 4) : une par type, la remise, la géolocalisation, le total. */
 function a1ContratLignesPrix(o, lig, mt, enAr) {
   var spec = a1OfferSpec(o) || { comptes: { vhl: +o.veh || 0, groupe: +o.gen || 0 }, gps: +o.gpsN || 0 }, tf = a1TarifParcDetail(spec), h = "";
@@ -19675,7 +19731,7 @@ function a1AvenantAppliquer(av) {
   if (av.vers === "entretien") { if (!(+o.monthlyFeeComplet > 0)) o.monthlyFeeComplet = av.prixAvant; o.perimetre = "entretien"; o.label = "Suivi d’entretien (Programme de parc)"; }
   else { o.perimetre = "complet"; o.label = "Programme de parc"; }
   o.monthlyFee = av.prixApres; o.currency = "MGA"; o.perimetreDepuis = av.effet; o.perimetreAvenantId = av.id;
-  try { if (typeof syncA1OfferRecurring === "function") syncA1OfferRecurring(o); } catch (e) {}
+  try { if (typeof syncA1OfferRecurring === "function") syncA1OfferRecurring(o, { depuis: av.effet }); } catch (e) {}   /* patch 206c : à partir de la date d'effet */
   // les mois d'avant la date d'effet gardent l'ancienne mensualité
   avant.forEach(function (t) { var x = (DB.transactions || []).find(function (y) { return y.recurringId === t.recurringId && y.date === t.date; }); if (x) { x.amount = t.amount; x.label = t.label; } else DB.transactions.push(t); });
   av.appliqueLe = todayISO(); try { save(); } catch (e) {}
@@ -21574,14 +21630,14 @@ function a1OfferConditionsRows(o) {
   else if (o.machines) rows += a1OfferLigneHtml("Parc suivi", esc(a1OfferParcLibelle(o)));
   if (tf) { var rm = a1OffreRemise(o, tf); if (rm.ar || rm.comprise) rows += a1OfferLigneHtml("Remise selon la taille du parc", rm.comprise ? rm.pct + " %, comprise dans les prix ci-dessus" : "− " + a1Ar(rm.ar) + " HT par mois (" + a1PctTxt(rm.pct) + " du suivi)"); }
   if (spec) rows += spec.gps ? a1OfferLigneHtml("Géolocalisation (option retenue)", spec.gps + " boîtier" + (spec.gps > 1 ? "s" : "") + " × " + a1Ar(a1BaremeGps()) + " HT par mois — boîtier fourni, posé et entretenu, abonnement et plateforme") : a1OfferLigneHtml("Géolocalisation (option)", "non retenue — tarif par machine équipée communiqué sur demande");
-  rows += a1OfferLigneHtml("Abonnement mensuel", a1OfferPrixHt(o.monthlyFee, cur, o.taux), true);
+  rows += a1OfferLigneHtml("Abonnement mensuel", a1OfferMensuelHt(o), true);
   rows += a1OfferLigneHtml(esc(a1MerDevisLibelle(o)), o.miseEnPlaceOfferte ? '<span style="color:#128a45">offerte' + (o.miseEnPlaceMotif ? " — " + esc(o.miseEnPlaceMotif) : "") + '</span>' : (o.setupFee ? a1OfferPrixHt(o.setupFee, cur, o.taux) + (+o.miseEnPlaceRemisePct > 0 ? ' <span style="color:#128a45;font-weight:400">— barème ' + a1OfferPrixHt(o.setupFeeBrut || o.setupFee, cur, o.taux) + ', remise de ' + o.miseEnPlaceRemisePct + ' %' + (o.miseEnPlaceMotif ? ' (' + esc(o.miseEnPlaceMotif) + ')' : '') + '</span>' : '') : "—"), true);
   if (o.offert && o.offertEnd) rows += a1OfferLigneHtml("Période offerte", '<span style="color:#128a45">' + frDate(o.offertStart) + " → " + frDate(o.offertEnd) + " (facturation au " + frDate(a1OfferBillingStart(o)) + ")</span>");
   return rows;
 }
 function a1OfferConditionsTexte(o) {   /* patch 195 : une phrase ; le détail vit dans les conditions générales jointes au contrat ; le RIB est sur la facture */
-  var ponctuel = (o.mode || "abonnement") === "ponctuel", val = String(o.validite || "30 jours").trim();
-  return '<p style="font-size:11px;color:#4B5563;line-height:1.55;margin:8px 0 0"><b>Conditions.</b> Devis valable ' + esc(val) + (/jour|mois|semaine/i.test(val) ? '' : ' jours') + ' à compter de son émission. Prix hors taxes, en ariary (1 € = ' + a1TauxAr(o.taux).toLocaleString("fr-FR") + ' Ar de référence, montants arrondis au millier). Conditions générales de prestation de services de BSM, BSM-CGPS-2026-001 version ' + CGPS_VERSION + (ponctuel ? '' : ', dont les conditions particulières du Programme de parc') + ' : jointes au contrat, disponibles sur simple demande.</p>';
+  var ponctuel = (o.mode || "abonnement") === "ponctuel", vd = docValidite(o.validite) || docValidite("30 jours");   /* patch 205 */
+  return '<p style="font-size:11px;color:#4B5563;line-height:1.55;margin:8px 0 0"><b>Conditions.</b> Devis valable ' + (vd.duree ? esc(vd.texte) + ' à compter de son émission' : 'jusqu’au ' + esc(vd.texte)) + '. Prix hors taxes, en ariary (1 € = ' + a1TauxAr(o.taux).toLocaleString("fr-FR") + ' Ar de référence, montants arrondis au millier). Conditions générales de prestation de services de BSM, BSM-CGPS-2026-001 version ' + CGPS_VERSION + (ponctuel ? '' : ', dont les conditions particulières du Programme de parc') + ' : jointes au contrat, disponibles sur simple demande.</p>';
 }
 function a1OfferBody(o) {
   return '<p style="line-height:1.5;margin:0">' + esc(o.intro || a1ProductDef(o.product).pitch) + '</p>'
@@ -30307,7 +30363,7 @@ function a1TarifTranche(n) { return BAREME_PARC.tranches.filter(function (t) { r
    Rend aussi ce qu'il faut DIRE quand le parc est trop petit : un prix qu'on n'annonce pas vaut mieux qu'un prix invendable. */
 /* « 160 000 Ar / véhicule / mois, GPS compris · 110 000 Ar / groupe » */
 /* Le parc d'une offre, en mots : les offres nouvelles portent véhicules et groupes, les anciennes un total de machines. */
-/* La fenêtre de l'offre : le barème donne le prix par machine et la mensualité dès que les nombres sont saisis ; « Appliquer » les écrit. */
+/* La fenêtre de l'offre : le barème donne le prix par machine et la mensualité dès que les nombres sont saisis ; la mensualité suit les lignes (patch 205), « Appliquer » pose la mise en route et l'ariary. */
 /* La remise sur la mise en route (patch 96) : le geste de négociation se met là, jamais sur la mensualité. Le net est arrondi
    au millier d'ariary ; le motif se montre dès qu'il y a une remise ou que la mise en route est offerte. */
 function a1RemiseNet(brut, pct, cur) { var p = Math.min(100, Math.max(0, +pct || 0)), n = (+brut || 0) * (1 - p / 100); return (cur || "MGA") === "MGA" ? Math.round(n / 1000) * 1000 : Math.round(n); }
@@ -30562,11 +30618,11 @@ function a1OfferCard(clientId, product){
         ${o.accepteLe?"":`<button class="cta sm" onclick="mailA1Offer('${o.id}')">✉️ Envoyer</button>`}${typeof a1OfferAccepterBoutonHtml==="function"?a1OfferAccepterBoutonHtml(o):""}<button class="cta ghost sm" onclick="openMerSite('${clientId}')" title="La fiche de points à remplir sur site, avec les équipes du client">📋 Sur site</button><button class="cta ghost sm" onclick="a1OffreSupprimer('${o.id}')" title="Retire le devis, sa ligne récurrente, ses mouvements prévus et ses contrats non signés — corbeille 30 jours">🗑 Supprimer</button></div></div>
     <div class="mini-list" style="margin-top:8px">
       ${o.machines?`<div class="li"><span>Parc suivi</span><b>${a1OfferParcLibelle(o)}</b></div>`:""}<div class="li"><span>Mise en route</span><b>${o.miseEnPlaceOfferte?'<span style="color:var(--green)">offerte</span>':(o.setupFee?a1MontantArEur(o.setupFee,o.currency)+(+o.miseEnPlaceRemisePct>0?' <span style="color:var(--green)">(remise '+o.miseEnPlaceRemisePct+' %)</span>':''):"—")}</b></div>
-      <div class="li"><span>Tarif récurrent (mensuel)</span><b>${o.monthlyFee?a1MontantArEur(o.monthlyFee,o.currency):"—"}</b></div>
+      <div class="li"><span>Tarif récurrent (mensuel)</span><b>${o.monthlyFee?a1MontantArEur(o.monthlyFee,o.currency):(a1OfferMensuelLignes(o)?a1MontantArEur(a1OfferMensuelLignes(o),"MGA"):"—")}</b></div>
       ${o.offert?`<div class="li"><span>Période offerte</span><b style="color:var(--green)">${frDate(o.offertStart)} → ${frDate(o.offertEnd)} ${inOffert?'(en cours)':'(terminée)'}</b></div>
       <div class="li"><span>Bascule au tarif normal</span><b>${frDate(bill)}</b></div>`:''}
     </div>
-    ${inOffert?`<div class="hint" style="color:var(--green)">🎁 Programme actuellement offert — la facturation démarrera automatiquement le ${frDate(bill)}.</div>`:(o.monthlyFee?`<div class="hint">Facturation mensuelle active (récurrent lié dans le Budget & le Compte de résultat).</div>`:'')}
+    ${inOffert?`<div class="hint" style="color:var(--green)">🎁 Programme actuellement offert — la facturation démarrera automatiquement le ${frDate(bill)}.</div>`:(o.monthlyFee?((DB.recurring||[]).some(r=>r.a1OfferId===o.id&&r.active!==false)?`<div class="hint">Facturation mensuelle active (récurrent lié dans le Budget & le Compte de résultat).</div>`:`<div class="hint">La ligne récurrente du budget naîtra à l’envoi ou à l’enregistrement de ce devis.</div>`):'')}
   </div>`;
 }
 function openA1Offer(clientId, product){
@@ -30581,7 +30637,7 @@ function openA1Offer(clientId, product){
   const mode0=o.mode||"abonnement", isFlash=mode0==="ponctuel";
   openModal(`<span class="close" onclick="closeModal()">✕</span><h2>${def.icon} Devis — ${esc(clientName(clientId))}</h2>
     <div class="msub" style="margin-top:-4px">${esc(def.label)}</div>
-    <input type="hidden" id="ao-product" value="${esc(product)}">
+    <input type="hidden" id="ao-product" value="${esc(product)}"><input type="hidden" id="ao-perimetre" value="${esc(o.perimetre||'')}">
     ${isFlash?`<div class="field"><label>Type de devis <span style="font-weight:400;color:var(--muted);font-size:11px">— ancienne formule ponctuelle : passe-la en abonnement</span></label><select id="ao-mode" onchange="a1OfferModeUI(this.value)">
       <option value="ponctuel" ${isFlash?"selected":""}>Ancienne formule ponctuelle (à convertir)</option>
       <option value="abonnement" ${!isFlash?"selected":""}>Abonnement de suivi — mise en route + mensualité</option>
@@ -30595,7 +30651,7 @@ function openA1Offer(clientId, product){
     <div class="field" id="ao-mer-jours-wrap" style="${isFlash?'display:none':''}"><label>Mise en route au temps de présence sur site <span style="font-weight:400;color:var(--muted);font-size:11px">— jours estimés × ${a1MerHeuresJour()} h × ${a1MerTauxEur()} € HT, convertis en ariary ; le montant ci-dessus suit ; facturée à la date de mise en route, ou sur relevé des jours réels s’il est établi avant</span></label><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><input type="number" id="ao-mer-jours" min="0" step="0.5" value="${o.merJours!=null&&o.merJours>0?o.merJours:''}" placeholder="jours sur site" style="width:140px" oninput="a1OfferMerJoursUI()"><span class="hint" id="ao-mer-jours-lbl" style="margin:0"></span></div></div>
     <div id="ao-mep-wrap" style="${isFlash?'display:none':''}"><div class="field"><label style="display:flex;align-items:center;gap:8px;font-weight:600"><input type="checkbox" id="ao-mep-offerte" ${o.miseEnPlaceOfferte?'checked':''} onchange="a1OfferRemiseUI()"> Mise en route offerte</label></div><div class="field row2"><label>Remise sur la mise en route (%) <span style="font-weight:400;color:var(--muted);font-size:11px">— pour la négociation ; le motif figure sur l'offre et le contrat</span></label><input type="number" id="ao-mep-remise" min="0" max="100" step="1" value="${o.miseEnPlaceRemisePct||''}" placeholder="0" oninput="a1OfferRemiseUI()"><div class="hint" id="ao-mep-remise-lbl" style="margin:0;align-self:center"></div></div>
       <div class="field" id="ao-mep-motif" style="${(o.miseEnPlaceOfferte||+o.miseEnPlaceRemisePct>0)?'':'display:none'}"><label>Pourquoi (figurera sur le devis et le contrat)</label><input id="ao-mep-motif-txt" value="${esc(o.miseEnPlaceMotif||'')}" placeholder="Ex. données de parc transmises pour la mise au point du programme"></div></div>
-    <div class="field row2"><label>Devise & entité</label><select id="ao-cur">${curOptions(o.currency)}</select><select id="ao-entity">${entityOptions(o.entity)}</select></div>
+    <div class="field row2"><label>Devise & entité</label><select id="ao-cur" onchange="a1OfferTarifUI()">${curOptions(o.currency)}</select><select id="ao-entity">${entityOptions(o.entity)}</select></div>
     <div id="ao-flash-wrap" style="${isFlash?'':'display:none'}">
       <div class="field"><label>Date de la prestation / restitution prévue</label><input type="date" id="ao-presta" value="${o.prestaDate||todayISO()}"></div>
       <div class="field"><label style="display:flex;align-items:center;gap:8px;font-weight:600"><input type="checkbox" id="ao-passcredit" ${o.passCredit!==false?'checked':''}> Crédit-passerelle : 100 % du forfait déduit de la mise en route d'un contrat de suivi de parc signé dans les…</label></div>
@@ -30618,22 +30674,22 @@ function saveA1Offer(clientId, product){
     merJours:a1MerJoursArrondis(parseFloat(val("ao-mer-jours"))||0), merTauxEur:a1MerTauxEur(), merHeuresJour:a1MerHeuresJour(), merTauxAr:a1TauxAr(), setupFeeBrut:Math.round(parseFloat(val("ao-setup"))||0), miseEnPlaceRemisePct:Math.min(100,Math.max(0,parseFloat(val("ao-mep-remise"))||0)), setupFee:Math.round(parseFloat(val("ao-setup"))||0), monthlyFee:Math.round(parseFloat(val("ao-monthly"))||0),
     currency:val("ao-cur"), entity:val("ao-entity"), offert:document.getElementById("ao-offert").checked, offertStart:document.getElementById("ao-offert").checked?val("ao-offstart"):"", offertEnd:document.getElementById("ao-offert").checked?val("ao-offend"):"", /* patch 189c */
     miseEnPlaceOfferte:!!(document.getElementById("ao-mep-offerte")&&document.getElementById("ao-mep-offerte").checked), miseEnPlaceMotif:(val("ao-mep-motif-txt")||"").trim(), prestaDate:val("ao-presta")||todayISO(), passCredit:document.getElementById("ao-passcredit").checked, passMonths:parseInt(val("ao-passmonths"))||6, reviewMonths:parseInt(val("ao-review"))||12 };
-  if(obj.mode==="ponctuel"){ obj.monthlyFee=0; obj.offert=false; } if(obj.miseEnPlaceOfferte) obj.setupFee=0; else if(obj.miseEnPlaceRemisePct>0) obj.setupFee=a1RemiseNet(obj.setupFeeBrut,obj.miseEnPlaceRemisePct,obj.currency); Object.assign(obj, a1OfferTypesChamps(a1OfferTypesLire())); if(obj.mode!=="ponctuel" && a1OfferLabelDefaut(obj.label)) obj.label=a1OfferDefautsPour(obj).label; if(obj.mode!=="ponctuel" && !(o&&o.emailedAt) && a1AboTermsDefaut(obj.terms)) obj.terms=a1AboTerms(obj); /* patch 189 */ // analyse ponctuelle : forfait unique, jamais de mensualité ni de période offerte
+  if(obj.mode==="ponctuel"){ obj.monthlyFee=0; obj.offert=false; } if(obj.miseEnPlaceOfferte) obj.setupFee=0; else if(obj.miseEnPlaceRemisePct>0) obj.setupFee=a1RemiseNet(obj.setupFeeBrut,obj.miseEnPlaceRemisePct,obj.currency); Object.assign(obj, a1OfferTypesChamps(a1OfferTypesLire())); const mensAvant=o?(+o.monthlyFee||0):null; if(obj.mode!=="ponctuel"){ const rg=a1OfferMensuelRegle(a1OfferTypesLire(), obj.currency, o&&o.perimetre); if(rg.auto) obj.monthlyFee=rg.prix; else if(rg.n && !(obj.monthlyFee>0)){ toast("Mensualité à saisir avant d’enregistrer"+(rg.raison?" : "+rg.raison:"")+"."); const mi=document.getElementById("ao-monthly"); if(mi&&mi.focus){ try{ mi.focus(); }catch(e){} } return; } } /* patch 205 : au barème, la mensualité est la somme des lignes ; ailleurs elle se saisit, et un devis chiffré par lignes ne s'enregistre pas sans elle */ if(obj.mode!=="ponctuel" && a1OfferLabelDefaut(obj.label)) obj.label=a1OfferDefautsPour(obj).label; if(obj.mode!=="ponctuel" && !(o&&o.emailedAt) && a1AboTermsDefaut(obj.terms)) obj.terms=a1AboTerms(obj); /* patch 189 */ // analyse ponctuelle : forfait unique, jamais de mensualité ni de période offerte
   if(o){ if(o.product) obj.product=o.product; Object.assign(o,obj); } else { obj.id=uid(); obj.created=todayISO(); obj.ref=a1OfferRefNext(); DB.a1offers.push(obj); o=obj; }
   if(!o.ref) o.ref=a1OfferRefNext();
   if(!(o.emailedAt||o.accepteLe)){ const refS=String(val("ao-ref")||"").trim(); if(refS && refS!==o.ref){ const pris=a1OfferRefPrise(refS, o.id); if(pris) toast("Référence « "+refS+" » déjà donnée ("+pris+") : le devis garde "+o.ref+"."); else o.ref=refS; } }   /* patch 191 : la référence se choisit jusqu'à l'envoi ; communiquée au client, elle ne change plus */
   syncA1OfferRecurring(o);
   a1OfferGpsChoixEnregistrer(clientId);   // patch 130 : les cases cochées deviennent les véhicules à équiper
-  { var oo=a1Offer(clientId,product); if(typeof docRetoucheOublier==="function" && oo) docRetoucheOublier("devis:"+oo.id, "proposition:"+oo.id); }   /* patch 167 */ save(); closeModal(); a1RefreshCurrent(); toast("Devis enregistré — facturation liée mise à jour."); try{ a1FichesPreparerServeur(); }catch(e){}
+  { var oo=a1Offer(clientId,product); if(typeof docRetoucheOublier==="function" && oo) docRetoucheOublier("devis:"+oo.id, "proposition:"+oo.id); }   /* patch 167 */ save(); closeModal(); a1RefreshCurrent(); toast("Devis enregistré — facturation liée mise à jour."+((mensAvant!=null&&o.mode!=="ponctuel"&&o.currency==="MGA"&&mensAvant!==o.monthlyFee)?" Mensualité : "+a1Ar(mensAvant)+" → "+a1Ar(o.monthlyFee)+".":"")); try{ a1FichesPreparerServeur(); }catch(e){}
 }
 function a1RefreshCurrent(){ if(currentScreen==="a1parc" && typeof renderA1Parc==="function") renderA1Parc(); else if(currentScreen==="a1genset") renderA1Genset(); else renderA1Fleet(); }
-function syncA1OfferRecurring(o){
+function syncA1OfferRecurring(o, opt){   /* patch 206c : opt.depuis = le mois à partir duquel les prévisions se régénèrent (date d'effet d'un avenant) */
   let rc=DB.recurring.find(r=>r.a1OfferId===o.id);
   if(o.monthlyFee>0){
     const start=a1OfferBillingStart(o);
     const data={ sens:"entrant", label:(o.label||"Programme de parc")+" — "+clientName(o.clientId), amount:o.monthlyFee, currency:o.currency,
       category:"Abonnement annuel", frequency:"mensuel", day:1, startDate:start, clientId:o.clientId, entity:o.entity, active:true, a1OfferId:o.id };
-    if(rc){ if(rc.amount!==data.amount||rc.currency!==data.currency) rc.fxRef=fxRefSnap(); Object.assign(rc,data); DB.transactions=DB.transactions.filter(t=>!(t.recurringId===rc.id&&t.status==="prevu")); }
+    if(rc){ const signe=(typeof facturationContratSigne==="function")?facturationContratSigne(o.clientId):null, moisC=todayISO().slice(0,7), depuisP=(opt&&opt.depuis)?String(opt.depuis).slice(0,7):""; if(signe && !(o.offert&&o.offertEnd)) data.startDate=String(signe.abonnementDebut||"")||rc.startDate||start;   /* patch 206 : sous contrat signé, le début reste celui du contrat */ if(rc.amount!==data.amount||rc.currency!==data.currency) rc.fxRef=fxRefSnap(); Object.assign(rc,data); DB.transactions=DB.transactions.filter(t=>!(t.recurringId===rc.id&&t.status==="prevu"&&!txFacturee(t)&&(!signe||(depuisP?String(t.period||"")>=depuisP:String(t.period||"")>moisC)))); }   /* patch 206 : jamais une échéance facturée ; sous contrat signé, seulement les mois à venir */
     else { data.id=uid(); data.created=todayISO(); data.fxRef=fxRefSnap(); DB.recurring.push(data); }
   } else if(rc){ rc.active=false; }
   generateRecurring();
@@ -30674,7 +30730,7 @@ async function mailA1OfferEnvoyer(offerId){
   const subject="[BSM] "+(o.label||a1ProductDef(o.product).label)+" — "+(c?c.company:clientName(o.clientId));
   try{
     await bsmClientMail({ to, cc, subject, html, pdfHtml:html, pdfName:(o.ref||"offre-A1"), clientId:o.clientId, categorie:"parc-offre" });
-    o.emailedAt=todayISO(); o.emailedTo=to; o.emailedCc=cc; save(); a1RefreshCurrent();
+    o.emailedAt=todayISO(); o.emailedTo=to; o.emailedCc=cc; a1OfferRecurrentAssurer(o); /* patch 205d */ save(); a1RefreshCurrent();
     toast("Devis envoyé à "+to+(cc?" (copie : "+cc+")":"")+" ✅");
   }catch(e){ toast("Échec envoi : "+(e.message||e)+" — nécessite le serveur local + pont Google configuré."); }
 }
