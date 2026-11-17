@@ -843,7 +843,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.20";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.21";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const PILOTAGE_URL = "https://claude.ai/artifact/4Fecc8R8QfbCRjdYJh6MpH";   // dashboard BSM A&C Pilotage : point mort, investissements, indicateurs (patch 200)
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
@@ -30054,7 +30054,7 @@ function a1ExportLogs(kind){
   downloadCSV((isGen?"Releves_groupes":"Releves_vehicules")+"_"+todayISO()+".csv", rows);
 }
 /* ================== GPS — import export prestataire (CSV/Excel) + recoupement ================== */
-/* ===== LE LECTEUR D'EXPORT DE GÉOLOCALISATION (patch 211, 11/11/2026) =================================================
+/* ===== LE LECTEUR D'EXPORT DE GÉOLOCALISATION (patch 211 du 11/11/2026 ; dates relues par le patch 214 du 17/11/2026) ===
    Il reconnaît ses colonnes sans se tromper. Avant, chaque mot-clé était cherché par simple inclusion et une colonne pouvait
    servir deux fois : avec des en-têtes en anglais, « engin » était trouvé dans « Engine time » et le véhicule lu devenait
    « 372 », sans alerte. Désormais :
@@ -30067,7 +30067,20 @@ function a1ExportLogs(kind){
    - le lecteur dit ce qu'il a reconnu (colonnes), ce qui manque à l'export type sous son nom exact (manquantes), et ce qui
      empêche d'importer (blocage) : pas de véhicule, pas de date, pas de distance, une unité qu'il ne sait pas lire, ou une
      colonne « véhicule » devinée sur un mot faible qui ne contient que des nombres.
-   `lib` est le nom exact de la colonne dans l'export type que BSM demande aux prestataires. */
+   La date d'une ligne n'est jamais devinée (patch 214). Avant, une valeur que le lecteur ne savait pas lire (une vraie cellule
+   de date d'Excel, « 01-10-2026 », « 2026/10/01 », « 1 oct. 2026 », une cellule vide) était datée d'aujourd'hui, sans alerte,
+   et « 15 octobre 2026 » devenait le 1er du mois. Désormais :
+   - se lisent : AAAA-MM-JJ, AAAA/MM/JJ, AAAAMMJJ, JJ/MM/AAAA (avec /, . ou -), le numéro de série d'Excel sous un titre de
+     date franc (« Date », « Jour »), le jour et le mois en lettres (français, anglais, espagnol), et un mois seul
+     (« octobre 2026 », « 10/2026 »), daté du 1er : c'est le total du mois, et le lecteur le dit ;
+   - une ligne sans date (cellule vide, tiret, « n/a ») ou une ligne de total n'est pas importée, et ses numéros sont dits ;
+   - une date écrite mais illisible bloque l'import : rien n'est écrit, les lignes et leurs valeurs sont dites ;
+   - des dates à l'américaine (mois/jour/année, prouvées par un nombre au-dessus de 12 en deuxième position et jamais en
+     première) bloquent aussi : l'export type les demande en JJ/MM/AAAA ;
+   - une date à venir bloque (un trajet n'est pas daté après aujourd'hui, et « remplacer » effacerait la période jusqu'à
+     elle), de même qu'une ligne qui a une date et une distance mais pas de véhicule : elle n'est plus perdue en silence.
+   `lib` est le nom exact de la colonne dans l'export type que BSM demande aux prestataires.
+   Ce fichier remplace lecteur_gps.src.js, figé avec le patch 211. */
 const A1_GPS_ROLES=[
   { cle:"veh", lib:"Véhicule", mots:["vehic","immatriculation","immat","matricul","plaque","registration","plate$","boitier","balise","tracker","device","imei","unite$","unit$","engin$","objet$","object$","asset","nom$","name$"], faible:["unite$","unit$","engin$","objet$","object$","asset","nom$","name$"], sauf:/chauffeur|conducteur|driver|groupe|group|flotte|fleet/ },
   { cle:"date", lib:"Date", mots:["date","fecha","jour$","day$","periode","period","mois$","month$","fin$","debut$"] },
@@ -30091,32 +30104,94 @@ function a1GpsUniteDuree(titre){ const h=String(titre||""); if(/\((s|sec|secs|se
 /* Une durée en heures : « 06:12:00 » ou « 6:12 », sinon un nombre dans l'unité du titre. */
 function a1GpsDuree(s, unite){ const t=String(s==null?"":s).trim(), m=t.match(/^(\d{1,4}):(\d{2})(?::(\d{2}))?$/); if(m) return (+m[1])+(+m[2])/60+(+(m[3]||0))/3600;
   const n=parseFloat(t.replace(/\s/g,"").replace(/[^\d.,-]/g,"").replace(",","."))||0; return n/(unite==="s"?3600:(unite==="min"||unite===true?60:1)); }
+/* ---- la date d'une ligne (patch 214) ---- */
+const A1_GPS_MOIS={ janvier:1,janv:1,jan:1,january:1,enero:1,ene:1, fevrier:2,fevr:2,fev:2,february:2,feb:2,febrero:2, mars:3,mar:3,march:3,marzo:3, avril:4,avr:4,april:4,apr:4,abril:4,abr:4, mai:5,may:5,mayo:5, juin:6,jun:6,june:6,junio:6, juillet:7,juil:7,jul:7,july:7,julio:7, aout:8,aug:8,august:8,agosto:8,ago:8, septembre:9,sept:9,sep:9,september:9,septiembre:9,setiembre:9,set:9, octobre:10,oct:10,october:10,octubre:10, novembre:11,nov:11,november:11,noviembre:11, decembre:12,dec:12,december:12,diciembre:12,dic:12 };
+const A1_GPS_JOURS=/^(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|lun|mar|mer|jeu|ven|sam|dim|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\.?,?\s+/;
+/* Ce qu'une cellule de date dit quand la ligne n'a pas de date : rien, un tiret, « n/a », ou le mot d'une ligne de total. */
+const A1_GPS_SANS_DATE=/^([-–—_.\/\s]*|n\/?a|n\.a\.|nd|null|none|aucune?|neant|(sous|sub)[- ]?totale?s?|grand total|totale?s?( general)?|totaux|somme|sum|moyenne|average|avg)\s*:?$/;
+const A1_GPS_TOTAL=/^((sous|sub)[- ]?totale?s?($|[^a-z0-9].*)|(grand total|totale?s?( general)?|totaux|somme|sum)\s*:?$)/;
+/* Une date qui existe au calendrier, entre 2000 et 2099 ; sinon rien. */
+function a1GpsIso(a, m, j){ a=+a; m=+m; j=+j; if(!(a>=2000 && a<=2099 && m>=1 && m<=12 && j>=1 && j<=31)) return ""; const d=new Date(Date.UTC(a, m-1, j)); if(d.getUTCMonth()!==m-1) return ""; return a+"-"+String(m).padStart(2,"0")+"-"+String(j).padStart(2,"0"); }
+/* Rend { iso, genre } : « jour » (la date est écrite), « serie » (numéro de série d'Excel, lu seulement si `serie`), « mois »
+   (un mois seul, daté du 1er) ; iso vide quand la valeur ne se lit pas sûrement. Jamais la date du jour. */
+function a1GpsDateLue(v, serie){
+  const rien={ iso:"", genre:"" }, de=(iso, genre)=>iso?{ iso, genre }:rien;
+  const an=a=>{ if(a.length===4) return a; const y=2000+(+a); return y<=new Date().getFullYear()+1?String(y):""; };   /* « 26 » est 2026 ; « 99 » n'est pas 2099 */
+  const lire=s=>{ if(!s) return rien;
+    let m=s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})(?!\d)/); if(m) return de(a1GpsIso(m[1], m[2], m[3]), "jour");
+    m=s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4}|\d{2})(?![\d:])/); if(m) return de(a1GpsIso(an(m[3]), m[2], m[1]), "jour");
+    m=s.match(/^(20\d{2})(\d{2})(\d{2})$/); if(m) return de(a1GpsIso(m[1], m[2], m[3]), "jour");
+    m=s.match(/^(\d{1,2})[\/.\-](\d{4})$/); if(m) return de(a1GpsIso(m[2], m[1], 1), "mois");
+    m=s.match(/^(\d{4})[\/.\-](\d{1,2})$/); if(m) return de(a1GpsIso(m[1], m[2], 1), "mois");
+    m=s.match(/^(\d{1,2})(?:er|st|nd|rd|th)?[\s.\-\/]+(?:de\s+)?([a-z]+)\.?,?[\s.\-\/]+(?:de\s+)?(\d{4}|\d{2})(?![\d:h])/); if(m && A1_GPS_MOIS[m[2]]) return de(a1GpsIso(an(m[3]), A1_GPS_MOIS[m[2]], m[1]), "jour");
+    m=s.match(/^([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})(?!\d)/); if(m && A1_GPS_MOIS[m[1]]) return de(a1GpsIso(m[3], A1_GPS_MOIS[m[1]], m[2]), "jour");
+    m=s.match(/^([a-z]+)\.?\s+(?:de\s+)?(\d{4})$/); if(m && A1_GPS_MOIS[m[1]]) return de(a1GpsIso(m[2], A1_GPS_MOIS[m[1]], 1), "mois");
+    return rien; };
+  const s=norm(String(v==null?"":v)); if(!s) return rien;
+  if(/^\d{5}([.,]\d+)?$/.test(s)){ if(!serie) return rien; const d=new Date(Date.UTC(1899,11,30)+Math.floor(parseFloat(s.replace(",",".")))*86400000); return de(a1GpsIso(d.getUTCFullYear(), d.getUTCMonth()+1, d.getUTCDate()), "serie"); }
+  const a=lire(s); if(a.iso) return a;
+  /* un jour de la semaine devant (« jeu. 01/10/2026 »), ou « du 01/10/2026 au 31/10/2026 » : la date qui suit est lue */
+  const u=s.replace(A1_GPS_JOURS,"").replace(/^(du|le|el|del|desde|from)\s+/,""); return u!==s?lire(u):rien;
+}
+/* L'ordre des dates chiffrées d'une colonne. `us` : l'exemple qui prouve des dates à l'américaine (un deuxième nombre au-dessus
+   de 12, et jamais un premier). `ambigu` : l'exemple d'une heure en AM / PM quand aucune ligne ne prouve l'ordre : un export
+   français n'écrit jamais AM ou PM, et rien ne dit alors si « 10/1/2026 » est le 10 janvier ou le 1er octobre. */
+function a1GpsOrdreDates(vals){ let jm=0, mj=0, ex="", ampm="";
+  (vals||[]).forEach(v=>{ const s=String(v==null?"":v).trim(), m=s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4}|\d{2})(?![\d:])(.*)$/); if(!m) return;
+    if(+m[1]>12 && +m[2]<=12) jm++; else if(+m[2]>12 && +m[1]<=12){ mj++; if(!ex) ex=s; } else if(!ampm && /\d\s*[ap]\.?m\.?\s*$/i.test(m[4])) ampm=s; });
+  return { us:(mj && !jm)?ex:"", ambigu:(!mj && !jm)?ampm:"" }; }
 function a1ParseGps(text){
-  const out=[]; out.colonnes={}; out.manquantes=[]; out.alertes=[]; out.blocage="";
-  const lines=String(text||"").trim().split(/\r?\n/).filter(l=>l.trim()); if(lines.length<2) return out;
+  const out=[]; out.colonnes={}; out.manquantes=[]; out.alertes=[]; out.blocage=""; out.sansDate=[]; out.datesIllisibles=[];
+  const no=[], lines=String(text||"").replace(/\r\n?/g,"\n").split("\n").filter((l,i)=>{ if(!l.trim()) return false; no.push(i+1); return true; });
+  if(lines.length<2) return out;
   const sep=(lines[0].split(";").length>lines[0].split(",").length)?";":(lines[0].indexOf("\t")>=0?"\t":",");
   const couper=l=>(typeof a1csvSplit==="function")?a1csvSplit(l,sep):l.split(sep);
   const titres=couper(lines[0]).map(h=>String(h==null?"":h).trim()), C=a1GpsColonnes(titres), I=C.idx, head=titres.map(h=>norm(h));
   const corps=lines.slice(1).map(couper), cel=(c,i)=>i>=0?(c[i]==null?"":c[i]):"", alertes=[];
-  const estDate=v=>{ const s=String(v==null?"":v).trim(); return /^\d{4}-\d{2}-\d{2}/.test(s) || /^\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4}/.test(s); };
+  const estDate=v=>{ const s=String(v==null?"":v).trim(); return !/^\d+$/.test(s) && a1GpsDateLue(s, false).genre==="jour"; };
   /* sans titre de date reconnu : la seule colonne libre dont toutes les valeurs sont des dates */
   if(I.date<0){ const cand=titres.map((t,k)=>k).filter(k=>!C.pris[k] && corps.length && corps.every(c=>estDate(c[k])));
     if(cand.length===1){ I.date=cand[0]; C.pris[cand[0]]=1; C.lues.date=titres[cand[0]]; C.manquantes=C.manquantes.filter(x=>x!=="Date"); alertes.push("la colonne « "+titres[cand[0]]+" » ne contient que des dates : elle est lue comme la date (l’export type l’appelle « Date »)"); } }
   const uniteDist=I.km<0?"km":(/\((m|metres?|meters?)\)|(^|[^a-z])(metres?|meters?)$/.test(head[I.km])?"m":(/(^|[^a-z])(mi|miles?)($|[^a-z])/.test(head[I.km])?"mi":"km"));
   const uIdle=a1GpsUniteDuree(head[I.idle]), uMove=a1GpsUniteDuree(head[I.move]), uEng=a1GpsUniteDuree(head[I.eng]);
   const num=s=>parseFloat(String(s==null?"":s).replace(/\s/g,"").replace(/[^\d.,-]/g,"").replace(",","."))||0;
-  corps.forEach(c=>{ if(!c.length) return;
-    out.push({ veh:String(cel(c,I.veh)).trim(), date:a1DateISO(cel(c,I.date))||todayISO(), gpsKm:num(cel(c,I.km))/(uniteDist==="m"?1000:1),
+  /* un numéro de série d'Excel ne se lit que sous un titre de date franc : sous « Fin » ou « Période », un nombre reste un nombre */
+  const serie=["date","fecha","jour$","day$"].indexOf(C.mots.date)>=0;
+  const tous=[], lus=[], sansDate=[], illisibles=[], aVenir=[], sansVeh=[]; let auMois=0;
+  const demain=new Date(Date.now()+86400000).toISOString().slice(0,10), enTete=head.join("|");
+  corps.forEach((c,k)=>{ if(!c.length) return; if(c.map(x=>norm(String(x==null?"":x))).join("|")===enTete) return;   /* l'en-tête répété au fil des pages n'est pas une ligne */
+    const veh=String(cel(c,I.veh)).trim(), ecrit=String(cel(c,I.date)).trim(), d=a1GpsDateLue(ecrit, serie), km=num(cel(c,I.km))/(uniteDist==="m"?1000:1);
+    if(!veh){ if(I.veh>=0 && d.iso && km>0) sansVeh.push(no[k+1]); return; }
+    const r={ veh, date:d.iso, gpsKm:km,
       idleH:a1GpsDuree(cel(c,I.idle), uIdle), moveH:a1GpsDuree(cel(c,I.move), uMove),
-      maxSpeed:num(cel(c,I.speed)), engineH:a1GpsDuree(cel(c,I.eng), uEng), stops:num(cel(c,I.stops)) }); });
-  const lus=out.filter(r=>r.veh); lus.colonnes=C.lues; lus.manquantes=C.manquantes; lus.alertes=alertes; lus.blocage="";
-  const dit="« "+titres.filter(Boolean).join(" ; ")+" »";
+      maxSpeed:num(cel(c,I.speed)), engineH:a1GpsDuree(cel(c,I.eng), uEng), stops:num(cel(c,I.stops)) };
+    tous.push(r);
+    if(A1_GPS_TOTAL.test(norm(veh)) || (!d.iso && A1_GPS_SANS_DATE.test(norm(ecrit)))){ sansDate.push(no[k+1]); return; }
+    if(!d.iso){ illisibles.push({ ligne:no[k+1], valeur:ecrit }); return; }
+    if(d.iso>demain){ aVenir.push({ ligne:no[k+1], valeur:ecrit }); return; }
+    if(d.genre==="mois") auMois++;
+    lus.push(r); });
+  lus.colonnes=C.lues; lus.manquantes=C.manquantes; lus.alertes=alertes; lus.blocage=""; lus.sansDate=sansDate; lus.datesIllisibles=illisibles; lus.datesAVenir=aVenir; lus.sansVehicule=sansVeh;
+  const dit="« "+titres.filter(Boolean).join(" ; ")+" »", colDate="« "+(C.lues.date||"Date")+" »";
+  const liste=(t, un, plusieurs)=>(t.length>1?t.length+" "+plusieurs:un)+" dans la colonne "+colDate+" ("+t.slice(0,3).map(x=>"ligne "+x.ligne+" : « "+x.valeur+" »").join(", ")+(t.length>3?", …":"")+")";
+  const ordre=I.date>=0?a1GpsOrdreDates(corps.filter(c=>String(cel(c,I.veh)).trim()).map(c=>cel(c,I.date))):{ us:"", ambigu:"" }, us=ordre.us;
+  /* une colonne prise pour la date sur un mot faible (« Fin », « Période »…) et qui ne contient aucune date n'est pas la date */
+  const pasUneDate=I.date>=0 && !serie && !!C.mots.date && !lus.length && !aVenir.length && illisibles.length>0;
   if(I.veh<0) lus.blocage="aucune colonne de véhicule reconnue dans l’en-tête "+dit+" : l’export type l’appelle « Véhicule » (immatriculation ou numéro de boîtier)";
-  else if(lus.length && (A1_GPS_ROLES[0].faible||[]).indexOf(C.mots.veh)>=0 && lus.every(r=>/^-?[\d\s.,:]+$/.test(r.veh))) lus.blocage="la colonne « "+C.lues.veh+" », lue comme le véhicule, ne contient que des nombres : ce n’est pas une immatriculation ; l’export type appelle cette colonne « Véhicule »";
-  else if(I.date<0) lus.blocage="aucune colonne de date reconnue dans l’en-tête "+dit+" : l’export type l’appelle « Date » ; sans elle, les lignes seraient datées d’aujourd’hui";
+  else if(tous.length && (A1_GPS_ROLES[0].faible||[]).indexOf(C.mots.veh)>=0 && tous.every(r=>/^-?[\d\s.,:]+$/.test(r.veh))) lus.blocage="la colonne « "+C.lues.veh+" », lue comme le véhicule, ne contient que des nombres : ce n’est pas une immatriculation ; l’export type appelle cette colonne « Véhicule »";
+  else if(I.date<0) lus.blocage="aucune colonne de date reconnue dans l’en-tête "+dit+" : l’export type l’appelle « Date » ; sans elle, aucune ligne ne peut être datée";
+  else if(pasUneDate) lus.blocage="aucune colonne de date reconnue dans l’en-tête "+dit+" : la colonne "+colDate+" ne contient aucune date ; l’export type l’appelle « Date »";
   else if(I.km<0) lus.blocage="aucune colonne de distance reconnue dans l’en-tête "+dit+" : l’export type l’appelle « Distance parcourue (km) »";
   else if(uniteDist==="mi") lus.blocage="la colonne « "+C.lues.km+" » est en miles : l’export type la demande en kilomètres";
+  else if(us) lus.blocage="les dates de la colonne "+colDate+" sont écrites mois/jour/année (« "+us+" ») : l’export type les demande en JJ/MM/AAAA";
+  else if(ordre.ambigu) lus.blocage="les dates de la colonne "+colDate+" portent AM ou PM (« "+ordre.ambigu+" ») et rien ne dit si elles sont écrites jour/mois ou mois/jour : l’export type les demande en JJ/MM/AAAA";
+  else if(illisibles.length) lus.blocage=liste(illisibles, "une date illisible", "dates illisibles")+" : l’export type demande la date au format JJ/MM/AAAA";
+  else if(aVenir.length) lus.blocage=liste(aVenir, "une date à venir", "dates à venir")+" : un trajet ne peut pas être daté après aujourd’hui";
+  else if(sansVeh.length) lus.blocage=(sansVeh.length>1?sansVeh.length+" lignes ont":"une ligne a")+" une date et une distance mais pas de véhicule (ligne"+(sansVeh.length>1?"s":"")+" "+sansVeh.slice(0,8).join(", ")+(sansVeh.length>8?", …":"")+") : l’export type demande le véhicule sur chaque ligne";
+  else if(tous.length && !lus.length) lus.blocage="aucune ligne ne porte de date dans la colonne "+colDate+" : l’export type demande une ligne par véhicule et par jour";
   if(uniteDist==="m") alertes.push("la colonne « "+C.lues.km+" » est en mètres : elle est convertie en kilomètres");
+  if(I.date>=0 && sansDate.length) alertes.push(sansDate.length+" ligne"+(sansDate.length>1?"s":"")+" sans date ou de total, non importée"+(sansDate.length>1?"s":"")+" (ligne"+(sansDate.length>1?"s":"")+" "+sansDate.slice(0,8).join(", ")+(sansDate.length>8?", …":"")+")");
+  if(auMois) alertes.push(auMois+" ligne"+(auMois>1?"s":"")+" datée"+(auMois>1?"s":"")+" au mois seulement : le total du mois est daté du 1er");
   if(lus.manquantes.length) alertes.push("colonne"+(lus.manquantes.length>1?"s":"")+" de l’export type absente"+(lus.manquantes.length>1?"s":"")+" : "+lus.manquantes.map(x=>"« "+x+" »").join(", "));
   return lus;
 }
