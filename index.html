@@ -848,7 +848,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.40";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.42";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const PILOTAGE_URL = "https://claude.ai/artifact/4Fecc8R8QfbCRjdYJh6MpH";   // dashboard BSM A&C Pilotage : point mort, investissements, indicateurs (patch 200)
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
@@ -3148,7 +3148,7 @@ function idleReset(){
    clients, consignes au consultant. Ce que le dirigeant voit est ce qu'on lui présente, rien d'autre.
    Sortie par le même genre de bouton discret en bas à gauche. */
 let clientMode=false, clientModeId="";
-const CLIENT_MODE_SCREENS=["a1suivi","a1fleet","a1genset"];   // a1aero volontairement absent : un espace fermé ne se montre pas à un client
+const CLIENT_MODE_SCREENS=["a1suivi","a1fleet","a1genset","a1parc"];   /* patch 228 : l'onglet Parc y est réduit au volet « Analyse » du client présenté (renderA1Parc) ;   a1aero volontairement absent : un espace fermé ne se montre pas à un client */
 /* Entrée unique du mode présentation depuis les écrans A1. Un bouton qui disparaît
    n'explique rien : quand aucun client n'est choisi, on le dit au lieu de s'effacer. */
 function a1Presenter(kind){
@@ -10291,7 +10291,7 @@ function closeModal(){ __modalStack=[];
      la question reviendra au prochain essai ; « ne rien faire » reste la réponse par défaut. */
   if(_perteEnCours){ _perteEnCours=false; try{ window.__corpsEnAttente=null; }catch(_e){} serveurRetourPlanifier(); }
   if(_pushSuspendu){ _pushSuspendu=false; }
-  document.getElementById("overlay").classList.remove("show"); }
+  document.getElementById("overlay").classList.remove("show"); try{ if(typeof lvGrandFerme==="function") lvGrandFerme(); }catch(_e){} }   /* patch 228 : une analyse ouverte en grand rend la main à l'écran */
 /* ================== CORBEILLE 30 JOURS (P4) ==================
    À chaque suppression confirmée, on compare la base avant/après : tout enregistrement disparu
    (repéré par son id, dans n'importe quelle collection) part en corbeille, restaurable 30 jours. */
@@ -19071,6 +19071,8 @@ function a1PremiumExperience(rec, title, doc) {
    posé par le script de publication ; vide, la ligne n'est pas encore en ligne. Outil des patchs : BANC A1/quoi_de_neuf_lib.js.
    Banc : check_quoi_de_neuf.js (une version sans ligne est refusée). */
 function qdnLignes() { return [
+  { v: "6.100.42", le: "2026-11-24", quoi: "Sur la fiche d’un client, l’onglet « Gouvernance des risques » se lit en liste : les cartes de la méthode à gauche, la carte choisie à droite.", ou: "Clients · la fiche d’un client · onglet « Gouvernance des risques »", verif: "Société fictive : dix lignes ; « Suivi & progression » est choisie à l’ouverture ; « Ouvrir en grand » montre la carte entière.", aller: "clients" },
+  { v: "6.100.41", le: "2026-11-24", quoi: "Les analyses d’un parc se lisent comme les fiches réflexes : la liste à gauche, le visuel de l’analyse choisie à droite, « Ouvrir l’analyse » en grand.", ou: "Parc · un client · volet « Analyse ». Les écrans Véhicules et Groupes y mènent par « Voir l’analyse ».", verif: "Société fictive : dix-sept analyses dans la liste ; à l’ouverture, la vue d’ensemble des véhicules est choisie.", aller: "a1parc" },
   { v: "6.100.40", le: "2026-11-24", quoi: "La formule ponctuelle du parc n’a plus de modèle de proposition : la porte d’entrée est le diagnostic 360°, déduit sous 30 jours.", ou: "Documentation · Modèles de documents ; bouton « Rapport remis » d’un diagnostic", verif: "La liste des modèles ne porte plus cette proposition ; l’infobulle de « Rapport remis » dit 30 jours.", aller: "" },
   { v: "6.100.39", le: "2026-11-24", quoi: "Le Cockpit ne redessine plus sans fin les boutons qui portent un signe (crayon, croix, menu) : à l’arrêt, l’ordinateur ne travaille plus pour rien.", ou: "Partout : l’en-tête, le menu et tous les écrans. Rien ne change à l’affichage.", verif: "Rien à vérifier à l’écran : le banc mesure zéro réécriture au repos, là où il en comptait plusieurs centaines par seconde.", aller: "" },
   { v: "6.100.38", le: "2026-11-24", quoi: "« Quoi de neuf » : chaque version dit en trois lignes ce qu’elle change, où c’est, et quoi vérifier.", ou: "Menu « Plus d’actions » (les trois points) · la ligne de version ; carte « Aujourd’hui »", verif: "La ligne « Cockpit mis à jour » quitte la carte « Aujourd’hui » une fois la fenêtre ouverte.", aller: "" },
@@ -19177,22 +19179,30 @@ function qdnAller(scr) { if (typeof closeModal === "function") closeModal(); if 
 
 /* ===== L'ONGLET « GOUVERNANCE DES RISQUES » DE LA FICHE D'UN CLIENT, RANGÉ (patch 224, 24/11/2026) ====================
    Planche validée par JB le 24/11/2026 (maquettes/accompagnement_r5/onglet_gouvernance_range), avec trois décisions : une
-   carte qui attend un geste reste repliée, son geste sur la ligne, avec le bouton d'« À gérer » ; l'ordre des cartes est
-   celui de la méthode (les chiffres du client en tête, puis le suivi, la carte des risques, les risques, les
-   recommandations, les fiches ouvertes, le plan de continuité, les exercices, les missions, les documents) ; cet onglet
-   d'abord, les autres onglets de la fiche ne bougent pas.
+   carte qui attend un geste le porte sur sa ligne, avec le bouton d'« À gérer » ; l'ordre des cartes est celui de la méthode
+   (les chiffres du client en tête, puis le suivi, la carte des risques, les risques, les recommandations, les fiches
+   ouvertes, le plan de continuité, les exercices, les missions, les documents) ; cet onglet d'abord, les autres onglets de
+   la fiche ne bougent pas.
+   Patch 229, le même jour : les plis sont remplacés par une liste (planche methode_r5_liste_et_visuel, « Oui, les trois »).
+   À gauche, une ligne par carte de l'onglet, dans l'ordre de la méthode : son nom, son état en une ligne, le geste qu'elle
+   attend et la pastille d'« À gérer ». À droite, la carte choisie, telle qu'elle est, avec ses boutons et ses gestes ; à
+   l'ouverture de la fiche, « Suivi & progression ». « Ouvrir en grand » la montre dans une fenêtre, à sa pleine largeur.
    Tout est de l'affichage : rien n'est écrit dans la base. Le rangement se pose après les onglets (navOngletsPoser) :
-   - chaque carte de l'onglet est repliée à l'ouverture de la fiche ; un clic sur sa flèche l'ouvre, et la session s'en
-     souvient (navPlis) ; repliée, elle ne garde que son titre, son état et son geste ;
-   - la flèche du pli passe devant le titre, au même endroit sur chaque carte ;
    - cinq cartes n'avaient pas d'état dans leur en-tête : il s'écrit en une ligne après le titre (documents, fiches ouvertes,
      missions, risques, recommandations) ;
    - la ligne du geste attendu est celle d'« À gérer » (r5SuiviAGerer), sans le nom du client, avec le même bouton ; chaque
      ligne dit la carte qu'elle concerne (champ « carte », posé là où la ligne naît) ;
-   - l'ordre ne déplace aucune carte : sur cet onglet l'écran devient une colonne, et chaque bloc porte son rang.
-   À l'impression, tout reste déplié. Banc : check_onglet_range.js. */
+   - la liste se lit sur ce que les cartes portent (ogLire) : elle ne peut pas dire autre chose qu'elles ;
+   - la carte choisie passe dans le panneau, une marque garde sa place ; les autres cartes de l'onglet ne s'empilent plus ;
+     avant chaque rangement tout est remis en place (ogDefaire, appelée en tête de navOngletsPoser), puis reposé ;
+   - la session se souvient de la carte choisie (OG_CHOIX, par fiche) ; un bouton qui mène à une carte de l'onglet la choisit
+     dans la liste (ogChoisirPour, appelée par navAller) ;
+   - la mise en page est celle du module « La liste à gauche, le visuel à droite » (lv…), que les analyses d'un parc partagent.
+   À l'impression, toutes les cartes sont là, sans la liste. Banc : check_onglet_range.js. */
 var OG_ORDRE = ["demonstration", "suivi-progression", "carte-des-risques", "risques", "recommandations", "fiches-ouvertes", "plan-de-continuite", "exercices-et-tests", "missions", "documents-a-fournir"];
 var OG_CARTE_DEFAUT = "suivi-progression";
+var OG_CHOIX = {};
+var OG_CSS = '#scr-clientfiche .og-hors{display:none!important}#scr-clientfiche .og-liste{min-width:0}#scr-clientfiche .og-liste .lv-hote > .card{margin:0;overflow-x:auto}#scr-clientfiche .card[data-groupe="r5"] h2 .card-fold,.lv-grand .card-fold{display:none}.lv-grand .og-etat{font:400 12px/1.4 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif;color:var(--muted);margin-left:10px;letter-spacing:0;text-transform:none}.lv-grand .og-geste{margin:12px 0 16px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:2px 0 12px}.lv-grand .og-geste .mini-list .li{padding:9px 0 0;border-bottom:none}.lv-grand .og-geste .mini-list .li + .li{margin-top:9px;border-top:1px solid var(--line)}@media print{#scr-clientfiche .og-hors{display:block!important}#scr-clientfiche .og-liste .lv-g,#scr-clientfiche .og-liste .lv-vt,#scr-clientfiche .og-liste .lv-vs{display:none}#scr-clientfiche .og-liste .lv-duo{display:block}#scr-clientfiche .og-liste .lv-d{background:none;border:none;padding:0;max-height:none;overflow:visible;transform:none!important}#scr-clientfiche .og-liste .lv-hote{padding:0}}';
 /* La clé d'une carte sans le suffixe que la navigation ajoute à un titre en double. */
 function ogBase(cle) { cle = String(cle || ""); for (var i = 0; i < OG_ORDRE.length; i++) if (cle === OG_ORDRE[i] || cle.indexOf(OG_ORDRE[i] + "-") === 0) return OG_ORDRE[i]; return cle; }
 function ogPl(n, un, plusieurs) { return n + " " + (n > 1 ? plusieurs : un); }
@@ -19226,19 +19236,85 @@ function ogLigneHtml(a) {
     + '<span style="white-space:nowrap">' + aujourdhuiBouton(a) + '</span></div>').split('class="cta sm"').join('class="cta sm ghost"');
 }
 function ogLignesHtml(cid) { var L = ogLignes(cid), out = {}; Object.keys(L).forEach(function (k) { out[k] = L[k].map(ogLigneHtml); }); return out; }
+function ogNu(n) { return String((n && n.textContent) || "").replace(/\s+/g, " ").trim(); }
+function ogSobre(s) { return (typeof lvSobre === "function") ? lvSobre(s) : String(s || "").replace(/\s+/g, " ").trim(); }
+/* Une phrase d'en-tête trop longue pour une ligne de la liste : sa première phrase, ou son premier membre. */
+function ogCourt(s) { s = String(s || ""); if (s.length <= 100) return s; var p = s.indexOf(". "); if (p >= 12 && p < 100) return s.slice(0, p + 1); var m = s.indexOf(" · "); if (m >= 20 && m < 100) return s.slice(0, m); var q = s.slice(0, 96), e = q.lastIndexOf(" "); return (e > 60 ? q.slice(0, e) : q) + "…"; }
+/* Le bloc de premier niveau de la fiche qui porte une carte : c'est lui qui prend le rang. */
+function ogBloc(scr, card) { var b = card; while (b.parentElement && b.parentElement !== scr) b = b.parentElement; return b; }
+/* Ce qu'une carte de l'onglet dit d'elle-même, pour sa ligne dans la liste : son nom (le titre, sans le nom du client), son état
+   (celui que le rangement vient d'écrire, sinon ce que son en-tête porte déjà), son geste attendu et la pastille d'« À gérer ». */
+function ogLire(scr, card, societe) {
+  var cle = card.getAttribute("data-som") || "", base = ogBase(cle), h2 = card.querySelector("h2"), k = h2.cloneNode(true), rang = OG_ORDRE.indexOf(base);
+  [].slice.call(k.querySelectorAll(".card-fold, .og-etat, button, select, input, .cta")).forEach(function (n) { if (n.parentNode) n.parentNode.removeChild(n); });
+  var etat = h2.querySelector(".og-etat"), geste = card.querySelector(":scope > .og-geste");
+  var tete = h2; while (tete.parentElement && tete.parentElement !== card) tete = tete.parentElement;   /* l'en-tête : l'enfant direct de la carte qui porte le titre */
+  var sous = tete !== h2 ? tete.cloneNode(true) : null;
+  if (sous) [].slice.call(sous.querySelectorAll("h2, button, select, input, .cta")).forEach(function (n) { if (n.parentNode) n.parentNode.removeChild(n); });
+  var nom = ogSobre(ogNu(k)).split(" — ")[0], dit = etat ? ogNu(etat) : ogSobre(ogNu(sous));
+  if (societe) { nom = nom.split(" à " + societe).join(""); dit = dit.split(societe + " · ").join(""); }
+  var o = { cle: base, base: base, som: cle, card: card, rang: rang < 0 ? OG_ORDRE.length : rang, nom: nom, dit: ogCourt(dit), geste: "", pastille: null };
+  if (geste) {
+    var lis = geste.querySelectorAll(".li"), premier = lis.length ? lis[0].querySelector(".ag-ligne b") : null, pill = geste.querySelector('.ag-ligne span[style*="text-transform"]');
+    o.geste = ogNu(premier) + (lis.length > 1 ? " · et " + (lis.length - 1) + " autre" + (lis.length > 2 ? "s" : "") : "");
+    o.pastille = { texte: ogNu(pill) || "à faire", couleur: (pill && pill.style && pill.style.color) || "var(--navy)" };
+  }
+  return o;
+}
+/* Avant tout rangement : la carte du panneau retrouve sa place, la liste s'en va, plus rien n'est caché. Rend ce qui a été défait. */
+function ogDefaire(name, scr) {
+  if (name !== "clientfiche" || !scr || !scr.querySelectorAll) return 0;
+  var n = 0, w = scr.querySelector(":scope > .og-liste");
+  [].slice.call(scr.querySelectorAll(".og-place")).forEach(function (m) {
+    var card = w ? w.querySelector('.lv-hote > .card[data-groupe="r5"]') : null;
+    if (card && m.parentNode) m.parentNode.insertBefore(card, m);
+    if (m.parentNode) m.parentNode.removeChild(m); n++;
+  });
+  if (w && w.parentNode) { w.parentNode.removeChild(w); n++; }
+  [].slice.call(scr.querySelectorAll(".og-hors")).forEach(function (k) { k.classList.remove("og-hors"); n++; });
+  return n;
+}
+/* La liste à gauche, la carte choisie à droite. cartes : les cartes de l'onglet ; c : le client de la fiche. */
+function ogListePoser(name, scr, cartes, c) {
+  if (typeof lvListeHtml !== "function" || typeof lvPanneauHtml !== "function" || typeof lvDuoHtml !== "function") return false;
+  var L = cartes.filter(function (k) { return !!k.querySelector("h2"); }).map(function (card, i) { var o = ogLire(scr, card, c ? String(c.company || "") : ""); o.i = i; return o; });
+  L.sort(function (a, b) { return (a.rang - b.rang) || (a.i - b.i); });
+  if (!L.length) return false;
+  var k = navCleEcran(name), sel = L.filter(function (l) { return l.base === OG_CHOIX[k]; })[0] || L.filter(function (l) { return l.base === OG_CARTE_DEFAUT; })[0] || L[0];
+  OG_CHOIX[k] = sel.base;
+  var premier = ogBloc(scr, L[0].card), w = document.createElement("div");
+  w.className = "og-liste"; w.style.order = premier.style.order || "10";
+  w.innerHTML = '<style>' + OG_CSS + '</style>' + lvDuoHtml(lvListeHtml(L, sel.base, { pile: true, colonnes: ["Carte, et ce qu’elle dit"], choisir: "ogChoisir", pied: "Un clic sur une ligne montre la carte à droite, sans quitter la liste." }),
+    lvPanneauHtml({ id: "og-volet", titre: sel.nom, boutons: [["Ouvrir en grand", "ogOuvrirGrand('" + sel.base + "')"]], corps: "" }), "lv-etroite");
+  scr.insertBefore(w, premier);
+  /* la carte choisie passe dans le panneau ; une marque garde sa place */
+  var m = document.createElement("span"); m.className = "og-place"; m.style.display = "none"; sel.card.parentNode.insertBefore(m, sel.card);
+  w.querySelector(".lv-hote").appendChild(sel.card);
+  /* les autres cartes de l'onglet ne s'empilent plus : elles sont dans la liste ; un bloc qui ne montre plus rien s'efface aussi */
+  L.forEach(function (l) { if (l !== sel) l.card.classList.add("og-hors"); });
+  L.forEach(function (l) {
+    var b = l === sel ? m.parentNode : ogBloc(scr, l.card); while (b && b.parentElement && b.parentElement !== scr) b = b.parentElement;
+    if (!b || b === l.card || b === w || b === scr) return;
+    var reste = [].slice.call(b.children).filter(function (x) { return !(x.classList && (x.classList.contains("og-hors") || x.classList.contains("og-place") || x.classList.contains("nav-cache"))); });
+    if (!reste.length) b.classList.add("og-hors");
+  });
+  /* la fenêtre en grand est ouverte sur cette carte : elle se redessine, puis le panneau lui cède sa place */
+  if (typeof lvGrandOuvert === "function" && lvGrandOuvert("r5:" + sel.base)) { lvGrandRafraichir(); lvPanneauCeder("og-volet", "Cette carte est ouverte en grand."); }
+  if (typeof lvSuivreInstaller === "function") lvSuivreInstaller();
+  return true;
+}
 /* Le rangement, posé après les onglets. name : l'écran ; scr : son conteneur ; actif : l'onglet ouvert. */
 function ogRanger(name, scr, actif) {
   if (name !== "clientfiche" || !scr || !scr.querySelectorAll) return 0;
+  ogDefaire(name, scr);
   if (actif === "r5") scr.setAttribute("data-onglet", "r5"); else scr.removeAttribute("data-onglet");
   [].slice.call(scr.querySelectorAll(".og-etat, .og-geste")).forEach(function (n) { if (n.parentNode) n.parentNode.removeChild(n); });   /* ce que le passage précédent a posé se recalcule */
   var cartes = [].slice.call(scr.querySelectorAll('.card[data-groupe="r5"]')); if (!cartes.length) return 0;
   var cid = (typeof currentClientId !== "undefined" && currentClientId) || "", c = (DB.clients || []).find(function (x) { return x.id === cid; }) || null;
-  var etats = ogEtats(c), lignes = ogLignesHtml(cid), plis = navPlis[navCleEcran(name)] || {};
+  var etats = ogEtats(c), lignes = ogLignesHtml(cid);
   cartes.forEach(function (card) {
-    var cle = card.getAttribute("data-som") || "", base = ogBase(cle), h2 = card.querySelector("h2"), fleche = h2 ? h2.querySelector(".card-fold") : null; if (!h2 || !fleche) return;
-    var bloc = card; while (bloc.parentElement && bloc.parentElement !== scr) bloc = bloc.parentElement;   /* le bloc de premier niveau qui porte la carte : c'est lui qui prend le rang */
-    var rang = OG_ORDRE.indexOf(base); bloc.style.order = String(10 + (rang < 0 ? OG_ORDRE.length : rang));
-    if (h2.firstChild !== fleche) h2.insertBefore(fleche, h2.firstChild);
+    var cle = card.getAttribute("data-som") || "", base = ogBase(cle), h2 = card.querySelector("h2"); if (!h2) return;
+    var bloc = ogBloc(scr, card), rang = OG_ORDRE.indexOf(base); bloc.style.order = String(10 + (rang < 0 ? OG_ORDRE.length : rang));
     var etat = etats[base] || "";
     if (base === "documents-a-fournir") { var li = [].slice.call(card.querySelectorAll(".li")); etat = ogEtatDocuments(li.length, li.filter(function (x) { return /À générer/.test(x.textContent || ""); }).length); }
     if (etat) { var s = document.createElement("span"); s.className = "og-etat"; s.textContent = etat; h2.appendChild(s); }
@@ -19248,12 +19324,44 @@ function ogRanger(name, scr, actif) {
       var tete = h2; while (tete.parentElement && tete.parentElement !== card) tete = tete.parentElement;   /* l'en-tête : l'enfant direct de la carte qui porte le titre */
       card.insertBefore(g, tete.nextSibling);
     }
-    var plie = plis[cle] !== false; card.classList.toggle("folded", plie); fleche.textContent = plie ? "▸" : "▾";   /* repliée, sauf si la session l'a ouverte */
+    card.classList.remove("folded");   /* patch 229 : plus de pli sur cet onglet, la liste dit ce que chaque carte porte */
   });
+  if (actif === "r5") ogListePoser(name, scr, cartes, c);
   return cartes.length;
 }
-/* Mener à une carte de l'onglet (un bouton « Ouvrir » d'« À gérer » ou de la carte elle-même) : elle se déplie, la session
-   s'en souvient, l'écran y descend. C'est navAller, le geste de la vue d'ensemble, appelé par la clé de la carte. */
+/* Un clic sur une ligne de la liste : la carte passe à droite, la liste reste ; sur un écran étroit, l'écran y descend. */
+function ogChoisir(base) {
+  if (typeof document === "undefined" || !document.getElementById) return false;
+  var scr = document.getElementById("scr-clientfiche"); if (!scr || !scr.querySelectorAll) return false;
+  OG_CHOIX[navCleEcran("clientfiche")] = String(base || "");
+  navOngletsPoser("clientfiche", scr);
+  if (typeof lvEtroit === "function" && lvEtroit()) lvDescendre("og-volet");
+  return true;
+}
+/* Appelée par navAller : un bouton mène à une carte de l'onglet (vue d'ensemble, « À gérer », « Chez vous ») ; elle est choisie
+   dans la liste, tout de suite si l'onglet est ouvert, sinon à son ouverture. */
+function ogChoisirPour(name, scr, card) {
+  if (name !== "clientfiche" || !scr || !card || !card.getAttribute || card.getAttribute("data-groupe") !== "r5") return false;
+  var base = ogBase(card.getAttribute("data-som") || ""), k = navCleEcran(name); if (OG_CHOIX[k] === base) return false;
+  OG_CHOIX[k] = base;
+  if (scr.getAttribute("data-onglet") === "r5") navOngletsPoser(name, scr);
+  return true;
+}
+/* « Ouvrir en grand » : la carte dans une fenêtre, à sa pleine largeur. La fenêtre porte une copie de la carte ; le panneau lui
+   cède la sienne (un seul exemplaire dans la page) ; à la fermeture, la fiche se redessine. */
+function ogOuvrirGrand(base) {
+  if (typeof lvGrandOuvrir !== "function" || typeof document === "undefined" || !document.getElementById) return false;
+  var rendre = function () {
+    var v = document.getElementById("og-volet"), card = (v && v.querySelector) ? v.querySelector('.lv-hote > .card[data-groupe="r5"]') : null;
+    if (!card || ogBase(card.getAttribute("data-som") || "") !== base) return null;
+    return { nu: true, corps: card.outerHTML, boutons: [] };
+  };
+  /* la fiche s'ouvre sans passer par setScreen : c'est sa classe « active » qui dit qu'elle est à l'écran */
+  var aLEcran = function () { var s = document.getElementById("scr-clientfiche"); return !!(s && s.classList && s.classList.contains("active")); };
+  return lvGrandOuvrir("r5:" + base, rendre, function (ouvre) { if (ouvre) lvPanneauCeder("og-volet", "Cette carte est ouverte en grand."); else if (aLEcran() && typeof renderClientFiche === "function") renderClientFiche(); });
+}
+/* Mener à une carte de l'onglet (un bouton « Ouvrir » d'« À gérer » ou de la carte elle-même) : elle est choisie dans la liste,
+   l'écran y descend. C'est navAller, le geste de la vue d'ensemble, appelé par la clé de la carte. */
 function ogAllerCarte(base) {
   if (typeof document === "undefined" || !document.getElementById || typeof navAller !== "function") return false;
   var scr = document.getElementById("scr-clientfiche"); if (!scr || !scr.querySelectorAll) return false;
@@ -27294,6 +27402,7 @@ function navInsererEnTete(scr, el) {
 function navCleEcran(name) { return name + ((name === "clientfiche" && typeof currentClientId !== "undefined" && currentClientId) ? ":" + currentClientId : ""); }
 function navOngletsPoser(name, scr) {
   scr = scr || (document.getElementById ? document.getElementById("scr-" + name) : null); if (!scr || !scr.querySelector) return 0;
+  if (typeof ogDefaire === "function") { try { ogDefaire(name, scr); } catch (e) { } }   /* patch 229 (v6.100.42) : sur la fiche d'un client, la liste de l'onglet « Gouvernance des risques » se défait avant le rangement, puis se repose (ogRanger, en fin de fonction) */
   var anc = scr.querySelector(":scope > .navligne"); if (anc) anc.parentNode.removeChild(anc); var ana = scr.querySelector(":scope > .navaide"); if (ana) ana.parentNode.removeChild(ana);
   var ens = scr.querySelector(".nav-ensemble"); if (ens) ens.parentNode.removeChild(ens);
   var items = navCartesTitrees(scr), vus = {}, liste = [], sk = navCleEcran(name), plis = navPlis[sk] || {};
@@ -27331,6 +27440,7 @@ function navToutPlier(name, plie) { var scr = document.getElementById("scr-" + n
 function navAller(cle) {
   var scr = document.querySelector ? document.querySelector(".screen.active") : null; if (!scr) return false;
   var name = String(scr.id || "").replace(/^scr-/, ""), card = scr.querySelector('.card[data-som="' + cle + '"]'); if (!card) return false;
+  if (typeof ogChoisirPour === "function") { try { ogChoisirPour(name, scr, card); } catch (e) { } }   /* patch 229 : une carte de l'onglet « Gouvernance des risques » vers laquelle un bouton mène est choisie dans la liste */
   if (card.dataset.groupe && card.classList.contains("nav-cache")) { navOngletActif[navCleEcran(name)] = card.dataset.groupe; navOngletsPoser(name, scr); card = scr.querySelector('.card[data-som="' + cle + '"]'); if (!card) return false; }
   if (card.classList.contains("folded")) { var fb = card.querySelector(".card-fold"); if (fb) navPlier(fb, false); }
   try { card.scrollIntoView({ block: "start" }); } catch (e) { try { card.scrollIntoView(); } catch (e2) { } }   // d'un coup, pas en glissant : le glissé ne finit pas dans un onglet caché, et le halo dit où l'on est arrivé
@@ -29600,7 +29710,8 @@ function a1ParcOngletBadge(E, cle) {
 function a1ParcMoisNav(mois) { return '<span style="display:inline-flex;align-items:center;gap:4px"><button class="cta ghost sm" onclick="a1ParcMoisShift(-1)" title="Mois précédent">◀</button><b style="min-width:120px;text-align:center;text-transform:capitalize;color:var(--navy)">' + esc(a1MonthLabel(mois)) + '</b><button class="cta ghost sm" onclick="a1ParcMoisShift(1)" title="Mois suivant">▶</button></span>'; }
 function renderA1Parc() {
   var host = document.getElementById("scr-a1parc"); if (!host) return;
-  var cid = a1ParcClientCourant(), clients = a1SuiviClientsParc();
+  var pres = typeof a1AnPresentation === "function" && a1AnPresentation(); if (pres) { a1ParcClient = clientModeId; a1ParcOnglet = "analyse"; a1ParcPerimetre = "tout"; }   /* patch 228 : en mode présentation, l'onglet Parc se réduit au volet « Analyse » du client présenté */
+  var cid = pres ? clientModeId : a1ParcClientCourant(), clients = a1SuiviClientsParc();
   if (!cid) {
     host.innerHTML = a1ModuleTabs('parc') + '<div class="pagetitle"><div><h1>🚗 Parc</h1><div class="sub">Le parc d’un client, en sept volets.</div></div></div>'
       + '<div class="empty">Aucun parc suivi pour l’instant : un parc naît d’un devis accepté (mise en route) ou d’une machine ajoutée dans Véhicules ou Groupes.</div>';
@@ -29611,13 +29722,15 @@ function renderA1Parc() {
     + clients.map(function (k) { var p = a1ParcCompte(k.id); return '<option value="' + k.id + '"' + (k.id === cid ? ' selected' : '') + '>' + esc(k.company) + ' · ' + p.total + ' machine' + (p.total > 1 ? 's' : '') + '</option>'; }).join("") + '</select>';
   var onglets = '<div class="subtabs a1p-onglets" style="margin-top:4px">' + A1_PARC_ONGLETS.map(function (o) { return '<div class="subtab' + (a1ParcOnglet === o[0] ? ' active' : '') + '" onclick="a1ParcAller(\'' + o[0] + '\')">' + o[1] + a1ParcOngletBadge(E, o[0]) + '</div>'; }).join("") + '</div>';
   var corps = { bord: a1ParcBordHtml, machines: a1ParcMachinesHtml, analyse: a1ParcAnalyseHtml, entretien: a1ParcEntretienHtml, donnees: a1ParcDonneesHtml, fiches: a1ParcFichesHtml, documents: a1ParcDocumentsHtml }[a1ParcOnglet] || a1ParcBordHtml;
+  if (pres) { sel = '<b style="font-size:15px;color:var(--navy)">' + esc(clientName(cid)) + '</b>'; onglets = '<div class="subtabs a1p-onglets" style="margin-top:4px"><div class="subtab active">Analyse</div></div>'; }
   host.innerHTML = a1ModuleTabs('parc')
-    + '<div class="pagetitle" style="margin-bottom:10px"><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><h1 style="margin:0">' + a1ParcIcone(E) + ' Parc</h1>' + sel + a1ParcMoisNav(E.mois) + '</div>'
+    + '<div class="pagetitle" style="margin-bottom:10px"><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><h1 style="margin:0">' + a1ParcIcone(E) + ' Parc</h1>' + sel + (pres ? "" : a1ParcMoisNav(E.mois)) + '</div>'
     + '<div class="a1-int" style="display:flex;gap:8px;flex-wrap:wrap">'
     + '<button class="cta gold" onclick="a1ParcRapport()" title="Le rapport d’analyse complet du client : consommation et écarts, entretien, données reçues et manques, recommandations — à relire dans Rapports avant l’envoi">📕 Rapport d’analyse' + (E.perimetre === "gen" ? " — groupes et engins" : (E.perimetre === "fleet" ? " — véhicules" : "")) + '</button>'
     + '<button class="cta ghost" onclick="a1Presenter(\'' + kind + '\')" title="Un seul client à l’écran, rien d’interne">👔 Présenter</button>'
     + '<button class="cta ghost" onclick="openA1ParcReglages()" title="Prix carburant, seuils, objectif, sauvegarde, journaux, remise à zéro">⚙ Réglages</button></div></div>'
-    + a1ParcPerimetreHtml(E) + onglets + corps(E);
+    + (pres ? "" : a1ParcPerimetreHtml(E)) + onglets + corps(E);
+  if (typeof a1AnApresRendu === "function") a1AnApresRendu();
 }
 /* ---- 1 · Tableau de bord ---- */
 function a1ParcBordHtml(E) {
@@ -29835,10 +29948,8 @@ function a1ParcAnalyseCompte(E) {
 }
 function a1ParcAnalyseHtml(E) {
   var cid = E.cid; a1Client = cid; a1genClient = cid;   /* les cartes des anciens écrans lisent le client sélectionné */
-  var out = a1ParcEtudesCardHtml(E), deux = E.kinds.length > 1, gestes = [];
+  var out = a1AnVoletHtml(E), deux = E.kinds.length > 1, gestes = [];   /* patch 228 (v6.100.41) : la liste des analyses à gauche, le visuel de celle qui est choisie à droite ; les cartes sont les mêmes (a1AnListe) */
   E.kinds.forEach(function (k) {
-    if (deux) out += '<h2 style="font-size:15px;margin:8px 0 8px">' + (k === "gen" ? "🔌 Groupes et engins" : "🚗 Véhicules") + '</h2>';
-    out += k === "gen" ? a1ParcAnalyseGenHtml(E) : a1ParcAnalyseFleetHtml(E);
     var suf = deux ? (k === "gen" ? " groupes" : " véhicules") : "";
     gestes.push(["🤖 Analyse IA" + suf, k === "gen" ? "a1GenAnalyze()" : "a1Analyze()", "gold"], ["💬 Assistant" + suf, "openA1Chat('" + k + "')"], ["🧭 Nouvelle analyse guidée" + suf, "openA1Wizard('" + k + "')"], ["🎯 Données & fiabilité" + suf, "openA1DataPanel('" + k + "')"], ["🥅 Objectif client" + suf, "openA1Target('" + k + "')"], ["🚦 Prêt à présenter ?" + suf, "openA1ReadyCheck('" + k + "')"]);
     if (k === "gen") {
@@ -29855,6 +29966,383 @@ function a1ParcEcartCardHtml(arr, lib) {
   if (!(tl > 0) && !fr.length) return "";
   return '<div class="card" style="border-left:3px solid var(--navy)">' + (tl > 0 ? '<b>💸 Écart valorisé face à la référence constructeur :</b> ' + fmtD(tl) + '. ' : '') + (fr.length ? '<b style="color:var(--red)">' + fr.length + ' ' + lib + (fr.length > 1 ? 's' : '') + ' avec des écarts à instruire</b> (score ≥ 35) : ouvrir le 🔬 diagnostic.' : '') + '</div>';
 }
+/* ===== LA LISTE À GAUCHE, LE VISUEL À DROITE : LA MISE EN PAGE COMMUNE (patch 228, 24/11/2026) ===========================
+   Demande de JB du 24/11/2026, validée sur planche le même jour : retrouver pour les analyses d'un parc ce que l'écran des
+   fiches réflexes offre déjà, la liste à gauche et le visuel de la ligne choisie à droite, puis « Ouvrir » pour le lire en
+   grand. La même mise en page doit resservir pour la méthode R5 (onglet « Gouvernance des risques ») : elle vit donc ici, à
+   part, et ne sait rien d'un parc. Qui s'en sert fournit ses lignes et ses gestes :
+     lvListeHtml(lignes, cleChoisie, { colonnes: ["Analyse", "Ce qu’elle dit"], choisir: "nomDeFonction", pied: "…", pile: false })
+       une ligne : { cle, groupe, nom, dit, ton } ; ton : "voir", "suivre", "vide" (sans donnée) ou rien ;
+       pile : une liste étroite, le nom, ce qu'elle dit et le geste attendu l'un sous l'autre ({ geste }), et une pastille
+       libre à droite ({ pastille: { texte, couleur } }) ;
+     lvPanneauHtml({ id, titre, sous, ligne, boutons, corps })       un bouton : [libellé, geste, classe, interne]
+     lvDuoHtml(gauche, droite, classe)   côte à côte ; l'un sous l'autre quand l'écran fait moins de 1 100 px de large ;
+       classe « lv-etroite » : la liste garde 330 px, le visuel prend le reste
+     lvGrandOuvrir(cle, rendre, apres)   la fenêtre en grand ; rendre() donne { titre, ligne, corps, boutons } et sert aussi
+       à la redessiner (lvGrandRafraichir) ; apres(true) à l'ouverture, apres(false) à la fermeture ; { nu: true } : le
+       contenu porte déjà son titre, la fenêtre n'en ajoute pas ;
+     lvPanneauCeder(id, texte), lvAilleursHtml(texte)   ce que le panneau montre pendant que son contenu est ouvert en grand.
+   Tant que la fenêtre en grand est ouverte, le panneau de l'écran ne porte pas le même contenu (lvGrandOuvert) : deux
+   exemplaires d'une carte se partageraient leurs identifiants, et un geste fait dans la fenêtre lirait les champs restés
+   dessous. closeModal prévient ce module (lvGrandFerme), qui rend la main à l'écran.
+   Le panneau prend la hauteur de son contenu, comme celui des fiches réflexes : rien ne défile dedans de haut en bas, la
+   page s'allonge avec lui. Moins haut que la liste, il la suit quand la page défile (lvSuivre) : la zone principale du Cockpit a un défilement horizontal, ce
+   qui prive « position: sticky » de son effet ; seul le style du panneau est touché, et seulement quand sa place change.
+   Bancs : check_parc_analyses_liste.js (les analyses d'un parc), check_onglet_range.js (la méthode R5 d'un client). */
+var LV_CSS = '.lv-duo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.32fr);gap:18px;align-items:start}.lv-g{min-width:0}.lv-d{background:#EEE9DE;border:1px solid var(--line);border-radius:14px;padding-bottom:14px;min-width:0;overflow:hidden;scroll-margin-top:84px}.lv-vt{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px 0;font-size:12.5px;color:#5B6B7A;font-weight:600}.lv-vt b{color:#0E2438;font-size:13.5px}.lv-vg{display:inline-flex;gap:6px;flex-wrap:wrap}.lv-vt .lv-vg button.cta{padding:4px 10px;font-size:11.5px;min-height:0}.lv-vs{padding:3px 16px 10px;font-size:11.5px;color:#5B6B7A}.lv-hote{padding:0 14px}.lv-hote > div{margin:0 0 10px}.lv-hote > div:last-child{margin-bottom:0}.card.lv-carte{padding:0;overflow:hidden;margin:0}.lv-bib{width:100%;border-collapse:collapse}.lv-bib td{padding:9px 10px;font-size:12.5px;vertical-align:top}.lv-bib th{padding:7px 10px;text-align:left}.lv-bib tbody tr{cursor:pointer}.lv-bib td.d{color:#5B6B7A;font-size:12px;line-height:1.45}.lv-bib td.t{white-space:nowrap;text-align:right;font-size:11px}.lv-bib tr.lv-sel td{background:#FBF6E9;box-shadow:inset 0 1px 0 #E3CD8F,inset 0 -1px 0 #E3CD8F}.lv-bib tr.lv-sel td:first-child{box-shadow:inset 3px 0 0 var(--gold),inset 0 1px 0 #E3CD8F,inset 0 -1px 0 #E3CD8F}.lv-bib tr.lv-gr td{background:#F6F1E8;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:5px 10px;cursor:default}table.clickrows.lv-bib tbody tr.lv-gr:hover{background:none;box-shadow:none}.lv-ton{font-weight:700}.lv-ton.voir{color:#B91C1C}.lv-ton.suivre{color:#B45309}.lv-ton.vide{color:#9AA7B4;font-weight:400;font-style:italic}.lv-pt{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px;background:currentColor}.lv-pied{font-size:11.5px;color:#5B6B7A;margin-top:8px}.lv-ailleurs{padding:26px 16px;font-size:12.5px;color:#5B6B7A;text-align:center}.lv-grand > div{margin:0 0 14px}.lv-grand > div:last-child{margin-bottom:0}.lv-duo.lv-etroite{grid-template-columns:330px minmax(0,1fr)}.lv-di{display:block;font-weight:400;color:#5B6B7A;font-size:12px;line-height:1.45;margin-top:2px}.lv-ge{display:block;font-weight:400;color:#0E2438;font-size:11.5px;line-height:1.4;margin-top:3px}.lv-grand.lv-nu > .card{box-shadow:none;border:none;padding:0;margin:0;background:none}@media(max-width:1100px){.lv-duo,.lv-duo.lv-etroite{grid-template-columns:1fr}}body.dark .lv-d{background:#131c27}body.dark .lv-vt,body.dark .lv-vs,body.dark .lv-pied,body.dark .lv-ailleurs,body.dark .lv-bib td.d{color:#94a3b8}body.dark .lv-vt b{color:#e6e9ee}body.dark .lv-bib tr.lv-sel td{background:#243042;box-shadow:none}body.dark .lv-bib tr.lv-gr td{background:#1a2532}body.dark .lv-di{color:#94a3b8}body.dark .lv-ge{color:#e6e9ee}';
+var LV_GRAND = { cle: "", rendre: null, apres: null, html: "" };
+var LV_SUIT = false;
+function lvTonHtml(ton) {
+  if (ton === "voir") return '<span class="lv-ton voir"><span class="lv-pt"></span>à voir</span>';
+  if (ton === "suivre") return '<span class="lv-ton suivre"><span class="lv-pt"></span>à suivre</span>';
+  if (ton === "vide") return '<span class="lv-ton vide">sans donnée</span>';
+  return "";
+}
+/* Les boutons d'un panneau (petits : le premier plein, les autres en contour) ou d'une fenêtre en grand (tous en contour, le
+   dernier plein). Un bouton « interne » porte la classe que le mode présentation masque. */
+function lvBoutonsHtml(boutons, grand) {
+  var l = (boutons || []).filter(Boolean);
+  return l.map(function (b, i) {
+    var cls = b[2] != null ? b[2] : (grand ? (i === l.length - 1 ? "" : "ghost") : (i ? "ghost" : ""));
+    return '<button class="cta' + (cls ? ' ' + cls : '') + (grand ? '' : ' sm') + (b[3] ? ' a1-int' : '') + '" onclick="' + b[1] + '">' + esc(b[0]) + '</button>';
+  }).join("");
+}
+/* Un texte sans les émojis des écrans, et sans ce qui précède sa première lettre : un nom de ligne, une phrase. */
+function lvSobre(s) { var t = String(s || ""); try { if (typeof pictosTexteSobre === "function") t = pictosTexteSobre(t); } catch (e) { } return t.replace(/^[^0-9A-Za-zÀ-ÖØ-öø-ÿŒœ«]+/, "").replace(/\s+/g, " ").trim(); }
+function lvListeHtml(lignes, choisie, o) {
+  o = o || {}; var col = o.colonnes || ["", ""], g = null, h = "", pile = !!o.pile, n = pile ? 2 : 3;
+  (lignes || []).forEach(function (a) {
+    if ((a.groupe || "") !== g) { g = a.groupe || ""; if (g) h += '<tr class="lv-gr"><td colspan="' + n + '">' + esc(g) + '</td></tr>'; }
+    var etat = a.pastille ? '<span class="lv-ton" style="color:' + esc(a.pastille.couleur || "var(--navy)") + '"><span class="lv-pt"></span>' + esc(a.pastille.texte || "") + '</span>' : lvTonHtml(a.ton);
+    h += '<tr' + (a.cle === choisie ? ' class="lv-sel"' : '') + ' onclick="' + o.choisir + '(\'' + escJs(a.cle) + '\')"><td><b>' + esc(a.nom) + '</b>'
+      + (pile ? (a.dit ? '<span class="lv-di">' + esc(a.dit) + '</span>' : '') + (a.geste ? '<span class="lv-ge">' + esc(a.geste) + '</span>' : '') + '</td>' : '</td><td class="d">' + esc(a.dit) + '</td>')
+      + '<td class="t">' + etat + '</td></tr>';
+  });
+  return '<div class="card lv-carte"><table class="clickrows lv-bib"><thead><tr><th>' + esc(col[0]) + '</th>' + (pile ? '' : '<th>' + esc(col[1]) + '</th>') + '<th></th></tr></thead><tbody>' + h + '</tbody></table></div>' + (o.pied ? '<div class="lv-pied">' + esc(o.pied) + '</div>' : '');
+}
+function lvPanneauHtml(p) {
+  p = p || {};
+  return '<div class="lv-d" id="' + esc(p.id || "lv-volet") + '"><div class="lv-vt"><span><b>' + esc(p.titre || "") + '</b>' + (p.sous ? ' · ' + esc(p.sous) : '') + '</span><span class="lv-vg">' + lvBoutonsHtml(p.boutons, false) + '</span></div><div class="lv-vs">' + esc(p.ligne || "") + '</div><div class="lv-hote">' + (p.corps || "") + '</div></div>';
+}
+function lvDuoHtml(gauche, droite, classe) { return '<style>' + LV_CSS + '</style><div class="lv-duo' + (classe ? ' ' + classe : '') + '"><div class="lv-g">' + gauche + '</div>' + droite + '</div>'; }
+/* Sur un écran étroit, le visuel se lit sous la liste : après un choix, l'écran y descend. */
+function lvEtroit() { try { return typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(max-width:1100px)").matches; } catch (e) { return false; } }
+function lvDescendre(id) {
+  if (typeof document === "undefined" || !document.getElementById || typeof setTimeout !== "function") return false;
+  var t = setTimeout(function () { var x = document.getElementById(id); if (x && x.scrollIntoView) x.scrollIntoView({ block: "start" }); }, 120);
+  if (t && typeof t.unref === "function") t.unref();
+  return true;
+}
+/* Le panneau suit la liste quand la page défile, sans jamais sortir de sa rangée. Rend le nombre de panneaux déplacés. */
+function lvSuivre() {
+  if (typeof document === "undefined" || !document.querySelectorAll) return 0;
+  var l = document.querySelectorAll(".lv-duo > .lv-d"), n = 0, etroit = lvEtroit(), tb = document.querySelector ? document.querySelector(".topbar") : null, haut = ((tb && tb.offsetHeight) || 0) + 14;
+  for (var i = 0; i < l.length; i++) {
+    var d = l[i], g = d.parentNode, t = "";
+    if (!etroit && g && g.getBoundingClientRect && d.offsetParent) { var r = g.getBoundingClientRect(), max = r.height - d.offsetHeight; if (max > 0) { var y = Math.max(0, Math.min(max, haut - r.top)); if (y > 0) t = "translateY(" + Math.round(y) + "px)"; } }
+    if (d.style && d.style.transform !== t) { d.style.transform = t; n++; }
+  }
+  return n;
+}
+function lvSuivreInstaller() {
+  if (!LV_SUIT && typeof window !== "undefined" && typeof window.addEventListener === "function") { LV_SUIT = true; window.addEventListener("scroll", lvSuivre, { passive: true }); window.addEventListener("resize", lvSuivre); }
+  return lvSuivre();
+}
+/* ---------- la fenêtre en grand ---------- */
+/* Le visuel est ouvert en grand : ce que le panneau de l'écran montre à sa place. */
+function lvAilleursHtml(texte) { return '<div class="lv-ailleurs">' + esc(texte || "Ouvert en grand.") + '</div>'; }
+/* Le panneau cède son contenu à la fenêtre, sans redessiner l'écran : un seul exemplaire à la fois dans la page. */
+function lvPanneauCeder(id, texte) {
+  if (typeof document === "undefined" || !document.getElementById) return false;
+  var d = document.getElementById(id || "lv-volet"), h = (d && d.querySelector) ? d.querySelector(".lv-hote") : null; if (!h) return false;
+  h.innerHTML = lvAilleursHtml(texte);
+  return true;
+}
+function lvGrandHtml(cle, g) {
+  /* « Fermer » seul à l'écran (aucun geste, ou des gestes internes en mode présentation) : à droite, à sa largeur, comme sur la planche */
+  var pres = typeof clientMode !== "undefined" && !!clientMode, seul = !(g.boutons || []).filter(function (b) { return b && !(b[3] && pres); }).length;
+  return '<span class="close" onclick="closeModal()">✕</span>' + (g.nu ? '' : '<h2 style="margin:0 0 4px">' + esc(g.titre || "") + '</h2><div class="msub">' + esc(g.ligne || "") + '</div>') + '<style>' + LV_CSS + '</style><div class="lv-grand' + (g.nu ? ' lv-nu' : '') + '" id="lv-grand" data-cle="' + esc(cle) + '">' + (g.corps || "") + '</div>'
+    + '<div class="modal-actions" style="' + (seul ? 'justify-content:flex-end' : 'flex-wrap:wrap') + '"><button class="cta ghost"' + (seul ? ' style="flex:0 0 auto"' : '') + ' onclick="closeModal()">Fermer</button>' + lvBoutonsHtml(g.boutons, true) + '</div>';
+}
+function lvGrandOuvrir(cle, rendre, apres) {
+  var g = null; try { g = rendre(); } catch (e) { g = null; }
+  if (!g) return false;
+  LV_GRAND.cle = String(cle || "grand"); LV_GRAND.rendre = rendre; LV_GRAND.apres = (typeof apres === "function") ? apres : null; LV_GRAND.html = String(g.corps || "");
+  openModal(lvGrandHtml(LV_GRAND.cle, g), "sheet");
+  if (LV_GRAND.apres) { try { LV_GRAND.apres(true); } catch (e) { } }   /* la fenêtre d'abord, l'écran ensuite : son panneau cède alors la place */
+  return true;
+}
+/* La fenêtre en grand est-elle ouverte (sur cette clé, si elle est donnée) ? Une fenêtre fermée sans passer par closeModal est oubliée ici. */
+function lvGrandOuvert(cle) {
+  if (!LV_GRAND.cle || (cle && LV_GRAND.cle !== cle)) return false;
+  var ov = (typeof document !== "undefined" && document.getElementById) ? document.getElementById("overlay") : null;
+  if (ov && ov.classList && typeof ov.classList.contains === "function" && !ov.classList.contains("show")) { LV_GRAND.cle = ""; LV_GRAND.rendre = null; LV_GRAND.apres = null; LV_GRAND.html = ""; return false; }
+  return true;
+}
+/* Après un geste qui change les données : la fenêtre en grand se redessine, si elle est à l'écran et que son contenu a changé. */
+function lvGrandRafraichir() {
+  if (!lvGrandOuvert() || typeof LV_GRAND.rendre !== "function") return false;
+  var h = document.getElementById("lv-grand"); if (!h || (h.getAttribute && h.getAttribute("data-cle") !== LV_GRAND.cle)) return false;
+  var g = null; try { g = LV_GRAND.rendre(); } catch (e) { g = null; }
+  if (!g) return false;
+  var corps = String(g.corps || ""); if (corps === LV_GRAND.html) return false;
+  h.innerHTML = corps; LV_GRAND.html = corps;
+  return true;
+}
+/* Appelée par closeModal : la fenêtre en grand est fermée, l'écran reprend son contenu. */
+function lvGrandFerme() {
+  if (!LV_GRAND.cle) return false;
+  var f = LV_GRAND.apres; LV_GRAND.cle = ""; LV_GRAND.rendre = null; LV_GRAND.apres = null; LV_GRAND.html = "";
+  var h = (typeof document !== "undefined" && document.getElementById) ? document.getElementById("lv-grand") : null; if (h && h.innerHTML) h.innerHTML = "";   /* la fenêtre fermée reste dans la page : elle ne garde pas un second exemplaire de la carte */
+  if (f) { try { f(false); } catch (e) { } }
+  return true;
+}
+
+/* ===== LES ANALYSES D'UN PARC : LA LISTE À GAUCHE, LE VISUEL À DROITE (patch 228, 24/11/2026) ============================
+   Planche validée par JB le 24/11/2026 (maquettes/accompagnement_r5/analyses_du_parc_liste_et_visuel), ses quatre choix :
+   1. l'écran se pose dans le volet « Analyse » de l'onglet Parc seulement ; les écrans Véhicules et Groupes gardent le tableau
+      des machines et prennent un lien « Voir l'analyse » qui mène à ce volet, pour le client choisi ;
+   2. à l'ouverture, l'analyse choisie est la vue d'ensemble du parc ;
+   3. l'ordre de la liste est celui des cartes, véhicules puis groupes puis études ; la pastille dit ce qui presse ;
+   4. « Ouvrir l'analyse » ouvre une fenêtre en grand, avec la carte et les gestes qui existent déjà (objectif du client,
+      étude, assistant) ; pour l'évolution, la comparaison de deux mois dessous.
+   Aucun calcul ne change. Les cartes sont celles que a1ParcAnalyseFleetHtml, a1ParcAnalyseGenHtml et a1ParcEtudesCardHtml
+   rendaient l'une sous l'autre : a1AnDecouper les sépare sans rien en perdre, chacune devient une ligne. Une analyse qui n'a
+   pas de carte n'a pas de ligne ; une carte que ce module ne connaît pas garde sa ligne, nommée par son titre.
+   « Ce qu'elle dit » (a1AnDire) se calcule pour chaque carte possible, avec les fonctions que la carte appelle elle-même ; à
+   défaut, c'est le début de la carte. L'état vient de la carte : bordure rouge « à voir », ambre « à suivre » ; « sans
+   donnée » quand elle n'a rien à lire, ce qui ne se dit jamais « rien à signaler ».
+   Mode présentation : l'onglet Parc s'y réduit à ce volet (un seul client, ni sélecteur, ni autres volets, ni gestes) ; la
+   liste n'y garde que ce qu'un client peut voir : pas de ligne pour une carte interne, pour une analyse sans donnée, pour les
+   études du cabinet, ni pour les décisions de parc tant qu'elles ne sont pas retenues pour le rapport.
+   La mise en page est celle du module « La liste à gauche, le visuel à droite » (lv…), posé juste au-dessus.
+   Banc : check_parc_analyses_liste.js. */
+var A1_AN = { cid: "", cle: "", vers: "" };
+var A1_AN_TYPES = [["coupdoeil", "a1p-coupdoeil-", /coup d.œil/i], ["conducteurs", "", /^Conducteurs/i], ["concentration", "", /Concentration des anomalies/i], ["anomalies", "a1p-anomalies-", /Anomalies détectées|Surconsommations|Sous-charge/i], ["ecart", "", /Écart valorisé/i], ["decisions", "a1p-decisions", /Décisions de parc/i], ["jirama", "a1p-jirama", /Comparatif réseau/i], ["coupures", "a1p-coupures", /Coupures du réseau/i], ["saison", "", /Saisonnalité/i], ["evolution", "", /^Évolution/i], ["comparer", "", /^Comparer deux mois/i], ["gps", "a1p-gpsrecoup", /Recoupement GPS/i], ["permutation", "a1p-permutation", /^Permutation/i], ["simulation", "", /^Simulation/i], ["pointe", "a1p-pointe", /^Mesures de pointe/i], ["factures", "", /^Factures/i], ["etudes", "a1p-etudes", /études d.optimisation/i]];
+var A1_AN_NOMS = { anomalies: "Anomalies", ecart: "Écart à la référence constructeur", decisions: "Garder, réaffecter, céder", jirama: "Comparatif avec le réseau", coupures: "Coupures du réseau", saison: "Saison des délestages", evolution: "Évolution, mois par mois", comparer: "Comparer deux mois", gps: "Recoupement GPS", conducteurs: "Conducteurs", concentration: "Concentration des anomalies", permutation: "Étude de permutation", simulation: "Simulation d’une charge à venir", pointe: "Mesure de pointe", etudes: "Études d’optimisation" };
+var A1_AN_GROUPES = { fleet: "Véhicules", gen: "Groupes et engins", etudes: "Études" };
+function a1AnPresentation() { return typeof clientMode !== "undefined" && !!clientMode; }
+function a1AnPl(n, un, plusieurs) { return n + " " + (n > 1 ? plusieurs : un); }
+function a1AnNoms(l, max) { max = max || 3; return l.slice(0, max).join(", ") + (l.length > max ? " et " + (l.length - max) + " de plus" : ""); }
+function a1AnVirgule(v) { return (+v).toFixed(1).replace(".", ","); }
+function a1AnMille(v) { return Math.round(+v || 0).toLocaleString("fr-FR"); }
+function a1AnPeriode() { var f = null; try { f = a1FenetreCourante(); } catch (e) { f = null; } return f ? "du " + frDate(f.du) + " au " + frDate(f.au) : "tout l’historique des relevés"; }
+function a1AnTexte(h) { return String(h || "").replace(/<svg[\s\S]*?<\/svg>/g, " ").replace(/<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim(); }
+/* Un texte sans les émojis des cartes, et sans ce qui précède sa première lettre. */
+function a1AnSobre(s) { return lvSobre(s); }
+function a1AnCourt(s) { s = String(s || "").replace(/\s+/g, " ").trim(); return s.length > 96 ? s.slice(0, 94).replace(/\s+\S*$/, "") + "…" : s; }
+/* Les cartes d'un morceau d'écran, entières et dans l'ordre : chaque bloc de premier niveau. Rien ne se perd : ce qui
+   précéderait une carte lui reste attaché, et les morceaux remis bout à bout redonnent le texte de départ. */
+function a1AnDecouper(h) {
+  h = String(h || ""); var out = [], i = 0, re = /<div\b|<\/div>/g, m;
+  while (i < h.length) {
+    var a = h.indexOf("<div", i); if (a < 0) break;
+    re.lastIndex = a; var prof = 0, k = -1;
+    while ((m = re.exec(h))) { if (m[0] === "</div>") { prof--; if (prof === 0) { k = m.index + 6; break; } if (prof < 0) break; } else prof++; }
+    if (k < 0) break;
+    out.push(h.slice(i, k)); i = k;
+  }
+  if (i < h.length) { if (out.length) out[out.length - 1] += h.slice(i); else if (h.slice(i).trim()) out.push(h.slice(i)); }
+  return out;
+}
+function a1AnTitre(bloc) { var m = /<h2[^>]*>([\s\S]*?)<\/h2>/.exec(bloc) || /<b[^>]*>([\s\S]*?)<\/b>/.exec(bloc); return m ? a1AnSobre(a1AnTexte(m[1])).replace(/\s*:\s*$/, "") : ""; }
+function a1AnType(id, titre) {
+  var i, t;
+  for (i = 0; i < A1_AN_TYPES.length; i++) { t = A1_AN_TYPES[i]; if (id && t[1] && id.indexOf(t[1]) === 0) return t[0]; }
+  for (i = 0; i < A1_AN_TYPES.length; i++) { t = A1_AN_TYPES[i]; if (titre && t[2].test(titre)) return t[0]; }
+  return "";
+}
+function a1AnNom(type, kind, titre) {
+  if (type === "coupdoeil") return kind === "gen" ? "Les groupes et engins en un coup d’œil" : "Les véhicules en un coup d’œil";
+  if (type === "factures") return kind === "gen" ? "Factures du réseau" : "Factures de carburant";
+  return A1_AN_NOMS[type] || (titre ? (titre.length > 46 ? titre.slice(0, 44).replace(/\s+\S*$/, "") + "…" : titre) : "Analyse");
+}
+/* À défaut de chiffre sûr : le début de la carte, sans son titre. */
+function a1AnDebut(bloc, titre) { var t = a1AnSobre(a1AnTexte(bloc)); if (titre && t.indexOf(titre) === 0) t = t.slice(titre.length); return t.replace(/^[\s:—·.,-]+/, ""); }
+/* Ce que dit une analyse, en une ligne : { dit, vide, machines }. vide : la carte n'a rien à lire. Rien : pas de chiffre sûr. */
+function a1AnDire(type, kind, E, C, id) {
+  var cid = E.cid, gen = kind === "gen", arr, n, d, s;
+  var actifs = function () { return (gen ? C.G() : C.F()).arr.filter(function (p) { return p.n > 0; }); };
+  var groupes = function () { return (DB.a1gensets || []).filter(function (g) { return g.clientId === cid && g.statut !== "cede" && !a1EstEngin(g); }); };
+  if (type === "coupdoeil") {
+    arr = actifs();
+    if (!arr.length) return { dit: gen ? "aucun relevé de groupe ou d’engin sur la période" : "aucun relevé de véhicule sur la période", vide: true };
+    if (!gen) {
+      var moy = C.F().fleetConso, suivis = arr.filter(function (p) { return p.km > 0; });
+      var hauts = suivis.filter(function (p) { var e = p.driftTheo != null ? p.driftTheo : ((moy > 0 && p.consoL100) ? (p.consoL100 / moy - 1) * 100 : null); return e != null && e > 15; });
+      return { dit: a1AnPl(suivis.length, "véhicule suivi", "véhicules suivis") + " · " + hauts.length + " au-delà de +15 % de " + (suivis.length > 1 ? "leur" : "sa") + " référence" };
+    }
+    var grp = arr.filter(function (p) { return !a1EstEngin(p.g); }), eng = arr.length - grp.length, ch = [];
+    grp.forEach(function (p) { var c = p.chargePct > 0 ? p.chargePct : null; if (c == null) { try { var st = (typeof a1SimStatsDe === "function" && a1SimStatsDe(p)) || a1GroupLoadStats(p.g); c = (st && st.charge > 0) ? st.charge : null; } catch (e) { c = null; } } if (c != null) ch.push(Math.round(c)); });
+    s = [grp.length ? a1AnPl(grp.length, "groupe", "groupes") : "", eng ? a1AnPl(eng, "engin", "engins") : ""].filter(Boolean).join(" et ");
+    if (ch.length === 1) s += " · charge moyenne " + ch[0] + " %"; else if (ch.length === 2) s += " · charge moyenne " + ch[0] + " % et " + ch[1] + " %"; else if (ch.length > 2) s += " · charge moyenne de " + Math.min.apply(null, ch) + " % à " + Math.max.apply(null, ch) + " %";
+    return { dit: s };
+  }
+  if (type === "anomalies") {
+    arr = actifs(); var an = arr.filter(function (p) { return p.anomaly; });
+    if (!gen) return an.length ? { dit: a1AnPl(an.length, "véhicule", "véhicules") + " : " + a1AnNoms(an.map(function (p) { return p.v.name; })), machines: an.map(function (p) { return { id: p.v.id, nom: p.v.name }; }) } : null;
+    var lo = arr.filter(function (p) { return p.lowLoad; });
+    s = [an.length ? an.length + " en surconsommation" : "", lo.length ? lo.length + " en sous-charge" : ""].filter(Boolean).join(" · ");
+    return s ? { dit: s, machines: an.concat(lo.filter(function (p) { return an.indexOf(p) < 0; })).map(function (p) { return { id: p.g.id, nom: p.g.name, engin: a1EstEngin(p.g) }; }) } : null;
+  }
+  if (type === "ecart") {
+    arr = actifs(); var tl = arr.reduce(function (t, p) { return t + ((p.diag && p.diag.loss) || 0); }, 0), fr = arr.filter(function (p) { return p.diag && p.diag.fraudScore >= 35; }).length;
+    s = tl > 0 ? fmtD(tl) + " sur la période, face à la consommation constructeur" : (fr ? a1AnPl(fr, gen ? "groupe" : "véhicule", gen ? "groupes" : "véhicules") + " avec des écarts à instruire" : "");   /* le montant d'abord : la carte dit le reste */
+    return s ? { dit: s } : null;
+  }
+  if (type === "decisions") { d = a1DecisionsParc(cid); n = d.n || {}; return { dit: (n.ceder || 0) + " à céder, à étudier · " + (n.reaffecter || 0) + " à réaffecter · " + a1AnPl(d.lignes.length, "véhicule passé", "véhicules passés") + " en revue" }; }
+  if (type === "evolution") {
+    s = a1MonthlySeries(kind, cid).filter(function (x) { return (gen ? x.costPerKwh : x.consoL100) != null; }); if (!s.length) return null;
+    d = s[s.length - 1];
+    if (gen) return { dit: fmtD(d.costPerKwh) + " par kWh en " + a1MonthLabel(d.m) };
+    return { dit: a1AnVirgule(d.consoL100) + " L/100 km en " + a1MonthLabel(d.m) + (s.length > 1 ? " · " + a1AnVirgule(s[0].consoL100) + " au début du suivi" : "") };
+  }
+  if (type === "comparer") return { dit: "deux mois au choix, " + (gen ? "groupe par groupe" : "véhicule par véhicule") };
+  if (type === "gps") {
+    if (id === "a1p-gpsrecoup") return { dit: "aucun export GPS chargé sur la période", vide: true };
+    var wg = C.F().arr.filter(function (p) { return p.recoup && p.recoup.hasGps; }), np = wg.filter(function (p) { return (p.recoup.flags || []).some(function (f) { return /non publié/.test(f.txt); }); });
+    var rec = wg.filter(function (p) { return np.indexOf(p) < 0; }), ec = rec.filter(function (p) { return Math.abs(p.recoup.deltaPct || 0) >= 10; });
+    return { dit: a1AnPl(wg.length, "véhicule", "véhicules") + " avec une distance GPS" + (ec.length ? " · " + a1AnPl(ec.length, "écart compteur / GPS à examiner", "écarts compteur / GPS à examiner") : (rec.length ? " · compteur et GPS concordent" : "")) };
+  }
+  if (type === "conducteurs") { n = a1DriverStats(cid).arr.length; return { dit: a1AnPl(n, "conducteur comparé", "conducteurs comparés") + " à la référence de leurs véhicules" }; }
+  if (type === "concentration") {
+    d = a1Concentration(kind, cid);
+    s = [d.stations.length ? a1AnPl(d.stations.length, gen ? "fournisseur" : "station", gen ? "fournisseurs" : "stations") : "", d.drivers.length ? a1AnPl(d.drivers.length, gen ? "opérateur" : "conducteur", gen ? "opérateurs" : "conducteurs") : ""].filter(Boolean).join(" et ");
+    return s ? { dit: s + " sur plusieurs relevés à vérifier" } : null;
+  }
+  if (type === "factures") {
+    var fk = gen ? "jirama" : "fuel", fl = (DB.a1invoices || []).filter(function (i) { return i.kind === fk && i.clientId === cid; });
+    return fl.length ? { dit: a1AnPl(fl.length, "facture enregistrée", "factures enregistrées") + " · " + fmtD(fl.reduce(function (t, i) { return t + (+i.amount || 0); }, 0)) } : null;
+  }
+  if (type === "jirama") { d = C.G().totals; if (!(d.jiramaKwh > 0)) return null; return { dit: d.cost > d.jiramaEquiv ? "au groupe, " + fmtD(d.cost - d.jiramaEquiv) + " de plus qu’au tarif du réseau" : "au groupe, " + fmtD(d.jiramaEquiv - d.cost) + " de moins qu’au tarif du réseau" }; }
+  if (type === "coupures") {
+    d = C.G().totals; if (!(d.outageH > 0)) return { dit: "durée des coupures non renseignée : heures hors coupure non calculables", vide: true };
+    return { dit: a1AnMille(d.outageH) + " h de coupures déclarées · " + a1AnMille(d.hours) + " h de marche" + (d.horsCoupureH >= 2 ? " · environ " + Math.round(d.horsCoupureH) + " h hors coupure" : "") };
+  }
+  if (type === "saison") { d = a1OutageSeason(cid); if (!d) return null; return { dit: a1MonthLabel(d.month) + " : " + a1HeuresFr(d.hours) + " h de coupures · " + (d.level === "intense" ? "délestages intensifs" : (d.level === "faible" ? "délestages faibles" : "niveau conforme à l’historique")) }; }
+  if (type === "permutation") {
+    var pin = (DB.a1swapReport || {})[cid], gs = groupes(), gA = pin && gs.filter(function (g) { return g.id === pin.a; })[0], gB = pin && gs.filter(function (g) { return g.id === pin.b; })[0];
+    return (gA && gB) ? { dit: gA.name + " ⇄ " + gB.name + " : épinglée au rapport" } : { dit: "aucune permutation épinglée au rapport", vide: true };
+  }
+  if (type === "simulation") { n = a1Simulations(cid).length; return n ? { dit: a1AnPl(n, "simulation enregistrée", "simulations enregistrées") } : { dit: "aucune simulation enregistrée", vide: true }; }
+  if (type === "pointe") {
+    var gp = groupes(); n = gp.filter(function (g) { return (DB.a1peaks || []).some(function (p) { return p.gensetId === g.id; }); }).length;
+    return n ? { dit: a1AnPl(n, "campagne de mesure", "campagnes de mesure") + (n < gp.length ? " · ailleurs, la pointe est estimée" : "") } : { dit: "aucune campagne de mesure : la pointe est estimée", vide: true };
+  }
+  if (type === "etudes") {
+    var et = []; (E.kinds || []).forEach(function (k) { et = et.concat(a1Etudes(cid, k)); }); n = et.filter(function (e) { return e.dansRapport; }).length;
+    return et.length ? { dit: a1AnPl(et.length, "étude enregistrée", "études enregistrées") + (n ? " · " + n + " dans le rapport" : "") } : { dit: "aucune étude enregistrée", vide: true };
+  }
+  return null;
+}
+/* Les analyses d'un client, une par carte : { cle, kind, type, groupe, nom, titre, dit, ton, html, interne, machines }.
+   o.kinds : ne lire que ces périmètres ; o.sansEtudes : sans la carte des études. Le client choisi sur les écrans Véhicules et
+   Groupes, que les cartes lisent, est remis tel qu'il était. */
+function a1AnListe(E, o) {
+  o = o || {}; var cid = E.cid, pres = a1AnPresentation(), out = [], vus = {}, memo = {};
+  var C = { F: function () { return memo.F || (memo.F = a1Compute(cid)); }, G: function () { return memo.G || (memo.G = a1GenCompute(cid)); } };
+  var kinds = o.kinds || E.kinds || [];
+  var ajouter = function (kind, h) {
+    a1AnDecouper(h).forEach(function (bloc) {
+      var racine = (/<div\b[^>]*>/.exec(bloc) || [""])[0], id = (/\bid="([^"]*)"/.exec(racine) || ["", ""])[1], interne = /\bclass="[^"]*\ba1-int\b/.test(racine);
+      var titre = a1AnTitre(bloc), type = a1AnType(id, titre), d = null;
+      try { d = type ? a1AnDire(type, kind, E, C, id) : null; } catch (e) { d = null; }
+      var vide = !!(d && d.vide), coul = (/border-left:3px solid var\(--(\w+)\)/.exec(racine) || ["", ""])[1];
+      if (pres && (interne || vide || type === "etudes" || (type === "decisions" && !a1DecisionsDansRapport(cid)))) return;
+      var cle = kind + ":" + (type || "carte"); vus[cle] = (vus[cle] || 0) + 1; if (vus[cle] > 1) cle += "-" + vus[cle];
+      out.push({ cle: cle, kind: kind, type: type, groupe: A1_AN_GROUPES[kind] || "", nom: a1AnNom(type, kind, titre), titre: titre, dit: a1AnCourt((d && d.dit) || a1AnDebut(bloc, titre)), ton: vide ? "vide" : (coul === "red" ? "voir" : ((coul === "amber" || coul === "orange") ? "suivre" : "")), html: bloc, interne: interne, machines: (d && d.machines) || [] });
+    });
+  };
+  var avF = a1Client, avG = a1genClient;
+  try {
+    if (kinds.indexOf("fleet") >= 0) { a1Client = cid; ajouter("fleet", a1ParcAnalyseFleetHtml(E)); }
+    if (kinds.indexOf("gen") >= 0) { a1genClient = cid; ajouter("gen", a1ParcAnalyseGenHtml(E)); }
+    if (!o.sansEtudes) ajouter("etudes", a1ParcEtudesCardHtml(E));
+  } finally { a1Client = avF; a1genClient = avG; }
+  return out;
+}
+/* Les boutons du panneau suivent l'analyse choisie : « Ouvrir l'analyse », puis les gestes qui existent pour elle. */
+function a1AnBoutons(a, E) {
+  var b = [["Ouvrir l’analyse", "a1AnOuvrir('" + escJs(a.cle) + "')"]], q = "'" + a.kind + "'";
+  if (a.type === "coupdoeil") b.push(["Données et fiabilité", "openA1DataPanel(" + q + ")", "ghost", true]);
+  else if (a.type === "anomalies") {
+    var m = (a.machines || []).slice(0, 3);
+    m.forEach(function (x) { b.push([m.length > 1 ? "Fiche de " + x.nom : (a.kind === "gen" ? (x.engin ? "Ouvrir la fiche de l’engin" : "Ouvrir la fiche du groupe") : "Ouvrir la fiche du véhicule"), "openA1Diag(" + q + ",'" + escJs(x.id) + "')", "ghost", false]); });
+  }
+  else if (a.type === "evolution") b.push(["En faire une étude", "openA1Etude('', {kind:" + q + "})", "ghost", true], ["Objectif du client", "openA1Target(" + q + ")", "ghost", true]);
+  else if (a.type === "comparer") b.push(["En faire une étude", "openA1Etude('', {kind:" + q + "})", "ghost", true]);
+  else if (a.type === "gps") b.push(["Importer un export GPS", "openA1GpsImport()", "ghost", true]);
+  else if (a.type === "coupures") b.push(["Heures hors coupure", "openA1ExplicationHC('" + escJs(E.cid) + "')", "ghost", true]);
+  return b;
+}
+function a1AnPanneauHtml(E, a) {
+  return lvPanneauHtml({ id: "lv-volet", titre: a.nom, sous: a.groupe.toLowerCase(), ligne: clientName(E.cid) + " · " + a1AnPeriode(), boutons: a1AnBoutons(a, E),
+    corps: lvGrandOuvert("parc:" + a.cle) ? lvAilleursHtml("Cette analyse est ouverte en grand.") : a.html });
+}
+/* Le volet « Analyse » de l'onglet Parc. À l'ouverture, la vue d'ensemble : la première ligne. Un lien venu d'un autre volet
+   (a1ParcAller avec une cible) choisit l'analyse qui porte la carte visée. */
+function a1AnVoletHtml(E) {
+  var L = a1AnListe(E);
+  if (A1_AN.cid !== E.cid) { A1_AN.cid = E.cid; A1_AN.cle = ""; }
+  if (typeof a1ParcCible !== "undefined" && a1ParcCible) { var vise = L.filter(function (x) { return x.html.indexOf('id="a1p-' + a1ParcCible + '"') >= 0; })[0]; if (vise) A1_AN.cle = vise.cle; }
+  if (!L.length) return '<div class="empty">Aucune analyse à montrer pour l’instant : elles paraissent avec les relevés.</div>';
+  var a = L.filter(function (x) { return x.cle === A1_AN.cle; })[0] || L[0]; A1_AN.cle = a.cle;
+  return lvDuoHtml(lvListeHtml(L, a.cle, { colonnes: ["Analyse", "Ce qu’elle dit"], choisir: "a1AnChoisir", pied: "Un clic sur une ligne montre l’analyse à droite, sans quitter la liste." }), a1AnPanneauHtml(E, a));
+}
+function a1AnChoisir(cle) {
+  A1_AN.cle = String(cle || ""); if (typeof a1ParcCible !== "undefined") a1ParcCible = "";
+  A1_AN.vers = lvEtroit() ? "lv-volet" : "";
+  renderA1Parc();
+  return true;
+}
+/* Un écran quitté reste dans la page. Les écrans Véhicules et Groupes peuvent y garder des cartes rendues plus tôt, avec les
+   mêmes identifiants que celles du volet (les deux listes de mois de la comparaison) : un geste fait dans la fenêtre en grand
+   lirait alors ces listes périmées, placées avant elle dans la page. Quand l'onglet Parc est à l'écran, ces deux écrans sont
+   vidés ; ils se redessinent à leur ouverture. Rend le nombre d'écrans vidés. */
+function a1AnAnciensVider() {
+  if (typeof document === "undefined" || !document.getElementById || typeof currentScreen === "undefined" || currentScreen !== "a1parc") return 0;
+  var n = 0; ["scr-a1fleet", "scr-a1genset"].forEach(function (id) { var e = document.getElementById(id); if (e && e.innerHTML) { e.innerHTML = ""; n++; } });
+  return n;
+}
+/* Après chaque rendu de l'onglet Parc : descendre au visuel sur un écran étroit, redessiner la fenêtre en grand si elle est
+   ouverte, remettre le panneau à la hauteur de la page. */
+function a1AnApresRendu() {
+  var vers = A1_AN.vers; A1_AN.vers = "";
+  if (vers) lvDescendre(vers);
+  if (LV_GRAND.cle) lvGrandRafraichir();
+  if (typeof a1ParcOnglet !== "undefined" && a1ParcOnglet === "analyse") { a1AnAnciensVider(); lvSuivreInstaller(); }
+  return true;
+}
+/* ---------- « Ouvrir l'analyse » : la fenêtre en grand ---------- */
+function a1AnGrand(cle) {
+  var cid = A1_AN.cid; if (!cid) return null;
+  var E = a1ParcEtat(cid), L = a1AnListe(E), a = L.filter(function (x) { return x.cle === cle; })[0]; if (!a) return null;
+  var corps = a.html, b = [], q = "'" + a.kind + "'";
+  if (a.type === "evolution") { var cmp = L.filter(function (x) { return x.kind === a.kind && x.type === "comparer"; })[0]; if (cmp) corps += cmp.html; }
+  if (a.kind !== "etudes") b = [["Objectif du client", "openA1Target(" + q + ")", "ghost", true], ["En faire une étude", "openA1Etude('', {kind:" + q + "})", "ghost", true], ["Analyse par l’assistant", a.kind === "gen" ? "a1GenAnalyze()" : "a1Analyze()", "", true]];
+  return { titre: a.nom + " · " + clientName(cid), ligne: a.groupe + " · " + a1AnPeriode(), corps: corps, boutons: b };
+}
+function a1AnOuvrir(cle) {
+  cle = String(cle || A1_AN.cle || ""); if (!cle || !A1_AN.cid) return false;
+  A1_AN.cle = cle;
+  return lvGrandOuvrir("parc:" + cle, function () { return a1AnGrand(cle); }, function (ouvre) { if (ouvre) lvPanneauCeder("lv-volet", "Cette analyse est ouverte en grand."); else if (typeof currentScreen === "undefined" || currentScreen === "a1parc") renderA1Parc(); });
+}
+/* ---------- depuis les écrans Véhicules et Groupes : le lien « Voir l'analyse » ---------- */
+function a1AnVoir(kind) {
+  var cid = kind === "gen" ? a1genClient : a1Client; if (!cid) { toast("Choisis d’abord un client : l’analyse porte sur un seul parc."); return false; }
+  A1_AN.cid = cid; A1_AN.cle = (kind === "gen" ? "gen" : "fleet") + ":coupdoeil";
+  a1ParcOuvrir(cid, "analyse");
+  return true;
+}
+function a1AnLienHtml(kind) {
+  var cid = kind === "gen" ? a1genClient : a1Client; if (!cid) return "";
+  var L = []; try { L = a1AnListe({ cid: cid, kinds: [kind] }, { kinds: [kind], sansEtudes: true }); } catch (e) { L = []; }
+  if (!L.length) return "";
+  var de = function (ton) { return L.filter(function (a) { return a.ton === ton; }).map(function (a) { return a.nom; }); }, voir = de("voir"), suivre = de("suivre");
+  var dit = a1AnPl(L.length, "analyse", "analyses") + " pour " + (kind === "gen" ? "les groupes et engins" : "les véhicules") + (voir.length ? " · " + voir.length + " à voir : " + voir.join(", ") : "") + (suivre.length ? " · " + suivre.length + " à suivre : " + suivre.join(", ") : "");
+  return '<div class="card" style="border-left:3px solid var(--gold)"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div style="font-size:13.5px;min-width:0"><b>L’analyse de ce parc</b><div class="hint" style="margin-top:3px">' + esc(dit) + '</div></div><button class="cta" onclick="a1AnVoir(\'' + (kind === "gen" ? "gen" : "fleet") + '\')">Voir l’analyse ▸</button></div></div>';
+}
+
 /* ===== DÉCISIONS DE PARC — GARDER, RÉAFFECTER, CÉDER (patch 212, v6.100.19, 11/11/2026) ===============================
    Le devis promet : « Décisions de parc : coût complet par véhicule, véhicules à conserver, à réaffecter ou à céder ».
    Pour chaque véhicule en service, sur douze mois glissants : le coût complet CONNU (carburant payé + entretien et réparations ;
@@ -32214,6 +32702,7 @@ function renderA1Fleet(){
   if(typeof focusClient!=="undefined" && focusClient && !a1Client) a1Client=focusClient; // cohérence : adopte le client en focus de l'app
   const {arr, fleetConso, totals}=a1Compute(a1Client);
   const tous=a1TousClients("fleet");   /* patch 222b : aucun client choisi et plusieurs parcs → la liste, client par client, sans rien calculer entre eux */
+  const ail=!!a1Client;   /* patch 228 : un client choisi, ses analyses se lisent dans l'onglet Parc (volet « Analyse ») ; l'écran garde le tableau des machines et y mène par « Voir l'analyse » */
   const anomalies=arr.filter(p=>p.anomaly);
   const withKm=arr.filter(p=>p.km>0).sort((a,b)=>b.costPerKm-a.costPerKm);
   const maxCpk=Math.max(1,...withKm.map(p=>p.costPerKm));
@@ -32242,17 +32731,17 @@ function renderA1Fleet(){
     <div class="a1-int">${a1Client?a1OfferCard(a1Client,"flotte"):`<div class="infobox">Sélectionne un <b>client</b> ci-dessus pour gérer ses données séparément et lui associer l'offre du Programme de parc : abonnement de suivi au barème, avec mise en place.</div>`}</div>
     ${a1DoublonsBandeauHtml('fleet')}${a1DocsProgrammeHtml('fleet')}${tous?"":a1PeriodicitesCardHtml('fleet')}${a1PassageCardHtml('fleet')}${a1CrossLinkBanner("fleet")}
       ${tous?"":a1ExecBannerHtml('fleet')}
-    ${arr.length&&!tous?`<div class="card"><h2>🎛️ La flotte en un coup d'œil</h2>${a1ParcCardsHtml('fleet', arr, {fleetConso})}<div class="hint" style="margin-top:6px">Jauge = dérive de consommation vs <b>référence constructeur</b> (à défaut : moyenne du parc). Vert = mieux que la référence · rouge au-delà de +15 %.</div></div>`:""}
+    ${ail?a1AnLienHtml('fleet'):""}${arr.length&&!tous&&!ail?`<div class="card"><h2>🎛️ La flotte en un coup d'œil</h2>${a1ParcCardsHtml('fleet', arr, {fleetConso})}<div class="hint" style="margin-top:6px">Jauge = dérive de consommation vs <b>référence constructeur</b> (à défaut : moyenne du parc). Vert = mieux que la référence · rouge au-delà de +15 %.</div></div>`:""}
     ${typeof a1FichesBanniereHtml==="function"?a1FichesBanniereHtml('fleet'):""}<div class="card"><h2>Parc — ${arr.length} véhicule(s) · ${arr.reduce((s,p)=>s+(p.n||0),0)} relevé(s)</h2><div class="hint">${tous?"Client par client ; dans chaque parc, du plus consommateur au moins consommateur.":"Classés du plus consommateur au moins consommateur."+(a1Client?" Parc de "+esc(clientName(a1Client))+".":"")}</div>${a1ResteDuParcHtml('fleet', arr.length)}
         ${arr.length?`<table><thead><tr><th>Véhicule</th><th style="text-align:right">Km</th><th style="text-align:right">Litres</th><th style="text-align:right">Conso</th><th style="text-align:right">Coût / km</th><th style="text-align:right">Coût</th><th class="a1-int">Actions</th></tr></thead><tbody>${rows}</tbody></table>`:`<div class="empty">Aucun véhicule enregistré pour ce client.<span class="a1-int"> Cliquez « + Véhicule » ou « ⇊ Importer CSV ».</span></div>`}
     </div>
-    ${anomalies.length&&!tous?`<div class="card" style="border-left:3px solid var(--red)"><b>⚠️ Anomalies détectées :</b> ${anomalies.map(p=>esc(p.v.name)+" ("+p.consoL100.toFixed(1)+" L/100 km, "+(p.driftTheo!=null?((p.driftTheo>0?"+":"")+Math.round(p.driftTheo)+" % vs référence"):(((p.consoL100/fleetConso-1)*100>0?"+":"")+Math.round((p.consoL100/fleetConso-1)*100)+" % vs moyenne"))+")").join(" · ")}. À vérifier : conduite, entretien ou circuit carburant.</div>`:""}
-    ${tous?"":(function(){const tl=arr.reduce((s,p)=>s+((p.diag&&p.diag.loss)||0),0);const fr=arr.filter(p=>p.diag&&p.diag.fraudScore>=35);return (tl>0||fr.length)?`<div class="card" style="border-left:3px solid var(--navy)">${tl>0?`<b>💸 Écart valorisé face à la référence constructeur :</b> ${fmtD(tl)}. `:""}${fr.length?`<b style="color:var(--red)">${fr.length} véhicule(s) avec des écarts à instruire</b> (score ≥ 35) et les orientations.`:""}${tl<=0&&!DB.meta.fuelPrices.gasoil?` <span style="color:var(--muted)">Renseignez les <b>⛽ prix carburant</b> pour chiffrer l'impact.</span>`:""}</div>`:"";})()}
-    ${tous?a1ChoisirClientHtml('fleet'):a1TrendCard('fleet')+(typeof a1ComparerMoisCard==="function"?a1ComparerMoisCard('fleet'):"")}
-    ${tous?"":a1GpsRecoupCard()}
-    ${tous?"":a1DriverCard()}
-    ${tous?"":a1InvoiceCard("fuel")}
-    ${tous?"":a1ConcentrationCard("fleet")}
+    ${anomalies.length&&!tous&&!ail?`<div class="card" style="border-left:3px solid var(--red)"><b>⚠️ Anomalies détectées :</b> ${anomalies.map(p=>esc(p.v.name)+" ("+p.consoL100.toFixed(1)+" L/100 km, "+(p.driftTheo!=null?((p.driftTheo>0?"+":"")+Math.round(p.driftTheo)+" % vs référence"):(((p.consoL100/fleetConso-1)*100>0?"+":"")+Math.round((p.consoL100/fleetConso-1)*100)+" % vs moyenne"))+")").join(" · ")}. À vérifier : conduite, entretien ou circuit carburant.</div>`:""}
+    ${tous||ail?"":(function(){const tl=arr.reduce((s,p)=>s+((p.diag&&p.diag.loss)||0),0);const fr=arr.filter(p=>p.diag&&p.diag.fraudScore>=35);return (tl>0||fr.length)?`<div class="card" style="border-left:3px solid var(--navy)">${tl>0?`<b>💸 Écart valorisé face à la référence constructeur :</b> ${fmtD(tl)}. `:""}${fr.length?`<b style="color:var(--red)">${fr.length} véhicule(s) avec des écarts à instruire</b> (score ≥ 35) et les orientations.`:""}${tl<=0&&!DB.meta.fuelPrices.gasoil?` <span style="color:var(--muted)">Renseignez les <b>⛽ prix carburant</b> pour chiffrer l'impact.</span>`:""}</div>`:"";})()}
+    ${tous?a1ChoisirClientHtml('fleet'):ail?"":a1TrendCard('fleet')+(typeof a1ComparerMoisCard==="function"?a1ComparerMoisCard('fleet'):"")}
+    ${tous||ail?"":a1GpsRecoupCard()}
+    ${tous||ail?"":a1DriverCard()}
+    ${tous||ail?"":a1InvoiceCard("fuel")}
+    ${tous||ail?"":a1ConcentrationCard("fleet")}
     ${tous?"":a1BesoinsCardHtml('fleet')}
     `;
 }
@@ -35349,6 +35838,7 @@ function renderA1Genset(){
   if(typeof focusClient!=="undefined" && focusClient && !a1genClient) a1genClient=focusClient; // cohérence : adopte le client en focus de l'app
   const {arr, totals}=a1GenCompute(a1genClient);
   const tous=a1TousClients("gen");   /* patch 222b : aucun client choisi et plusieurs parcs → la liste, client par client, sans rien calculer entre eux */
+  const ail=!!a1genClient;   /* patch 228 : un client choisi, ses analyses se lisent dans l'onglet Parc (volet « Analyse ») ; l'écran garde le tableau des machines et y mène par « Voir l'analyse » */
   const anomalies=arr.filter(p=>p.anomaly), lowLoads=arr.filter(p=>p.lowLoad);
   const ligne=p=>`
     <tr>
@@ -35375,18 +35865,18 @@ function renderA1Genset(){
     <div class="a1-int">${a1genClient?a1OfferCard(a1genClient,"genset"):`<div class="infobox">Sélectionne un <b>client</b> pour gérer ses groupes séparément et lui associer l'offre du Programme de parc : abonnement de suivi au barème, avec mise en place — éditable, PDF, mail.</div>`}</div>
     ${typeof a1JournalBandeauHtml==="function"?a1JournalBandeauHtml(a1genClient):""}${a1DoublonsBandeauHtml('gen')}${a1DocsProgrammeHtml('gen')}${tous?"":a1PeriodicitesCardHtml('gen')}${a1PassageCardHtml('gen')}${a1CrossLinkBanner("gen")}
       ${tous?"":a1ExecBannerHtml('gen')}
-    ${arr.length&&!tous?`<div class="card"><h2>🎛️ Le parc en un coup d'œil</h2>${a1ParcCardsHtml('gen', arr)}<div class="hint" style="margin-top:6px">Trait navy = charge moyenne · trait fin = pointe estimée (moyenne × ${A1_SWAP_PEAK}) · zone verte 60–80 % = zone idéale d'un diesel. Diagnostic détaillé : 🔬 dans le tableau ci-dessous.</div></div>`:""}
+    ${ail?a1AnLienHtml('gen'):""}${arr.length&&!tous&&!ail?`<div class="card"><h2>🎛️ Le parc en un coup d'œil</h2>${a1ParcCardsHtml('gen', arr)}<div class="hint" style="margin-top:6px">Trait navy = charge moyenne · trait fin = pointe estimée (moyenne × ${A1_SWAP_PEAK}) · zone verte 60–80 % = zone idéale d'un diesel. Diagnostic détaillé : 🔬 dans le tableau ci-dessous.</div></div>`:""}
     ${typeof a1FichesBanniereHtml==="function"?a1FichesBanniereHtml():""}<div class="card"><h2>Parc — ${arr.length} groupe(s) · ${arr.reduce((s,p)=>s+((p.logs||[]).length),0)} relevé(s)</h2><div class="hint">${a1genClient?"Parc de "+esc(clientName(a1genClient))+".":(tous?"Client par client.":"")}</div>${a1ResteDuParcHtml('gen', arr.length)}
       ${arr.length?`<div style="overflow-x:auto"><table><thead><tr><th>Groupe</th><th style="text-align:right">Heures</th><th style="text-align:right">kWh</th><th style="text-align:right">Conso (L/h)</th><th style="text-align:right">Rendement</th><th style="text-align:right">Coût / kWh</th><th class="a1-int">Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`:`<div class="empty">Aucun groupe enregistré pour ce client.<span class="a1-int"> Cliquez « + Groupe » ou « ⇊ Importer CSV ».</span></div>`}
     </div>
-    ${(anomalies.length||lowLoads.length)&&!tous?`<div class="card" style="border-left:3px solid var(--red)">${anomalies.length?`<b>⚠️ Surconsommations :</b> ${anomalies.map(p=>esc(p.g.name)+" ("+p.realLh.toFixed(1)+" L/h, +"+p.driftLh.toFixed(0)+"% vs attendu)").join(" · ")}. À vérifier : entretien, injecteurs, charge, ou circuit carburant.`:""}${anomalies.length&&lowLoads.length?"<br>":""}${lowLoads.length?`<b style="color:var(--amber)">Sous-charge :</b> ${lowLoads.map(p=>esc(p.g.name)+" ("+p.chargePct.toFixed(0)+"%)").join(" · ")} — groupe surdimensionné, rendement et durée de vie dégradés.`:""}</div>`:""}
-    ${tous?"":(function(){const tl=arr.reduce((s,p)=>s+((p.diag&&p.diag.loss)||0),0);const fr=arr.filter(p=>p.diag&&p.diag.fraudScore>=35);return (tl>0||fr.length)?`<div class="card" style="border-left:3px solid var(--navy)">${tl>0?`<b>💸 Écart valorisé face à la référence constructeur :</b> ${fmtD(tl)}. `:""}${fr.length?`<b style="color:var(--red)">${fr.length} groupe(s) avec des écarts à instruire</b> (score ≥ 35) — ouvrez le 🔬 diagnostic.`:""}${tl<=0&&!DB.meta.fuelPrices.gasoil?` <span style="color:var(--muted)">Renseignez les <b>⛽ prix carburant</b> pour chiffrer l'impact.</span>`:""}</div>`:"";})()}
-    ${tous?a1ChoisirClientHtml('gen'):a1TrendCard('gen')+(typeof a1ComparerMoisCard==="function"?a1ComparerMoisCard('gen'):"")+(typeof a1SimulationCard==="function"?a1SimulationCard():"")}
-    ${tous?"":a1SeasonCard()}
-    ${totals.jiramaKwh>0?`<div class="card" style="border-left:3px solid var(--navy)"><b>⚡ Comparatif réseau JIRAMA :</b> ${Math.round(totals.kwh).toLocaleString('fr-FR')} kWh produits au groupe = <b>${fmtD(totals.cost)}</b> ; au tarif réseau (${fmtD(totals.jiramaKwh)}/kWh) cela coûterait <b>${fmtD(totals.jiramaEquiv)}</b> → ${totals.cost>totals.jiramaEquiv?`surcoût d'autonomie de <b style="color:var(--amber)">${fmtD(totals.cost-totals.jiramaEquiv)}</b> (prix de la continuité pendant les délestages)`:`<b style="color:var(--green)">économie de ${fmtD(totals.jiramaEquiv-totals.cost)}</b> vs réseau`}.</div>`:""}
-    ${arr.length&&!tous?(totals.outageH>0?`<div class="card" style="border-left:3px solid ${totals.horsCoupureH>=2?'var(--amber)':'var(--navy)'}"><b>⚡ Coupures du réseau :</b> ${Math.round(totals.outageH).toLocaleString('fr-FR')} h de délestage déclarées · ${Math.round(totals.hours).toLocaleString('fr-FR')} h de marche groupes (couverture ${(totals.hours/totals.outageH).toFixed(2)}×).${totals.horsCoupureH>=2?` <b style="color:var(--amber)">~${Math.round(totals.horsCoupureH)} h hors coupure</b> — marche au-delà des délestages (réseau probablement disponible, à investiguer) : ${arr.filter(p=>p.horsCoupureH>=2).map(p=>esc(p.g.name)+" +"+Math.round(p.horsCoupureH)+"h").join(" · ")}.`:` Marche cohérente avec les coupures ✅.`}<div class="hint" style="margin-top:4px">Indicateur mensuel de <b>screening</b> (pas une preuve horaire). Comparaison prix « vs réseau » = renseigne le tarif JIRAMA (facture).</div></div>`:`<div class="card a1-int" style="border-left:3px solid var(--muted)"><b>⚡ Coupures du réseau :</b> durée non renseignée → <b>heures hors coupure non calculables</b>. Importe le tableau de bord (colonne « Durée coupures (h) ») ou saisis-les.</div>`):""}
-    ${tous?"":a1InvoiceCard("jirama")}
-    ${tous?"":a1ConcentrationCard("gen")}
+    ${(anomalies.length||lowLoads.length)&&!tous&&!ail?`<div class="card" style="border-left:3px solid var(--red)">${anomalies.length?`<b>⚠️ Surconsommations :</b> ${anomalies.map(p=>esc(p.g.name)+" ("+p.realLh.toFixed(1)+" L/h, +"+p.driftLh.toFixed(0)+"% vs attendu)").join(" · ")}. À vérifier : entretien, injecteurs, charge, ou circuit carburant.`:""}${anomalies.length&&lowLoads.length?"<br>":""}${lowLoads.length?`<b style="color:var(--amber)">Sous-charge :</b> ${lowLoads.map(p=>esc(p.g.name)+" ("+p.chargePct.toFixed(0)+"%)").join(" · ")} — groupe surdimensionné, rendement et durée de vie dégradés.`:""}</div>`:""}
+    ${tous||ail?"":(function(){const tl=arr.reduce((s,p)=>s+((p.diag&&p.diag.loss)||0),0);const fr=arr.filter(p=>p.diag&&p.diag.fraudScore>=35);return (tl>0||fr.length)?`<div class="card" style="border-left:3px solid var(--navy)">${tl>0?`<b>💸 Écart valorisé face à la référence constructeur :</b> ${fmtD(tl)}. `:""}${fr.length?`<b style="color:var(--red)">${fr.length} groupe(s) avec des écarts à instruire</b> (score ≥ 35) — ouvrez le 🔬 diagnostic.`:""}${tl<=0&&!DB.meta.fuelPrices.gasoil?` <span style="color:var(--muted)">Renseignez les <b>⛽ prix carburant</b> pour chiffrer l'impact.</span>`:""}</div>`:"";})()}
+    ${tous?a1ChoisirClientHtml('gen'):ail?"":a1TrendCard('gen')+(typeof a1ComparerMoisCard==="function"?a1ComparerMoisCard('gen'):"")+(typeof a1SimulationCard==="function"?a1SimulationCard():"")}
+    ${tous||ail?"":a1SeasonCard()}
+    ${totals.jiramaKwh>0&&!ail?`<div class="card" style="border-left:3px solid var(--navy)"><b>⚡ Comparatif réseau JIRAMA :</b> ${Math.round(totals.kwh).toLocaleString('fr-FR')} kWh produits au groupe = <b>${fmtD(totals.cost)}</b> ; au tarif réseau (${fmtD(totals.jiramaKwh)}/kWh) cela coûterait <b>${fmtD(totals.jiramaEquiv)}</b> → ${totals.cost>totals.jiramaEquiv?`surcoût d'autonomie de <b style="color:var(--amber)">${fmtD(totals.cost-totals.jiramaEquiv)}</b> (prix de la continuité pendant les délestages)`:`<b style="color:var(--green)">économie de ${fmtD(totals.jiramaEquiv-totals.cost)}</b> vs réseau`}.</div>`:""}
+    ${arr.length&&!tous&&!ail?(totals.outageH>0?`<div class="card" style="border-left:3px solid ${totals.horsCoupureH>=2?'var(--amber)':'var(--navy)'}"><b>⚡ Coupures du réseau :</b> ${Math.round(totals.outageH).toLocaleString('fr-FR')} h de délestage déclarées · ${Math.round(totals.hours).toLocaleString('fr-FR')} h de marche groupes (couverture ${(totals.hours/totals.outageH).toFixed(2)}×).${totals.horsCoupureH>=2?` <b style="color:var(--amber)">~${Math.round(totals.horsCoupureH)} h hors coupure</b> — marche au-delà des délestages (réseau probablement disponible, à investiguer) : ${arr.filter(p=>p.horsCoupureH>=2).map(p=>esc(p.g.name)+" +"+Math.round(p.horsCoupureH)+"h").join(" · ")}.`:` Marche cohérente avec les coupures ✅.`}<div class="hint" style="margin-top:4px">Indicateur mensuel de <b>screening</b> (pas une preuve horaire). Comparaison prix « vs réseau » = renseigne le tarif JIRAMA (facture).</div></div>`:`<div class="card a1-int" style="border-left:3px solid var(--muted)"><b>⚡ Coupures du réseau :</b> durée non renseignée → <b>heures hors coupure non calculables</b>. Importe le tableau de bord (colonne « Durée coupures (h) ») ou saisis-les.</div>`):""}
+    ${tous||ail?"":a1InvoiceCard("jirama")}
+    ${tous||ail?"":a1ConcentrationCard("gen")}
     ${tous?"":a1BesoinsCardHtml('gen')}
     `;
 }
