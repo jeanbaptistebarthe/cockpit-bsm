@@ -436,7 +436,7 @@ input,select,textarea,button{font-family:var(--ff-u)}
       <div class="flash-hd">
         <span class="flash-title">⚡ Audit Flash A1</span>
         <span class="flash-pill">Porte d'entrée</span>
-        <span class="flash-pill" style="background:rgba(47,133,90,.08);border-color:rgba(47,133,90,.3);color:var(--green)">Crédit 100 % → packs R5®</span>
+        <span class="flash-pill" style="background:rgba(47,133,90,.08);border-color:rgba(47,133,90,.3);color:var(--green)">Crédit 100 % → packs R5</span>
       </div>
       <div class="flash-sub">Analyse ponctuelle énergie &amp; flotte sur l'historique du client (jusqu'à 6 mois — saisie BSM incluse) : écarts chiffrés, diagnostic par causes, rapport exécutif + restitution sous 2–3 semaines. <b>Aucun abonnement.</b></div>
       <div class="flash-tiers">
@@ -444,7 +444,7 @@ input,select,textarea,button{font-family:var(--ff-u)}
         <div class="flash-tier" id="ft-pme"><div class="ft-name">PME</div><div class="ft-price">900 €</div><div class="ft-sub">6–20 véhicules ou 2–3 groupes</div></div>
         <div class="flash-tier" id="ft-eti"><div class="ft-name">ETI / Grand compte</div><div class="ft-price">1 800–2 500 €</div><div class="ft-sub">flotte 20+, multi-sites · sur devis au-delà</div></div>
       </div>
-      <div class="flash-note">💡 Argument : <b>l'audit se rembourse</b> — 100 % du forfait déduit de tout pack R5® signé sous 6 mois. Objectif annoncé (jamais garanti) : identifier des écarts supérieurs au prix de l'audit. Contrôle périodique re-proposable ensuite à tarif réduit.</div>
+      <div class="flash-note">💡 Argument : <b>l'audit se rembourse</b> — 100 % du forfait déduit de tout pack R5 signé sous 6 mois. Objectif annoncé (jamais garanti) : identifier des écarts supérieurs au prix de l'audit. Contrôle périodique re-proposable ensuite à tarif réduit.</div>
     </div>
 
     <!-- 3 Pack cards -->
@@ -662,7 +662,7 @@ input,select,textarea,button{font-family:var(--ff-u)}
             </div>
             <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(181,146,58,.12);background:rgba(181,146,58,.04)">
               <span style="color:var(--gold);font-size:13px;flex-shrink:0">✦</span>
-              <div style="flex:1"><div style="font-size:12px;font-weight:500;color:var(--text)">Suivi trimestriel R5®</div><div style="font-size:11px;color:var(--text-m)">Récurrent — revue tous les 3 mois</div></div>
+              <div style="flex:1"><div style="font-size:12px;font-weight:500;color:var(--text)">Suivi trimestriel R5</div><div style="font-size:11px;color:var(--text-m)">Récurrent — revue tous les 3 mois</div></div>
               <span style="font-size:11px;color:var(--text-m)">inclus</span>
             </div>
             <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(181,146,58,.04)">
@@ -701,7 +701,7 @@ input,select,textarea,button{font-family:var(--ff-u)}
               <div class="ot-desc">BCP + PRI + Dispositif crise</div>
             </button>
             <button class="offre-type-btn" id="ot-complete" onclick="selectOffreType('complete')">
-              <div class="ot-name">Mission Complète R5®</div>
+              <div class="ot-name">Mission Complète R5</div>
               <div class="ot-desc">Périmètre total — 45 000 € / an PME</div>
             </button>
           </div>
@@ -791,7 +791,7 @@ input,select,textarea,button{font-family:var(--ff-u)}
         <div class="ess-icon">◈</div>
         <div class="ess-text">
           <strong>Offre Essentielle — Modulaire allégée</strong>
-          <span>Prestations ciblées, livrables précis, délai compressé. Idéale pour entrée de relation, budget contraint, ou structure TPE/ONG. Qualité BSM R5®, périmètre ajusté.</span>
+          <span>Prestations ciblées, livrables précis, délai compressé. Idéale pour entrée de relation, budget contraint, ou structure TPE/ONG. Qualité BSM R5, périmètre ajusté.</span>
         </div>
       </div>
       <div class="sc">
@@ -950,7 +950,7 @@ input,select,textarea,button{font-family:var(--ff-u)}
         <div class="sc-body">
           <div class="fg"><textarea class="fsel" id="pc-next" rows="3" style="resize:vertical">1. Validation du périmètre proposé lors d'un échange dédié (30 min)
 2. Ajustements éventuels et émission du devis formel
-3. Signature et démarrage de la mission BSM R5®</textarea></div>
+3. Signature et démarrage de la mission BSM R5</textarea></div>
         </div>
       </div>
     </div>
@@ -1099,7 +1099,7 @@ const DEFAULTS = {
     {id:'f2',label:'Formation management de crise (2 jours)',desc:"Intensive dirigeants et cadres : décision sous pression, leadership de crise, simulations.",prix:3200,cat:'form',scalable:true,type:'ponctuel',cadence:null},
     {id:'f3',label:'Formation ISO 31000 Fundamentals',desc:"Fondamentaux management des risques ISO 31000:2018. Pour référents risque, DRH, DAF. Livret inclus.",prix:1800,cat:'form',scalable:true,type:'ponctuel',cadence:null},
     {id:'p1',label:'Tableau de bord des risques',desc:"Outil de pilotage : indicateurs, seuils d'alerte, statut actions. Livré clé en main + formation utilisation (2h).",prix:1800,cat:'pil',scalable:true,type:'ponctuel',cadence:null},
-    {id:'p3',label:'Rapport R5® mensuel',desc:"Rapport mensuel BSM R5 : indicateurs, faits marquants, recommandations. Format exécutif CODIR/CA.",prix:950,cat:'pil',scalable:true,type:'recurrent',cadence:1},
+    {id:'p3',label:'Rapport R5 mensuel',desc:"Rapport mensuel BSM R5 : indicateurs, faits marquants, recommandations. Format exécutif CODIR/CA.",prix:950,cat:'pil',scalable:true,type:'recurrent',cadence:1},
     {id:'p4',label:'Hotline crise BSM (bloc 3 mois)',desc:"Astreinte téléphonique activable sur déclaration de crise. Réponse garantie < 30 min.",prix:2000,cat:'pil',scalable:false,type:'recurrent',cadence:3},
     {id:'m1',label:'Valise de crise Essentielle',desc:"Kit physique BSM A&C : communication hors réseau, documents plastifiés, premiers secours, check-lists.",prix:4200,cat:'mat',scalable:false,type:'ponctuel',cadence:null},
     {id:'m2',label:'Valise de crise Premium (Iridium satellite)',desc:"Kit haute disponibilité : téléphone satellite Iridium, autonomie 72h, équipements ARTEC.",prix:9800,cat:'mat',scalable:false,type:'ponctuel',cadence:null},
@@ -1155,7 +1155,7 @@ const OFFRES_TYPES = {
   socle:        {label:'Socle',              opts:[]},
   structuration:{label:'Structuration',      opts:['a2','r3','f1']},
   continuite:   {label:'Continuité',         opts:['r1','r2','c1']},
-  complete:     {label:'Mission Complète R5®',opts:['a2','r1','c4','p3']}
+  complete:     {label:'Mission Complète R5',opts:['a2','r1','c4','p3']}
 };
 
 function selectOffreType(id){
@@ -1637,7 +1637,7 @@ function buildDevis(cl,calc,date,vdStr,dev,ref,isE){
   var rows='';
   if(!isE){
     rows+='<tr style="background:#FFF9F0"><td style="padding:9px 11px;border-bottom:1px solid #E5E7EB;font-size:12px;color:'+GR+'">OB</td>'
-      +'<td style="padding:9px 11px;border-bottom:1px solid #E5E7EB"><div style="font-weight:600;color:'+D+';font-size:13px">Offre de Base BSM R5®</div>'
+      +'<td style="padding:9px 11px;border-bottom:1px solid #E5E7EB"><div style="font-weight:600;color:'+D+';font-size:13px">Offre de Base BSM R5</div>'
       +'<div style="font-size:11px;color:'+GR+';margin-top:2px">Diagnostic initial · Suivi trimestriel · Pilotage mensuel — '+calc.months+' mois</div></td>'
       +'<td style="padding:9px 11px;border-bottom:1px solid #E5E7EB;text-align:center;font-size:12px;color:'+D+'">'+calc.months+'</td>'
       +'<td style="padding:9px 11px;border-bottom:1px solid #E5E7EB;text-align:right;font-size:13px;font-weight:600;color:'+D+'">'+fmt(calc.baseMensuel,dev)+'/mois</td>'
@@ -1795,7 +1795,7 @@ function genPC(){
 function buildPC(cl,calc,date){
   var G='#B5923A',D='#111827',GR='#6B7280',LT='#F9FAFB',NAVY='#0D1F45';
   var scopeRows='<tr style="background:#FFF9F0"><td style="padding:9px 12px;border-bottom:1px solid #E5E7EB;width:24px;color:'+G+';font-size:14px">◆</td>'
-    +'<td style="padding:9px 12px;border-bottom:1px solid #E5E7EB"><div style="font-weight:600;color:'+D+';font-size:13px">Offre de Base BSM R5® ('+calc.months+' mois)</div>'
+    +'<td style="padding:9px 12px;border-bottom:1px solid #E5E7EB"><div style="font-weight:600;color:'+D+';font-size:13px">Offre de Base BSM R5 ('+calc.months+' mois)</div>'
     +'<div style="font-size:11px;color:'+GR+';margin-top:2px">Diagnostic · Suivi trimestriel · Pilotage mensuel</div></td></tr>';
   if(calc.sel&&calc.sel.length>0){
     scopeRows+=calc.sel.map(function(o,i){
@@ -1818,7 +1818,7 @@ function buildPC(cl,calc,date){
     +(cl.ctx?'<p style="font-size:13px;color:'+D+';line-height:1.7;margin-bottom:10px">'+cl.ctx+'</p>':'')
     +'<div style="background:rgba(181,146,58,.06);border:1px solid rgba(181,146,58,.2);border-radius:6px;padding:16px 18px"><div style="font-size:10px;font-weight:700;color:'+G+';text-transform:uppercase;margin-bottom:8px">Enjeux prioritaires</div>'
     +'<p style="font-size:13px;color:'+D+';line-height:1.7;white-space:pre-wrap">'+cl.enj+'</p></div></div>'
-    +'<div style="margin-bottom:26px">'+secT('02','Méthodologie BSM R5®')
+    +'<div style="margin-bottom:26px">'+secT('02','Méthodologie BSM R5')
     +'<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">'+r5.map(function(n,i){return '<div style="text-align:center;padding:12px 8px;background:'+LT+';border-top:2px solid '+G+'"><div style="font-size:11px;font-weight:700;color:'+G+'">R'+(i+1)+'</div><div style="font-weight:600;font-size:12px;color:'+D+';margin-top:4px">'+n+'</div></div>';}).join('')+'</div></div>'
     +'<div style="margin-bottom:26px">'+secT('03','Périmètre Proposé')
     +'<table style="width:100%;border-collapse:collapse"><thead><tr style="background:'+D+'">'
@@ -1828,14 +1828,14 @@ function buildPC(cl,calc,date){
     +'<div style="margin-bottom:26px">'+secT('04','Investissement')+investHtml+'</div>'
     +'<div style="margin-bottom:26px">'+secT('05','Prochaines Étapes')
     +'<ul style="list-style:none;padding:0;border-left:2px solid '+G+';padding-left:16px;margin:0">'+nextSteps+'</ul></div>'
-    +'<div style="text-align:center;font-size:10px;color:'+G+'">BSM R5® — Révéler · Connecter · Répondre · Renforcer · Réviser</div>';
+    +'<div style="text-align:center;font-size:10px;color:'+G+'">BSM R5 — Révéler · Connecter · Répondre · Renforcer · Réviser</div>';
   return simDocChrome(body,{
     title:'PC '+cl.ref,
     typeLabel:'Proposition commerciale',
     ref:cl.ref, date:date,
     badge:ST.estim?'ESTIMATION INDICATIVE':'',
     clientName:cl.rs, clientContact:cl.ct+(cl.ti?' — '+cl.ti:''),
-    objet:cl.ctx?cl.ctx.substring(0,160):'Accompagnement en gouvernance des risques — Méthode R5®',
+    objet:cl.ctx?cl.ctx.substring(0,160):'Accompagnement en gouvernance des risques — Méthode R5',
     footRef:cl.ref+' · Proposition commerciale · BSM Advisory & Consulting'
   });
 }
