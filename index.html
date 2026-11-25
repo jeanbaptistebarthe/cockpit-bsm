@@ -848,7 +848,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.44";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.45";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const PILOTAGE_URL = "https://claude.ai/artifact/4Fecc8R8QfbCRjdYJh6MpH";   // dashboard BSM A&C Pilotage : point mort, investissements, indicateurs (patch 200)
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
@@ -19072,6 +19072,7 @@ function a1PremiumExperience(rec, title, doc) {
    posé par le script de publication ; vide, la ligne n'est pas encore en ligne. Outil des patchs : BANC A1/quoi_de_neuf_lib.js.
    Banc : check_quoi_de_neuf.js (une version sans ligne est refusée). */
 function qdnLignes() { return [
+  { v: "6.100.45", le: "2026-11-25", quoi: "Depuis l’écran Parc, un enregistrement (objectif, fiche d’une machine, relevé, facture, import) redessine l’écran Parc lui-même.", ou: "Parc · tous les volets", verif: "Parc, volet « Machines » : change le conducteur d’un véhicule et enregistre ; le tableau le montre aussitôt.", aller: "a1parc" },
   { v: "6.100.44", le: "2026-11-25", quoi: "Sur la fiche d’un client, l’onglet « Parc » se lit en liste : les cartes du suivi et les analyses du parc à gauche, la ligne choisie à droite.", ou: "Clients · la fiche d’un client · onglet « Parc »", verif: "Société fictive : vingt et une lignes ; « Chaîne de suivi » est choisie à l’ouverture ; une analyse s’ouvre en grand.", aller: "clients" },
   { v: "6.100.43", le: "2026-11-25", quoi: "Un client peut être dit « pas en gouvernance des risques » : le circuit et l’onglet de la gouvernance quittent sa fiche, rien n’est supprimé.", ou: "Clients · la fiche d’un client · onglet Circuit, sous le circuit de la gouvernance des risques", verif: "Une recommandation ou un risque du parc ne fait plus paraître le circuit de la gouvernance sur la fiche d’un client du parc seul.", aller: "clients" },
   { v: "6.100.42", le: "2026-11-24", quoi: "Sur la fiche d’un client, l’onglet « Gouvernance des risques » se lit en liste : les cartes de la méthode à gauche, la carte choisie à droite.", ou: "Clients · la fiche d’un client · onglet « Gouvernance des risques »", verif: "Société fictive : dix lignes ; « Suivi & progression » est choisie à l’ouverture ; « Ouvrir en grand » montre la carte entière.", aller: "clients" },
@@ -19391,7 +19392,8 @@ function ogAllerCarte(base) {
    - une carte d'analyse n'existe qu'à un endroit de la page. Quand la fiche montre la liste, les écrans Parc, Véhicules et
      Groupes, quittés mais restés dans la page, sont vidés : ils se redessinent à leur ouverture. Un geste fait depuis la fiche
      qui redessinerait l'un d'eux redessine la fiche (fpAvantRenduParc, en tête de renderA1Parc, renderA1Fleet et
-     renderA1Genset). Quand l'un d'eux se dessine pour être vu, la fiche cachée rend sa carte d'analyse ;
+     renderA1Genset). Quand l'un d'eux se dessine pour être vu, la fiche cachée rend sa carte d'analyse. Depuis le patch 232,
+     la même garde vaut pour l'écran Parc : un enregistrement fait depuis lui le redessine, lui ;
    - les sélections des écrans Véhicules et Groupes suivent le client de la fiche : les fenêtres que ces cartes ouvrent
      (objectif, diagnostic, étude) lisent a1Client et a1genClient ;
    - la liste n'est posée que sur la fiche à l'écran ; la session se souvient de la ligne choisie (FP_CHOIX, par fiche) ; un
@@ -19565,16 +19567,25 @@ function fpRendreCarte() {
   h.innerHTML = lvAilleursHtml("Cette analyse est montrée dans un autre écran.");
   return true;
 }
-/* En tête de renderA1Parc, renderA1Fleet et renderA1Genset. id : l'écran à dessiner. La fiche est à l'écran avec la liste de
-   son onglet « Parc » et cet écran ne l'est pas : le geste venait de la fiche ; c'est elle qui se redessine, cet écran est
-   vidé, et le rendu demandé s'arrête là (rend vrai). Sinon le rendu se fait, et la fiche cachée rend sa carte d'analyse. */
+/* En tête de renderA1Parc, renderA1Fleet et renderA1Genset. id : l'écran à dessiner. Quand cet écran n'est pas à l'écran, le
+   geste venait d'ailleurs, et c'est ce qui est à l'écran qui se redessine :
+   - la fiche d'un client, avec la liste de son onglet « Parc » (patch 231) ;
+   - l'écran Parc (patch 232, 25/11/2026) : poser un objectif du client, enregistrer la fiche d'une machine, un relevé, une
+     facture, importer un export redessinaient « Véhicules » ou « Groupes » restés derrière, et l'écran Parc gardait
+     l'ancien affichage jusqu'au prochain changement de volet.
+   L'écran demandé est vidé (il se redessine à son ouverture) et le rendu demandé s'arrête là (rend vrai). Sinon le rendu se
+   fait, et la fiche cachée rend sa carte d'analyse. */
 function fpAvantRenduParc(id) {
   if (typeof document === "undefined" || !document.getElementById) return false;
   var f = document.getElementById("scr-clientfiche"), e = document.getElementById(id);
   if (!f || !e || !f.classList || !e.classList) return false;
-  if (f.classList.contains("active") && !e.classList.contains("active") && f.querySelector && f.querySelector(":scope > .fp-liste")) {
-    if (!FP_REND) { FP_REND = true; try { e.innerHTML = ""; if (typeof renderClientFiche === "function") renderClientFiche(); } finally { FP_REND = false; } }
-    return true;
+  if (!e.classList.contains("active")) {
+    var p = id !== "scr-a1parc" ? document.getElementById("scr-a1parc") : null;
+    var fiche = f.classList.contains("active") && !!f.querySelector && !!f.querySelector(":scope > .fp-liste"), parc = !fiche && !!(p && p.classList && p.classList.contains("active"));
+    if (fiche || parc) {
+      if (!FP_REND) { FP_REND = true; try { e.innerHTML = ""; if (fiche) { if (typeof renderClientFiche === "function") renderClientFiche(); } else if (typeof renderA1Parc === "function") renderA1Parc(); } finally { FP_REND = false; } }
+      return true;
+    }
   }
   fpRendreCarte();
   return false;
