@@ -848,7 +848,7 @@ h2 svg.pic{color:var(--gold);width:1em;height:1em}
    Structure alignée sur le schéma Risk Hub pour migration web ultérieure.
    ========================================================================= */
 
-const APP_VERSION = "6.100.43";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
+const APP_VERSION = "6.100.44";              // version du Cockpit — affichée dans l'en-tête et l'écran Santé
 const PILOTAGE_URL = "https://claude.ai/artifact/4Fecc8R8QfbCRjdYJh6MpH";   // dashboard BSM A&C Pilotage : point mort, investissements, indicateurs (patch 200)
 var BSM_MODE_DEV = false;                    // ⚠ DÉVELOPPEMENT — coffre et connexion suspendus, le serveur de ce PC fait foi.
 var BSM_PICTOS_SOBRES = true;               // pictogrammes SVG à la place des émojis (patch 49) — false pour revenir aux émojis
@@ -19072,6 +19072,7 @@ function a1PremiumExperience(rec, title, doc) {
    posé par le script de publication ; vide, la ligne n'est pas encore en ligne. Outil des patchs : BANC A1/quoi_de_neuf_lib.js.
    Banc : check_quoi_de_neuf.js (une version sans ligne est refusée). */
 function qdnLignes() { return [
+  { v: "6.100.44", le: "2026-11-25", quoi: "Sur la fiche d’un client, l’onglet « Parc » se lit en liste : les cartes du suivi et les analyses du parc à gauche, la ligne choisie à droite.", ou: "Clients · la fiche d’un client · onglet « Parc »", verif: "Société fictive : vingt et une lignes ; « Chaîne de suivi » est choisie à l’ouverture ; une analyse s’ouvre en grand.", aller: "clients" },
   { v: "6.100.43", le: "2026-11-25", quoi: "Un client peut être dit « pas en gouvernance des risques » : le circuit et l’onglet de la gouvernance quittent sa fiche, rien n’est supprimé.", ou: "Clients · la fiche d’un client · onglet Circuit, sous le circuit de la gouvernance des risques", verif: "Une recommandation ou un risque du parc ne fait plus paraître le circuit de la gouvernance sur la fiche d’un client du parc seul.", aller: "clients" },
   { v: "6.100.42", le: "2026-11-24", quoi: "Sur la fiche d’un client, l’onglet « Gouvernance des risques » se lit en liste : les cartes de la méthode à gauche, la carte choisie à droite.", ou: "Clients · la fiche d’un client · onglet « Gouvernance des risques »", verif: "Société fictive : dix lignes ; « Suivi & progression » est choisie à l’ouverture ; « Ouvrir en grand » montre la carte entière.", aller: "clients" },
   { v: "6.100.41", le: "2026-11-24", quoi: "Les analyses d’un parc se lisent comme les fiches réflexes : la liste à gauche, le visuel de l’analyse choisie à droite, « Ouvrir l’analyse » en grand.", ou: "Parc · un client · volet « Analyse ». Les écrans Véhicules et Groupes y mènent par « Voir l’analyse ».", verif: "Société fictive : dix-sept analyses dans la liste ; à l’ouverture, la vue d’ensemble des véhicules est choisie.", aller: "a1parc" },
@@ -19369,6 +19370,214 @@ function ogAllerCarte(base) {
   var scr = document.getElementById("scr-clientfiche"); if (!scr || !scr.querySelectorAll) return false;
   var card = [].slice.call(scr.querySelectorAll('.card[data-groupe="r5"]')).filter(function (k) { return ogBase(k.getAttribute("data-som") || "") === base; })[0];
   return card ? !!navAller(card.getAttribute("data-som")) : false;
+}
+
+/* ===== SUR LA FICHE D'UN CLIENT, L'ONGLET « PARC » EN LISTE ET VISUEL (patch 231, 25/11/2026) ===========================
+   Demande de JB du 24/11/2026 : « pour le parc je n'ai pas le même visuel ? dans l'espace client, pour m'y retrouver plus
+   facilement et avoir toutes les données par clients ? » Planche validée le 25/11/2026 (maquettes/accompagnement_r5/
+   fiche_parc_liste_et_visuel, « Oui, les trois ») :
+   1. la liste porte les cartes de l'onglet (chaîne de suivi, analyse à l'arrivée, ce que l'équipe a noté, entretien, espace
+      client), puis les analyses du parc du client, les mêmes lignes que dans l'écran Parc (a1AnListe) ;
+   2. l'écran Parc du menu reste tel quel, sur le même code : la fiche pour lire un client, l'écran Parc pour travailler ;
+   3. les analyses lisent la période du Cockpit (DB.meta.a1Fenetre), écrite dans le panneau ; elle se change dans l'écran Parc.
+   Repris de ses choix du 24/11/2026 : « Ouvrir en grand » ouvre une fenêtre ; l'ordre des cartes ne change pas, la pastille dit
+   ce qui presse ; à l'ouverture, « Chaîne de suivi ».
+   Tout est de l'affichage : rien n'est écrit dans la base. La mise en page est celle de la liste à gauche et du visuel à droite
+   (lv…), comme l'onglet « Gouvernance des risques » (og…). Le rangement se pose après les onglets (navOngletsPoser) :
+   - la liste se lit sur ce que les cartes portent (fpLire) et sur les analyses du client, toutes ses machines (véhicules,
+     groupes et engins), quel que soit le périmètre choisi dans l'écran Parc ;
+   - la carte choisie passe dans le panneau, une marque garde sa place ; une analyse choisie y est rendue par le code de
+     l'écran Parc ; elle porte sa clé, et l'observateur de la navigation n'a rien à reposer ;
+   - une carte d'analyse n'existe qu'à un endroit de la page. Quand la fiche montre la liste, les écrans Parc, Véhicules et
+     Groupes, quittés mais restés dans la page, sont vidés : ils se redessinent à leur ouverture. Un geste fait depuis la fiche
+     qui redessinerait l'un d'eux redessine la fiche (fpAvantRenduParc, en tête de renderA1Parc, renderA1Fleet et
+     renderA1Genset). Quand l'un d'eux se dessine pour être vu, la fiche cachée rend sa carte d'analyse ;
+   - les sélections des écrans Véhicules et Groupes suivent le client de la fiche : les fenêtres que ces cartes ouvrent
+     (objectif, diagnostic, étude) lisent a1Client et a1genClient ;
+   - la liste n'est posée que sur la fiche à l'écran ; la session se souvient de la ligne choisie (FP_CHOIX, par fiche) ; un
+     bouton qui mène à une carte de l'onglet la choisit dans la liste (fpChoisirPour, appelée par navAller).
+   À l'impression, les cartes de l'onglet sont toutes là, sans la liste. Banc : check_fiche_parc_liste.js. */
+var FP_CHOIX = {};
+var FP_DEFAUT = "carte:chaine-de-suivi";
+var FP_GROUPES = { fleet: "Analyses · véhicules", gen: "Analyses · groupes et engins", etudes: "Études" };
+var FP_REND = false;
+var FP_CSS = '#scr-clientfiche .fp-hors{display:none!important}#scr-clientfiche .fp-liste{min-width:0}#scr-clientfiche .fp-liste .lv-hote > .card{margin:0;overflow-x:auto}#scr-clientfiche .card[data-groupe="parc"] h2 .card-fold,.lv-grand .card-fold{display:none}.fp-vers{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:#5B6B7A}.fp-vers button{flex:none}body.dark .fp-vers{color:#94a3b8}@media print{#scr-clientfiche .fp-hors{display:block!important}#scr-clientfiche .fp-liste .lv-g,#scr-clientfiche .fp-liste .lv-vt,#scr-clientfiche .fp-liste .lv-vs{display:none}#scr-clientfiche .fp-liste .lv-duo{display:block}#scr-clientfiche .fp-liste .lv-d{background:none;border:none;padding:0;max-height:none;overflow:visible;transform:none!important}#scr-clientfiche .fp-liste .lv-hote{padding:0}}';
+function fpNu(n) { return String((n && n.textContent) || "").replace(/\s+/g, " ").trim(); }
+function fpSans(n, sel) { [].slice.call(n.querySelectorAll(sel)).forEach(function (x) { if (x.parentNode) x.parentNode.removeChild(x); }); return n; }
+/* « 2 échéance(s) atteinte(s) » se lit « 2 échéances atteintes » dans une ligne de la liste. */
+function fpPluriel(s) { return String(s || "").split(/( · |, | ; | : )/).map(function (seg) { var m = /(\d+)/.exec(seg); return m ? seg.replace(/\(s\)/g, +m[1] > 1 ? "s" : "") : seg; }).join(""); }
+function fpCourt(s) { s = String(s || ""); if (s.length <= 104) return s; var q = s.slice(0, 100), e = q.lastIndexOf(" "); return (e > 60 ? q.slice(0, e) : q) + "…"; }
+function fpBord(card) { var m = /border-left:\s*3px solid var\(--(\w+)\)/.exec((card && card.getAttribute && card.getAttribute("style")) || ""); return m ? m[1] : ""; }
+function fpBloc(scr, card) { var b = card; while (b.parentElement && b.parentElement !== scr) b = b.parentElement; return b; }
+function fpFicheVue() { var s = (typeof document !== "undefined" && document.getElementById) ? document.getElementById("scr-clientfiche") : null; return !!(s && s.classList && s.classList.contains("active")); }
+/* Ce qu'une carte de l'onglet dit d'elle-même, pour sa ligne : son nom (le titre jusqu'au tiret long), sa phrase, le geste
+   qu'elle attend et sa pastille, lus sur ce que la carte porte : la liste ne peut pas dire autre chose qu'elle. */
+function fpLire(card) {
+  var som = card.getAttribute("data-som") || "", h2 = card.querySelector("h2"); if (!h2) return null;
+  var titre = lvSobre(fpNu(fpSans(h2.cloneNode(true), ".card-fold, .og-etat, .badge, button, select, input, .cta"))), morceaux = titre.split(" — "), apres = morceaux.slice(1).join(" — ");
+  var tete = h2; while (tete.parentElement && tete.parentElement !== card) tete = tete.parentElement;   /* l'en-tête : l'enfant direct de la carte qui porte le titre */
+  var sous = tete !== h2 ? lvSobre(fpNu(fpSans(tete.cloneNode(true), "h2, button, select, input, .cta"))) : "";
+  var o = { cle: "carte:" + som, som: som, card: card, groupe: "Suivi du parc", nom: morceaux[0], dit: "", geste: "", ton: "" }, b, m, t, bs, prio, surv;
+  if (som.indexOf("chaine-de-suivi") === 0) {
+    b = card.querySelector(".badge"); m = /(\d+)\s*\/\s*(\d+)/.exec(fpNu(b));
+    o.dit = m ? m[1] + " étape" + (+m[1] > 1 ? "s" : "") + " sur " + m[2] : "";
+    t = [].slice.call(card.querySelectorAll(".hint")).map(fpNu).filter(function (x) { return /^Prochain geste|^Chaîne complète/.test(x); })[0] || "";
+    if (/^Prochain geste/.test(t)) o.geste = t.split(" — ")[0]; else if (t) o.dit += (o.dit ? " · " : "") + t.replace(/\.$/, "").toLowerCase();
+    if (!o.dit) o.dit = fpNu(card.querySelector(".hint"));
+  } else if (som.indexOf("analyse") === 0) {
+    bs = [].slice.call(card.querySelectorAll(".badge")).map(fpNu); prio = bs.filter(function (x) { return /prioritaire/.test(x); }).length; surv = bs.filter(function (x) { return /surveiller/.test(x); }).length;
+    o.dit = sous + ((prio + surv) ? " · " + (prio + surv) + " écart" + (prio + surv > 1 ? "s" : "") + " à examiner" + (prio ? ", dont " + prio + " prioritaire" + (prio > 1 ? "s" : "") : "") : "");
+    o.ton = prio ? "voir" : (surv ? "suivre" : (/^rien d.analysé/.test(sous) ? "vide" : ""));
+  } else if (som.indexOf("ce-que-l-equipe") === 0) {
+    o.dit = fpPluriel(fpNu(card.querySelector(".hint"))).replace(" depuis l'espace des équipes", "").replace(" depuis l’espace des équipes", "");
+    if (/à vérifier/.test(fpNu(card))) o.ton = "suivre";
+  } else if (som.indexOf("entretien") === 0) {
+    o.dit = fpPluriel(apres); t = fpBord(card); o.ton = t === "red" ? "voir" : (t === "amber" ? "suivre" : "");
+  } else if (som.indexOf("espace-client") === 0) {
+    b = card.querySelector(".badge"); t = b && b.nextElementSibling ? fpNu(b.nextElementSibling) : "";
+    o.dit = lvSobre(fpNu(b)) + (t ? " : " + t : ""); o.ton = /SUSPENDUS/.test(fpNu(b)) ? "voir" : (/libres/i.test(fpNu(b)) ? "suivre" : "");
+  } else o.dit = fpPluriel(apres || sous);
+  o.dit = fpCourt(o.dit);
+  return o;
+}
+/* Les analyses du parc du client, toutes ses machines : les mêmes lignes que dans l'écran Parc. Rien pour un client sans parc. */
+function fpEtat(cid) { return { cid: cid, kinds: a1ParcKinds(cid) }; }
+function fpAParc(cid) { try { return !!cid && a1ParcMachines(cid).length > 0; } catch (e) { return false; } }
+function fpAnalyses(cid) {
+  if (typeof a1AnListe !== "function" || !fpAParc(cid)) return [];
+  var L = []; try { L = a1AnListe(fpEtat(cid)); } catch (e) { L = []; }
+  return L.map(function (a) { return { cle: a.cle, kind: a.kind, type: a.type, groupe: FP_GROUPES[a.kind] || a.groupe, sous: String(a.groupe || "").toLowerCase(), nom: a.nom, dit: a.dit, ton: a.ton, html: a.html, machines: a.machines, analyse: true }; });
+}
+/* Avant tout rangement : la carte du panneau retrouve sa place, la liste s'en va (avec la carte d'analyse qu'elle montrait),
+   plus rien n'est caché. Rend ce qui a été défait. */
+function fpDefaire(name, scr) {
+  if (name !== "clientfiche" || !scr || !scr.querySelectorAll) return 0;
+  var n = 0, w = scr.querySelector(":scope > .fp-liste");
+  [].slice.call(scr.querySelectorAll(".fp-place")).forEach(function (m) {
+    var card = w ? w.querySelector('.lv-hote > .card[data-groupe="parc"]') : null;
+    if (card && m.parentNode) m.parentNode.insertBefore(card, m);
+    if (m.parentNode) m.parentNode.removeChild(m); n++;
+  });
+  if (w && w.parentNode) { w.parentNode.removeChild(w); n++; }
+  [].slice.call(scr.querySelectorAll(".fp-hors")).forEach(function (k) { k.classList.remove("fp-hors"); n++; });
+  return n;
+}
+/* La liste à gauche, la ligne choisie à droite. cartes : les cartes de l'onglet, dans l'ordre de la fiche. */
+function fpListePoser(name, scr, cartes) {
+  if (typeof lvListeHtml !== "function" || typeof lvPanneauHtml !== "function" || typeof lvDuoHtml !== "function") return false;
+  var cid = (typeof currentClientId !== "undefined" && currentClientId) || "";
+  var C = cartes.map(fpLire).filter(Boolean); if (!C.length) return false;
+  var A = fpAnalyses(cid), L = C.concat(A), k = navCleEcran(name);
+  var trouve = function (c) { return L.filter(function (l) { return l.cle === c; })[0]; };
+  var sel = trouve(FP_CHOIX[k]) || trouve(FP_DEFAUT) || L[0]; FP_CHOIX[k] = sel.cle;
+  var grand = typeof lvGrandOuvert === "function" && lvGrandOuvert("fiche-parc:" + sel.cle), droite;
+  if (sel.analyse) droite = lvPanneauHtml({ id: "fp-volet", titre: sel.nom, sous: sel.sous, ligne: clientName(cid) + " · " + a1AnPeriode(), boutons: [["Ouvrir l’analyse", "fpOuvrirGrand('" + escJs(sel.cle) + "')"]].concat(a1AnBoutons(sel, fpEtat(cid)).slice(1)), corps: grand ? lvAilleursHtml("Cette analyse est ouverte en grand.") : sel.html });
+  else droite = lvPanneauHtml({ id: "fp-volet", titre: sel.nom, boutons: [["Ouvrir en grand", "fpOuvrirGrand('" + escJs(sel.cle) + "')"]], corps: "" });
+  var vers = A.length ? '<div class="fp-vers"><button class="cta ghost sm" onclick="fpOuvrirParc(\'' + escJs(cid) + '\')">Ouvrir le parc de ce client</button><span>Machines, données reçues, fiches constructeur, documents, rapport : dans l’écran Parc.</span></div>' : "";
+  var premier = fpBloc(scr, C[0].card), w = document.createElement("div");
+  w.className = "fp-liste";
+  w.innerHTML = '<style>' + FP_CSS + '</style>' + lvDuoHtml(lvListeHtml(L, sel.cle, { pile: true, colonnes: ["Carte ou analyse, et ce qu’elle dit"], choisir: "fpChoisir", pied: "Un clic sur une ligne montre la carte à droite, sans quitter la liste." }) + vers, droite, "lv-etroite");
+  scr.insertBefore(w, premier);
+  var hote = w.querySelector(".lv-hote"), m = null;
+  if (sel.analyse) {
+    if (!grand) {   /* ce que le panneau montre est marqué « analyse » (la fiche cachée saura le rendre), et chaque carte porte sa clé : l'observateur de la navigation n'a rien à reposer */
+      [].slice.call(hote.children).forEach(function (x) { x.setAttribute("data-fp-analyse", "1"); });
+      [].slice.call(hote.querySelectorAll(".card")).forEach(function (x, i) { if (!x.getAttribute("data-som")) x.setAttribute("data-som", "fp-" + sel.cle.toLowerCase().replace(/[^a-z0-9]+/g, "-") + (i ? "-" + i : "")); });
+    }
+  } else { m = document.createElement("span"); m.className = "fp-place"; m.style.display = "none"; sel.card.parentNode.insertBefore(m, sel.card); hote.appendChild(sel.card); }   /* la carte choisie passe dans le panneau ; une marque garde sa place */
+  /* les autres cartes de l'onglet ne s'empilent plus : elles sont dans la liste ; un bloc qui ne montre plus rien s'efface aussi */
+  C.forEach(function (l) { if (l !== sel) l.card.classList.add("fp-hors"); });
+  C.forEach(function (l) {
+    var b = (l === sel && m) ? m.parentNode : fpBloc(scr, l.card); while (b && b.parentElement && b.parentElement !== scr) b = b.parentElement;
+    if (!b || b === l.card || b === w || b === scr) return;
+    var reste = [].slice.call(b.children).filter(function (x) { return !(x.classList && (x.classList.contains("fp-hors") || x.classList.contains("fp-place") || x.classList.contains("nav-cache"))); });
+    if (!reste.length) b.classList.add("fp-hors");
+  });
+  if (A.length) { if (typeof a1Client !== "undefined") a1Client = cid; if (typeof a1genClient !== "undefined") a1genClient = cid; fpAnciensVider(); }
+  /* la fenêtre en grand est ouverte sur cette ligne : elle se redessine ; le panneau lui laisse la carte */
+  if (grand) { lvGrandRafraichir(); if (!sel.analyse) lvPanneauCeder("fp-volet", "Cette carte est ouverte en grand."); }
+  if (typeof lvSuivreInstaller === "function") lvSuivreInstaller();
+  return true;
+}
+/* Le rangement, posé après les onglets. name : l'écran ; scr : son conteneur ; actif : l'onglet ouvert. */
+function fpRanger(name, scr, actif) {
+  if (name !== "clientfiche" || !scr || !scr.querySelectorAll) return 0;
+  fpDefaire(name, scr);
+  var cartes = [].slice.call(scr.querySelectorAll('.card[data-groupe="parc"]')); if (!cartes.length) return 0;
+  cartes.forEach(function (card) { card.classList.remove("folded"); });   /* pas de pli sur cet onglet : la liste dit ce que chaque carte porte */
+  if (actif === "parc" && fpFicheVue()) fpListePoser(name, scr, cartes);
+  return cartes.length;
+}
+/* Un clic sur une ligne : la carte passe à droite, la liste reste ; sur un écran étroit, l'écran y descend. */
+function fpChoisir(cle) {
+  if (typeof document === "undefined" || !document.getElementById) return false;
+  var scr = document.getElementById("scr-clientfiche"); if (!scr || !scr.querySelectorAll) return false;
+  FP_CHOIX[navCleEcran("clientfiche")] = String(cle || "");
+  navOngletsPoser("clientfiche", scr);
+  if (typeof lvEtroit === "function" && lvEtroit()) lvDescendre("fp-volet");
+  return true;
+}
+/* Appelée par navAller : un bouton mène à une carte de l'onglet ; elle est choisie dans la liste, tout de suite si l'onglet
+   est ouvert, sinon à son ouverture. */
+function fpChoisirPour(name, scr, card) {
+  if (name !== "clientfiche" || !scr || !card || !card.getAttribute || card.getAttribute("data-groupe") !== "parc") return false;
+  var cle = "carte:" + (card.getAttribute("data-som") || ""), k = navCleEcran(name); if (FP_CHOIX[k] === cle) return false;
+  FP_CHOIX[k] = cle;
+  if (scr.querySelector(":scope > .fp-liste")) navOngletsPoser(name, scr);
+  return true;
+}
+/* « Ouvrir en grand » : une carte de l'onglet, copiée dans la fenêtre (le panneau lui cède la sienne) ; une analyse, dans la
+   fenêtre de l'écran Parc (a1AnGrand), pour le client de la fiche et toutes ses machines. À la fermeture, la fiche se redessine. */
+function fpGrand(cid, cle) {
+  if (typeof a1AnGrand !== "function" || typeof A1_AN === "undefined") return null;
+  var avC = A1_AN.cid, avP = (typeof a1ParcPerimetre !== "undefined") ? a1ParcPerimetre : "tout";
+  try { A1_AN.cid = cid; if (typeof a1ParcPerimetre !== "undefined") a1ParcPerimetre = "tout"; return a1AnGrand(cle); }
+  finally { A1_AN.cid = avC; if (typeof a1ParcPerimetre !== "undefined") a1ParcPerimetre = avP; }
+}
+function fpOuvrirGrand(cle) {
+  if (typeof lvGrandOuvrir !== "function" || typeof document === "undefined" || !document.getElementById) return false;
+  cle = String(cle || ""); var cid = (typeof currentClientId !== "undefined" && currentClientId) || "", carte = cle.indexOf("carte:") === 0;
+  var rendre = carte ? function () {
+    var v = document.getElementById("fp-volet"), card = (v && v.querySelector) ? v.querySelector('.lv-hote > .card[data-groupe="parc"]') : null;
+    if (!card || "carte:" + (card.getAttribute("data-som") || "") !== cle) return null;
+    return { nu: true, corps: card.outerHTML, boutons: [] };
+  } : function () { return fpGrand(cid, cle); };
+  return lvGrandOuvrir("fiche-parc:" + cle, rendre, function (ouvre) { if (ouvre) lvPanneauCeder("fp-volet", carte ? "Cette carte est ouverte en grand." : "Cette analyse est ouverte en grand."); else if (fpFicheVue() && typeof renderClientFiche === "function") renderClientFiche(); });
+}
+/* « Ouvrir le parc de ce client » : l'écran Parc à l'écran d'abord, puis ce client, au tableau de bord. a1ParcOuvrir ne
+   change pas d'écran quand l'écran courant est déjà « Parc », et ouvrir une fiche ne change pas l'écran courant. */
+function fpOuvrirParc(cid) {
+  if (typeof setScreen !== "function" || typeof a1ParcChoisir !== "function") return false;
+  setScreen("a1parc"); a1ParcChoisir(cid, "bord");
+  return true;
+}
+/* Une carte d'analyse n'existe qu'à un endroit de la page. La fiche montre la liste : les écrans Parc, Véhicules et Groupes,
+   quittés, sont vidés (ils se redessinent à leur ouverture). Rend le nombre d'écrans vidés. */
+function fpAnciensVider() {
+  if (!fpFicheVue()) return 0;
+  var n = 0; ["scr-a1parc", "scr-a1fleet", "scr-a1genset"].forEach(function (id) { var e = document.getElementById(id); if (e && e.classList && !e.classList.contains("active") && e.innerHTML) { e.innerHTML = ""; n++; } });
+  return n;
+}
+/* La fiche est cachée et l'un de ces écrans se dessine : la fiche rend sa carte d'analyse. */
+function fpRendreCarte() {
+  if (typeof document === "undefined" || !document.querySelector || fpFicheVue()) return false;
+  var h = document.querySelector("#scr-clientfiche > .fp-liste .lv-hote"); if (!h || !h.querySelector("[data-fp-analyse]")) return false;
+  h.innerHTML = lvAilleursHtml("Cette analyse est montrée dans un autre écran.");
+  return true;
+}
+/* En tête de renderA1Parc, renderA1Fleet et renderA1Genset. id : l'écran à dessiner. La fiche est à l'écran avec la liste de
+   son onglet « Parc » et cet écran ne l'est pas : le geste venait de la fiche ; c'est elle qui se redessine, cet écran est
+   vidé, et le rendu demandé s'arrête là (rend vrai). Sinon le rendu se fait, et la fiche cachée rend sa carte d'analyse. */
+function fpAvantRenduParc(id) {
+  if (typeof document === "undefined" || !document.getElementById) return false;
+  var f = document.getElementById("scr-clientfiche"), e = document.getElementById(id);
+  if (!f || !e || !f.classList || !e.classList) return false;
+  if (f.classList.contains("active") && !e.classList.contains("active") && f.querySelector && f.querySelector(":scope > .fp-liste")) {
+    if (!FP_REND) { FP_REND = true; try { e.innerHTML = ""; if (typeof renderClientFiche === "function") renderClientFiche(); } finally { FP_REND = false; } }
+    return true;
+  }
+  fpRendreCarte();
+  return false;
 }
 
 /* ===== « A1 » EST DEVENU « PROGRAMME DE PARC » : LES RÉFÉRENCES ET LES MOTS DÉJÀ EN BASE (patch 223, 24/11/2026) ==========
@@ -27479,6 +27688,7 @@ function navCleEcran(name) { return name + ((name === "clientfiche" && typeof cu
 function navOngletsPoser(name, scr) {
   scr = scr || (document.getElementById ? document.getElementById("scr-" + name) : null); if (!scr || !scr.querySelector) return 0;
   if (typeof ogDefaire === "function") { try { ogDefaire(name, scr); } catch (e) { } }   /* patch 229 (v6.100.42) : sur la fiche d'un client, la liste de l'onglet « Gouvernance des risques » se défait avant le rangement, puis se repose (ogRanger, en fin de fonction) */
+  if (typeof fpDefaire === "function") { try { fpDefaire(name, scr); } catch (e) { } }   /* patch 231 (v6.100.44) : sur la fiche d'un client, la liste de l'onglet « Parc » se défait avant le rangement, puis se repose (fpRanger, en fin de fonction) */
   var anc = scr.querySelector(":scope > .navligne"); if (anc) anc.parentNode.removeChild(anc); var ana = scr.querySelector(":scope > .navaide"); if (ana) ana.parentNode.removeChild(ana);
   var ens = scr.querySelector(".nav-ensemble"); if (ens) ens.parentNode.removeChild(ens);
   var items = navCartesTitrees(scr), vus = {}, liste = [], sk = navCleEcran(name), plis = navPlis[sk] || {};
@@ -27502,6 +27712,7 @@ function navOngletsPoser(name, scr) {
   var d = document.createElement("div"); d.innerHTML = navLigneHtml(name, groupes, actif); var ligne = d.firstChild; if (ligne) navInsererEnTete(scr, ligne);
   if (typeof navAideHtml === "function") { var da = document.createElement("div"); da.innerHTML = navAideHtml(name); if (da.firstChild) { if (ligne && ligne.parentNode) ligne.parentNode.insertBefore(da.firstChild, ligne.nextSibling); else navInsererEnTete(scr, da.firstChild); } }   // patch 100 : la phrase d'aide, sous la ligne
   if (typeof ogRanger === "function") { try { ogRanger(name, scr, actif); } catch (e) { } }   // patch 224 : sur la fiche d'un client, l'onglet « Gouvernance des risques » rangé
+  if (typeof fpRanger === "function") { try { fpRanger(name, scr, actif); } catch (e) { } }   /* patch 231 : sur la fiche d'un client, l'onglet « Parc » en liste, ses cartes et les analyses du parc */
   return groupes.length;
 }
 function navOnglet(name, cle) { navOngletActif[navCleEcran(name)] = cle; navOngletsPoser(name); try { window.scrollTo(0, 0); } catch (e) { } }
@@ -27517,6 +27728,7 @@ function navAller(cle) {
   var scr = document.querySelector ? document.querySelector(".screen.active") : null; if (!scr) return false;
   var name = String(scr.id || "").replace(/^scr-/, ""), card = scr.querySelector('.card[data-som="' + cle + '"]'); if (!card) return false;
   if (typeof ogChoisirPour === "function") { try { ogChoisirPour(name, scr, card); } catch (e) { } }   /* patch 229 : une carte de l'onglet « Gouvernance des risques » vers laquelle un bouton mène est choisie dans la liste */
+  if (typeof fpChoisirPour === "function") { try { fpChoisirPour(name, scr, card); } catch (e) { } }   /* patch 231 : une carte de l'onglet « Parc » vers laquelle un bouton mène est choisie dans la liste */
   if (card.dataset.groupe && card.classList.contains("nav-cache")) { navOngletActif[navCleEcran(name)] = card.dataset.groupe; navOngletsPoser(name, scr); card = scr.querySelector('.card[data-som="' + cle + '"]'); if (!card) return false; }
   if (card.classList.contains("folded")) { var fb = card.querySelector(".card-fold"); if (fb) navPlier(fb, false); }
   try { card.scrollIntoView({ block: "start" }); } catch (e) { try { card.scrollIntoView(); } catch (e2) { } }   // d'un coup, pas en glissant : le glissé ne finit pas dans un onglet caché, et le halo dit où l'on est arrivé
@@ -29785,6 +29997,7 @@ function a1ParcOngletBadge(E, cle) {
 }
 function a1ParcMoisNav(mois) { return '<span style="display:inline-flex;align-items:center;gap:4px"><button class="cta ghost sm" onclick="a1ParcMoisShift(-1)" title="Mois précédent">◀</button><b style="min-width:120px;text-align:center;text-transform:capitalize;color:var(--navy)">' + esc(a1MonthLabel(mois)) + '</b><button class="cta ghost sm" onclick="a1ParcMoisShift(1)" title="Mois suivant">▶</button></span>'; }
 function renderA1Parc() {
+  if (typeof fpAvantRenduParc === "function" && fpAvantRenduParc("scr-a1parc")) return;   /* patch 231 : la fiche d'un client montre la liste de son onglet « Parc » ; un geste fait depuis elle la redessine, cet écran quitté est vidé */
   var host = document.getElementById("scr-a1parc"); if (!host) return;
   var pres = typeof a1AnPresentation === "function" && a1AnPresentation(); if (pres) { a1ParcClient = clientModeId; a1ParcOnglet = "analyse"; a1ParcPerimetre = "tout"; }   /* patch 228 : en mode présentation, l'onglet Parc se réduit au volet « Analyse » du client présenté */
   var cid = pres ? clientModeId : a1ParcClientCourant(), clients = a1SuiviClientsParc();
@@ -32775,6 +32988,7 @@ async function a1DemoMode(kind){
   a1ExecReport(kind, {sansRelecture:true});
 }
 function renderA1Fleet(){
+  if (typeof fpAvantRenduParc === "function" && fpAvantRenduParc("scr-a1fleet")) return;   /* patch 231 : la fiche d'un client montre la liste de son onglet « Parc » ; un geste fait depuis elle la redessine, cet écran quitté est vidé */
   if(typeof focusClient!=="undefined" && focusClient && !a1Client) a1Client=focusClient; // cohérence : adopte le client en focus de l'app
   const {arr, fleetConso, totals}=a1Compute(a1Client);
   const tous=a1TousClients("fleet");   /* patch 222b : aucun client choisi et plusieurs parcs → la liste, client par client, sans rien calculer entre eux */
@@ -35911,6 +36125,7 @@ function a1GenCompute(clientId, fen){ fen=(fen===undefined)?a1FenetreCourante():
   return {arr, totals};
 }
 function renderA1Genset(){
+  if (typeof fpAvantRenduParc === "function" && fpAvantRenduParc("scr-a1genset")) return;   /* patch 231 : la fiche d'un client montre la liste de son onglet « Parc » ; un geste fait depuis elle la redessine, cet écran quitté est vidé */
   if(typeof focusClient!=="undefined" && focusClient && !a1genClient) a1genClient=focusClient; // cohérence : adopte le client en focus de l'app
   const {arr, totals}=a1GenCompute(a1genClient);
   const tous=a1TousClients("gen");   /* patch 222b : aucun client choisi et plusieurs parcs → la liste, client par client, sans rien calculer entre eux */
